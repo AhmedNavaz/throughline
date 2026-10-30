@@ -14,6 +14,8 @@ First public release.
 - Export a conversation file for another Throughline user, with secrets and local paths redacted.
 - Ask a Friend: share an approved snapshot and apply the reviewable patch that comes back.
 - Git activity with per-file diffs, a file browser with syntax highlighting, and plan usage for each agent.
+- Keep awake, which stops your Mac sleeping while agents are working.
+- Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
 [0.4.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.4.0

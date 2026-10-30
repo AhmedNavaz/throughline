@@ -50,6 +50,8 @@ The run card shows elapsed time, the last provider activity, tool steps and prov
 
 The status bar shows the plan usage left for both agents (5-hour and weekly windows, plus model-specific weekly limits when the provider reports them); the composer shows the tightest limit for the selected agent and model. Select a meter or the composer chip to see that agent's windows and reset times. Codex usage comes from its app-server. Claude usage comes from an experimental Claude Agent SDK call and is shown as unavailable if a future SDK removes it. Reading usage never starts inference.
 
+**Keep awake** in the status bar (desktop app) stops your Mac and its display from sleeping while any workspace has an agent running, so a long run is not interrupted. It shows **Auto** while switched on and waiting, **On** while it is holding the Mac awake, and releases as soon as the last run finishes. The setting is remembered between launches.
+
 Keyboard shortcuts (⌘ on macOS, Ctrl elsewhere): ⌘K filter workspaces (Enter opens the first match), ⌘1–9 switch workspace, ⌘L focus the composer, ⇧⌘G toggle Git activity, ⌘. stop the current run. Messages and code blocks have copy buttons.
 
 ## Files and attachments

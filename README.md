@@ -10,12 +10,33 @@
 
 Throughline is a desktop app for working with AI coding agents. Each project is a workspace with one or more folders and exactly one permanent conversation. Use Claude Code or Codex in that conversation and switch between them whenever you like; the history, saved context and drafts stay in one place.
 
-- **One thread per project.** Frontend, backend and website folders can share a single conversation.
-- **Switch agents without losing context.** When one agent hits a usage limit, continue with the other.
-- **Bring your history.** Import existing Claude Code and Codex chats from any project and merge them in time order.
-- **Hand off to a person.** Export a conversation file for another Throughline user, or ask a friend for a reviewable patch.
-- **See what changed.** Git activity with per-file diffs, a file browser and plan usage for both agents.
-- **Your accounts, your machine.** Throughline drives the official Claude Code and Codex CLIs you already have installed. It ships no API keys and adds no service of its own.
+## Features
+
+**Both agents, one conversation**
+
+- One permanent conversation per project, shared by all its folders, such as frontend, backend and website.
+- Switch between Claude Code and Codex mid-task, for example when one hits its usage limit. The next agent picks up the shared context.
+- Choose the model, reasoning effort and access (read only or can edit files) for every message.
+- Approve agent actions in the app and follow each run live: current step, tool calls, elapsed time and token counts.
+- Run agents in several workspaces at once; the sidebar shows which ones are busy.
+
+**See what's happening**
+
+- Git activity for each folder: changed files with diffs, and recent commits.
+- A file browser with syntax-highlighted previews. Attach files and images by clicking, dragging or pasting.
+- Plan usage for both agents in the status bar, with reset times.
+- Keep awake: your Mac stays awake while agents are working and sleeps normally once they finish.
+
+**Bring history and people in**
+
+- Import Claude Code and Codex chats from any project, merged in time order.
+- Export a conversation file for another Throughline user, with secrets and local paths removed.
+- Ask a Friend: share an approved snapshot of your code and get back a patch you review before applying.
+
+**Built like an editor, on your own accounts**
+
+- Dark and light themes, keyboard shortcuts, Markdown replies with highlighted code and copy buttons, and a short setup guide.
+- Runs the official Claude Code and Codex CLIs you already have, on your own subscriptions. It ships no API keys and adds no service of its own.
 
 ## Install
 
