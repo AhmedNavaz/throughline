@@ -101,6 +101,18 @@ test('serves the local interface and probes provider versions without inference'
   }
 });
 
+test('a forced close drops requests still in flight instead of waiting for them', async t => {
+  const f = await fixture(t);
+  const socket = (await import('node:net')).connect(f.port, '127.0.0.1');
+  await once(socket, 'connect');
+  socket.on('error', () => {}); socket.write('GET /api/projects HTTP/1.1\r\nHost: 127.0.0.1\r\n'); // headers never finish, so the request stays in flight
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const started = Date.now();
+  await f.app.close({ force: true });
+  assert.ok(Date.now() - started < 1000, 'Start fresh does not wait for launch-time requests to finish.');
+  await once(socket, 'close');
+});
+
 test('opens one permanent project chat and reuses it across requests, switching and restart', async t => {
   const f = await fixture(t);
   const initial=await (await fetch(`${f.url}/api/conversation`)).json();

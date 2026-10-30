@@ -46,7 +46,7 @@ else {
       if(!['continue','fresh'].includes(choice))throw Error('Choose to continue or start fresh.');
       if(!launch.choice)return launch;
       if(choice==='fresh'){
-        keepAwake.dispose();await relay.close();setDataAside(data);
+        keepAwake.dispose();await relay.close({force:true});setDataAside(data);
         await win.webContents.session.clearStorageData({storages:['localstorage']});
         await start();
       }

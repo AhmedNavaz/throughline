@@ -176,13 +176,14 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
   });
 
   let closePromise;
-  const close = () => closePromise ||= (async () => {
+  // force drops requests still in flight, such as launch-time account checks, for a restart where the page reloads anyway.
+  const close = ({ force = false } = {}) => closePromise ||= (async () => {
     closing = true;
     closeAccountConnections();
     await registry.close();
     clearInterval(heartbeat);
     for (const res of listeners) res.end();
-    await new Promise(resolve => server.close(resolve));
+    await new Promise(resolve => { server.close(resolve); if (force) server.closeAllConnections(); });
   })();
   return { server, registry, collaboration, sharing, close,
     getKeepAwakePreference: () => config.keepAwake === true,
