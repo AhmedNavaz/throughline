@@ -146,6 +146,39 @@ test('restart recovers an unfinished run and repairs a torn final journal line',
   assert.ok(env.captures().at(-1).context.context.some(m => m.text === 'Saved before the process crashed' && m.status === 'incomplete'));
 });
 
+test('a failed journal append is cut off so later records still load after a restart', t => {
+  const env = setup(t);
+  const broker = env.open();
+  const c = conversation(broker);
+  const { writeSync, fsyncSync } = fs;
+  t.after(() => Object.assign(fs, { writeSync, fsyncSync }));
+  // The disk fills partway through a record.
+  let writes = 0;
+  fs.writeSync = (fd, buffer, offset, length) => {
+    if (writes++) throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
+    return writeSync(fd, buffer, offset, Math.ceil(length / 2));
+  };
+  assert.throws(() => broker.message(c, 'user', 'Lost when the disk filled', 'codex'), { code: 'ENOSPC' });
+  fs.writeSync = writeSync;
+  fs.fsyncSync = () => { throw Object.assign(new Error('EIO: i/o error, fsync'), { code: 'EIO' }); };
+  assert.throws(() => broker.message(c, 'user', 'Written but never synced', 'codex'), { code: 'EIO' });
+  fs.fsyncSync = fsyncSync;
+  broker.message(c, 'user', 'Saved after the disk recovered', 'codex');
+
+  for (const line of fs.readFileSync(path.join(env.dataDir, `${c.id}.jsonl`), 'utf8').trim().split('\n')) assert.doesNotThrow(() => JSON.parse(line));
+  assert.deepEqual(env.open().get(c.id).messages.map(m => m.text), ['Saved after the disk recovered']);
+});
+
+test('a journal left without a complete record does not stop the workspace from opening', t => {
+  const env = setup(t);
+  const kept = conversation(env.open());
+  // A crash or a full disk while a new conversation writes its first record.
+  fs.writeFileSync(path.join(env.dataDir, '00000000-0000-4000-8000-000000000001.jsonl'), '');
+  fs.writeFileSync(path.join(env.dataDir, '00000000-0000-4000-8000-000000000002.jsonl'), '{"type":"created","title":"New conv');
+
+  assert.deepEqual(env.open().list().map(row => row.id), [kept.id]);
+});
+
 test('signalling an exited process group on macOS counts as stopped, not as an error', t => {
   const kill = process.kill, platform = Object.getOwnPropertyDescriptor(process, 'platform');
   t.after(() => { process.kill = kill; Object.defineProperty(process, 'platform', platform); });
