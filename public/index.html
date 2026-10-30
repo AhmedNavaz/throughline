@@ -14,6 +14,7 @@
     <script src="/app.js" defer></script>
     <script src="/workbench.js" defer></script>
     <script src="/insights.js" defer></script>
+    <script src="/conversation-history.js" defer></script>
     <script src="/setup.js" defer></script>
     <script src="/desktop-controls.js" defer></script>
     <script src="/files.js" defer></script>
@@ -47,7 +48,7 @@
           <div class="header-actions">
             <div id="conversation-state" class="conversation-state" hidden><i aria-hidden="true"></i><span>Ready</span></div>
             <span class="toolbar-divider" aria-hidden="true"></span>
-            <button id="open-import" class="toolbar-button" type="button" title="Import Claude Code or Codex conversations"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 21h14"/></svg><span class="button-label">Import chat</span></button>
+            <button id="open-import" class="toolbar-button" type="button" title="Review and merge previous conversations for this workspace" disabled><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 21h14"/></svg><span class="button-label">Previous chats</span></button>
             <button id="open-export" class="toolbar-button" type="button" title="Export this conversation to share with another Throughline user"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m-4 4 4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg><span class="button-label">Export</span></button>
             <button id="ask-friend" class="toolbar-button" type="button" title="Ask a friend for help"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.5A6.5 6.5 0 0 1 21.5 20"/></svg><span class="button-label">Ask a friend</span></button>
             <button id="open-git" class="toolbar-button" type="button" aria-expanded="false" aria-controls="git-panel" title="Git activity"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="6" r="2"/><path d="M6 7v10M18 8v1a5 5 0 0 1-5 5H6"/></svg><span class="button-label">Git</span></button>
@@ -67,7 +68,7 @@
             <div class="form-actions"><button id="pick-folder" class="secondary-button" type="button" hidden>Choose folder…</button><button id="save-project" class="primary-button" type="submit">Create workspace <span aria-hidden="true">→</span></button></div>
           </form>
           <p id="project-error" class="project-error" role="alert" hidden></p>
-          <p class="panel-alternative">Already working on this project in Claude Code or Codex? <button id="import-from-panel" class="text-link" type="button">Import those chats instead</button></p>
+          <p class="panel-alternative">After opening the workspace, you can review previous conversations linked to its folders.</p>
         </section>
 
         <section id="folder-panel" class="project-panel" aria-labelledby="folder-panel-title" hidden>
@@ -78,8 +79,10 @@
 
         <div id="notice" class="notice" role="alert" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></svg><span id="notice-text"></span><button id="notice-retry" type="button">Retry</button><button id="notice-dismiss" class="icon-button" type="button" aria-label="Dismiss notification"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
 
+        <section id="previous-chats-notice" class="previous-chats-notice" aria-label="Previous project conversations" hidden><p id="previous-chats-text" role="status"></p><div class="previous-chats-actions"><button id="review-previous-chats" class="secondary-button" type="button">Review conversations</button><button id="dismiss-previous-chats" class="text-link" type="button">Not now</button></div></section>
+
         <div id="messages-scroll" class="messages-scroll">
-          <section id="project-empty-state" class="empty-state" aria-label="Create a workspace" hidden><span class="empty-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10.5v5M9.5 13h5"/></svg></span><h2>Set up your first workspace</h2><p>Continue a Claude Code or Codex chat you already have, or start fresh from project folders. Everything runs on your own Claude and Codex accounts.</p><div class="empty-actions"><button id="import-first" class="primary-button" type="button">Import existing chats</button><button id="add-first-project" class="secondary-button" type="button">Add folders</button></div></section>
+          <section id="project-empty-state" class="empty-state" aria-label="Create a workspace" hidden><span class="empty-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10.5v5M9.5 13h5"/></svg></span><h2>Open your first project</h2><p>Choose your project folders to create a workspace. Once it opens, Throughline can find previous Claude Code and Codex conversations for those folders.</p><div class="empty-actions"><button id="add-first-project" class="primary-button" type="button">Choose project folders</button></div></section>
           <section id="provider-empty-state" class="empty-state" aria-label="Connect an assistant" hidden><span class="empty-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M9 7V3M15 7V3M6 7h12v4a6 6 0 0 1-12 0zM12 17v4"/></svg></span><h2>Connect an assistant</h2><p>Connect Codex or Claude in Settings to send messages. Your saved work remains available.</p><button id="connect-assistant" class="primary-button" type="button">Open settings</button></section>
           <section id="empty-state" class="empty-state" aria-label="Conversation"><span class="empty-mark" aria-hidden="true"><img src="/icon.svg" alt="" width="44" height="44" /></span><h2>Start a task</h2><p>Describe what you need, or import a conversation to pick up where you left off.</p><div class="starter-prompts"><button type="button" data-prompt="Explore this project and explain how it works."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><strong>Explore the project</strong><small>Explain how it works</small></button><button type="button" data-prompt="Review the current changes and help me find any bugs."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg><strong>Review my changes</strong><small>Find bugs in the current diff</small></button></div></section>
           <div id="messages" class="messages" role="log" aria-label="Conversation messages" aria-live="off"></div>
@@ -173,19 +176,19 @@
     </dialog>
 
     <dialog id="import-dialog" class="import-dialog" aria-labelledby="import-title" aria-describedby="import-description">
-      <header><div><h2 id="import-title">Import conversations</h2><p id="import-description">Bring your Claude Code and Codex chats into Throughline. Pick one or several, even from both agents. They merge in time order into one workspace conversation, so you can continue from there.</p></div><button id="close-import" class="icon-button" type="button" aria-label="Close import"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+      <header><div><h2 id="import-title">Previous conversations</h2><p id="import-description">Review chats linked to this workspace’s folders. Select one or several from Claude Code or Codex and merge their messages in time order. The original chats stay unchanged.</p></div><button id="close-import" class="icon-button" type="button" aria-label="Close previous conversations"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
       <div class="import-toolbar">
         <div class="segmented" role="group" aria-label="Agent"><button type="button" data-import-provider="all" aria-pressed="true">All</button><button type="button" data-import-provider="claude" aria-pressed="false">Claude Code</button><button type="button" data-import-provider="codex" aria-pressed="false">Codex</button></div>
-        <div id="import-scope" class="segmented" role="group" aria-label="Show conversations from"><button type="button" data-import-scope="workspace" aria-pressed="false">This workspace</button><button type="button" data-import-scope="all" aria-pressed="true">All projects</button></div>
+        <div id="import-scope" class="segmented" role="group" aria-label="Show conversations from"><button type="button" data-import-scope="workspace" aria-pressed="true">This workspace</button><button type="button" data-import-scope="all" aria-pressed="false">Browse other projects</button></div>
         <label class="import-search"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span class="sr-only">Find a conversation</span><input id="import-search" type="search" placeholder="Search titles or folders" autocomplete="off" /></label>
-        <button id="import-file-button" class="secondary-button" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M12 11v6M9.5 14.5 12 17l2.5-2.5"/></svg>Open file…</button><input id="import-file" type="file" accept=".json,application/json" hidden />
+        <button id="import-file-button" class="secondary-button" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M12 11v6M9.5 14.5 12 17l2.5-2.5"/></svg>Open conversation file…</button><input id="import-file" type="file" accept=".json,application/json" hidden />
         <button id="refresh-imports" class="icon-button refresh-button" type="button" aria-label="Refresh conversations" title="Refresh"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
       </div>
       <p id="import-error" class="import-error" role="alert" hidden></p>
       <div class="import-layout"><div class="import-list-pane"><div id="import-list"></div><button id="import-more" type="button" hidden>Load more</button></div><div class="import-preview-pane"><div id="import-preview"></div></div></div>
       <footer>
-        <div class="import-destination"><label for="import-target">Import into</label><select id="import-target"></select><label class="sr-only" for="import-name">New workspace name</label><input id="import-name" maxlength="100" placeholder="Workspace name" autocomplete="off" hidden /><span id="import-folder-field" class="import-folder-field" hidden><label class="sr-only" for="import-folder-path">Local project folder</label><input id="import-folder-path" placeholder="Local project folder, e.g. ~/projects/shop" autocomplete="off" spellcheck="false" /><button id="import-folder-pick" class="secondary-button" type="button" hidden>Choose…</button></span><p id="import-folders" class="import-folders"></p></div>
-        <div class="import-actions"><label class="import-confirm"><input id="import-confirm" type="checkbox" /> <span id="import-confirm-text">Select conversations to import.</span></label><span id="import-result" role="status"></span><button id="confirm-import" class="primary-button" type="button" disabled>Import</button></div>
+        <div class="import-destination"><span>Merge into</span><strong id="import-workspace-name"></strong><p id="import-folders" class="import-folders"></p></div>
+        <div class="import-actions"><label class="import-confirm"><input id="import-confirm" type="checkbox" /> <span id="import-confirm-text">Select conversations to merge.</span></label><span id="import-result" role="status"></span><button id="confirm-import" class="primary-button" type="button" disabled>Merge selected conversations</button></div>
       </footer>
     </dialog>
 

@@ -48,6 +48,41 @@ test('first-run discovery lists conversations from every project, excluding Thro
   assert(!calls.some(([method]) => /resume|turn\/start/.test(method)), 'Discovery and preview never resume or run a session.');
 });
 
+test('workspace discovery matches attached folder paths and excludes Throughline sessions',async t=>{
+  const f=fixture(t),other=path.join(f.root,'other','project'),calls=[];fs.mkdirSync(other,{recursive:true});
+  const importer=new ConversationImporter({
+    sdkLoader:async()=>({listSessions:async options=>{calls.push(options);return [{sessionId:'claude-match',summary:'Matching chat',cwd:f.workspace,lastModified:1},{sessionId:'claude-other',summary:'Same folder name elsewhere',cwd:other,lastModified:1}];}}),
+    codexBin:()=>'/mock/codex',
+    clientFactory:()=>({initialize:async()=>{},close(){},request:async()=>({data:[
+      {id:'codex-match',preview:'Matching chat',cwd:f.workspace,updatedAt:1},
+      {id:'codex-other',preview:'Same folder name elsewhere',cwd:other,updatedAt:1},
+      {id:'throughline-run',preview:'You are working in Throughline {"currentRequest":"test"}',cwd:f.workspace,updatedAt:1},
+    ]})}),
+  });
+  assert.deepEqual((await importer.list('claude',f.folders)).sessions.map(session=>session.id),['claude-match']);
+  assert.equal(calls[0].includeProgrammatic,false);
+  assert.deepEqual((await importer.list('codex',f.folders)).sessions.map(session=>session.id),['codex-match']);
+});
+
+test('workspace history marks previously merged sources and remembers the completed review',async t=>{
+  const f=fixture(t),workspace=fs.realpathSync(f.workspace);
+  const importer={
+    list:async(provider,folders)=>{assert.equal(folders[0].path,workspace);return {sessions:[{id:provider+'-old',provider,title:'Previous chat',cwd:workspace},{id:provider+'-new',provider,title:'Another chat',cwd:workspace}],nextCursor:null};},
+    preview:async(provider,sessionId)=>({provider,sessionId,title:'Previous chat',cwd:workspace,digest:'reviewed',messages:[{sourceId:sessionId,role:'user',text:provider+' history',timestamp:provider==='claude'?'2026-10-20T09:00:00Z':'2026-10-20T09:01:00Z'}]}),
+  };
+  const app=createRelayServer({workspace,dataRoot:path.join(f.root,'app'),importer,bins:{codex:'/missing',claude:'/missing'}});
+  app.server.listen(0,'127.0.0.1');await once(app.server,'listening');f.closers.push(()=>app.close());
+  const project=app.registry.list()[0],address='http://127.0.0.1:'+app.server.address().port;
+  app.registry.broker(project.id).start=()=>assert.fail('Discovery and merging never run a provider.');
+  const read=async provider=>(await fetch(address+'/api/import-sources?scope=workspace&provider='+provider+'&projectId='+project.id)).json();
+  assert.deepEqual((await read('claude')).sessions.map(session=>session.imported),[false,false]);
+  const response=await fetch(address+'/api/import-sources/import',{method:'POST',headers:{'X-AI-Relay':'1','Content-Type':'application/json'},body:JSON.stringify({projectId:project.id,sessions:['claude','codex'].map(provider=>({provider,sessionId:provider+'-old',approvedDigest:'reviewed'}))})});
+  assert.equal(response.status,200);assert.equal((await response.json()).imported,2);
+  for(const provider of ['claude','codex'])assert.deepEqual((await read(provider)).sessions.map(session=>session.imported),[true,false]);
+  assert.equal(app.registry.get(project.id).previousConversationsDismissed,true);
+  assert.deepEqual(app.registry.mainConversation(project.id).messages.map(message=>message.text),['claude history','codex history']);
+});
+
 test('separate Claude and Codex chats merge into one conversation in original time order', async t => {
   const f = fixture(t), options = { workspace: f.workspace, dataDir: path.join(f.root, 'journal') }; let broker = new Broker(options); const c = broker.get(broker.create().id); broker.start = () => assert.fail('Import must not invoke a model');
   const claude = { provider: 'claude', sessionId: 'c1', digest: 'c', messages: [{ sourceId: 'c-q', role: 'user', text: 'Design the schema', timestamp: '2026-10-20T09:00:00Z' }, { sourceId: 'c-a', role: 'assistant', text: 'Schema designed', timestamp: '2026-10-20T09:05:00Z' }] };

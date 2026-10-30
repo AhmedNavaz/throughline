@@ -84,6 +84,12 @@ test('serves the local interface and probes provider versions without inference'
   assert.match(html, /<title>Throughline/);
   assert.match(html, /id="select-codex"/);
   assert.match(html, /id="select-claude"/);
+  for (const [, attribute, assetPath] of html.matchAll(/<(?:script|link)\b[^>]*\b(src|href)="(\/[^\"]+\.(?:js|css))"/g)) {
+    const asset = await fetch(`${f.url}${assetPath}`);
+    assert.equal(asset.status, 200, `The page needs ${assetPath}.`);
+    assert.match(asset.headers.get('content-type'), attribute === 'src' ? /javascript/ : /text\/css/);
+    assert.ok((await asset.text()).length > 0);
+  }
   const statusResponse = await fetch(`${f.url}/api/status`);
   assert.equal(statusResponse.status, 200);
   const status = await statusResponse.json();

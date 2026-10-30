@@ -37,7 +37,7 @@ class Element extends Events {
   getBoundingClientRect(){return this.bounds || {left:40,top:750,right:240,bottom:774,width:200,height:24};}
   showPopover(){this.popoverOpen=true;this.dispatchEvent(new UIEvent('toggle',{newState:'open'}));}
   hidePopover(){this.popoverOpen=false;this.dispatchEvent(new UIEvent('toggle',{newState:'closed'}));}
-  focus(){this.document.activeElement=this;}click(){if(!this.disabled)this.dispatchEvent(new UIEvent('click'));}showModal(){this.open=true;}close(){this.open=false;}
+  focus(){this.document.activeElement=this;}click(){if(!this.disabled)this.dispatchEvent(new UIEvent('click'));}showModal(){this.open=true;}close(){if(this.open){this.open=false;this.dispatchEvent(new UIEvent('close'));}}
 }
 function documentFixture(){
   const document=new Events();document.hidden=false;document.createElement=tag=>new Element(tag,document);document.createTextNode=text=>{const node=new Element('#text',document);node.data=String(text);return node;};document.createDocumentFragment=()=>new Element('#fragment',document);
@@ -45,6 +45,7 @@ function documentFixture(){
   // IDs/tags come from the shipped page. Only the small static child structure
   // accessed by app.js is needed; workbench elements are created by real JS.
   const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');for(const match of html.matchAll(/<([\w-]+)\b[^>]*\bid="([^"]+)"[^>]*>/g)){const node=document.createElement(match[1]);node.id=match[2];if(/\bhidden(?:\s|>|=)/.test(match[0]))node.hidden=true;root.append(node);}
+  for(const match of html.matchAll(/<button\b[^>]*data-import-(provider|scope)="([^"]+)"[^>]*>/g)){const button=document.createElement('button');button.setAttribute('data-import-'+match[1],match[2]);button.dataset[match[1]==='scope'?'importScope':'importProvider']=match[2];root.append(button);}
   for(const id of ['send-button','stop-button','conversation-state'])document.getElementById(id).append(document.createElement('span'),document.createElement('span'));
   for(const id of ['save-project','save-folder'])document.getElementById(id).append(document.createTextNode('Save '),document.createElement('span'));
   return document;
@@ -54,7 +55,7 @@ const response=(data,status=200)=>({ok:status>=200&&status<300,status,text:async
 async function flush(){for(let index=0;index<12;index++)await new Promise(resolve=>setImmediate(resolve));}
 function deferred(){let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};}
 
-async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,savedPreferences={},desktopControls=false,filesUI=false,launch=null}={}){
+async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,savedPreferences={},desktopControls=false,filesUI=false,launch=null}={}){
   const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[],dataChoices=[];let timerId=0,intercept=null;
   let preferences=clone(savedPreferences);
   window.innerWidth=1280;window.innerHeight=800;
@@ -81,7 +82,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
       if(request.path==='/api/attachments/preview')return response({...snapshots.get(request.params.id),text:'snapshot'});
       if(request.path==='/api/preferences'){if(request.method==='POST')preferences={...preferences,...preferencePatch(request.body,preferences)};return response(publicPreferences(preferences,projects.length>0));}
       if(request.path==='/api/sharing/config')return response({baseUrl:null});
-      const rename=request.path.match(/^\/api\/projects\/([^/]+)$/);if(rename&&request.method==='POST'){const project=projects.find(item=>item.id===rename[1]);project.name=request.body.name;return response(clone(project));}
+      const rename=request.path.match(/^\/api\/projects\/([^/]+)$/);if(rename&&request.method==='POST'){const project=projects.find(item=>item.id===rename[1]);if(request.body.name!==undefined)project.name=request.body.name;if(request.body.previousConversationsDismissed!==undefined)project.previousConversationsDismissed=request.body.previousConversationsDismissed;return response(clone(project));}
       if(request.path==='/api/projects'&&request.method==='GET')return response(clone(projects));
       if(request.path==='/api/projects'&&request.method==='POST'){
         assert(Array.isArray(request.body.folders),'Workspace creation must explicitly list its folders.');
@@ -89,7 +90,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
       }
       const account=request.path.match(/^\/api\/providers\/(codex|claude)\/account$/);
       const usageRead=request.path.match(/^\/api\/providers\/(codex|claude)\/usage$/);
-      if(request.path==='/api/import-sources'){const {scope,provider}=request.params;if(scope==='workspace')assert(projects.some(project=>project.id===request.projectId),'Workspace-scoped discovery names its workspace.');return response({sessions:importSources.filter(row=>row.provider===provider&&(scope!=='workspace'||row.cwd.startsWith('/workspace/example'))).map(({messages,...row})=>clone(row)),nextCursor:null});}
+      if(request.path==='/api/import-sources'){const {scope,provider}=request.params;const project=projects.find(project=>project.id===request.projectId);if(scope==='workspace')assert(project,'Workspace-scoped discovery names its workspace.');return response({sessions:importSources.filter(row=>row.provider===provider&&(scope!=='workspace'||project.folders.some(folder=>folder.path===row.cwd))).map(({messages,...row})=>clone(row)),nextCursor:null});}
       if(request.path==='/api/import-sources/preview'){const source=importSources.find(row=>row.provider===request.body.provider&&row.id===request.body.sessionId);return response({provider:source.provider,sessionId:source.id,title:source.title,cwd:source.cwd,digest:'digest-'+source.id,messageCount:source.messages.length,clipped:false,messages:clone(source.messages)});}
       if(request.path==='/api/import-sources/file-preview'){const shared=request.body.package;assert.equal(shared.schema,'ai-relay.conversation');return response({provider:'file',sessionId:shared.id,title:shared.workspace.name,cwd:null,folders:shared.workspace.folders,exportedAt:shared.exportedAt,context:null,clipped:false,messages:shared.messages.map(message=>({sourceId:message.id,role:message.role,text:message.text,provider:message.provider,timestamp:message.createdAt})),messageCount:shared.messages.length,digest:'digest-'+shared.id});}
       if(request.path==='/api/import-sources/import'){
@@ -99,6 +100,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
         if(!target){assert(where,'A new workspace needs a local folder.');target={id:'project-'+(projects.length+1),name:request.body.name,path:where,available:true,folders:[folder('imported',where.split('/').pop(),where)]};projects.push(target);}
         const chat=ensureChat(target),merged=chosen.flatMap(source=>source.messages.map(message=>({...message,provider:source.provider==='file'?message.provider:source.provider}))).sort((a,b)=>a.timestamp.localeCompare(b.timestamp));
         chat.messages.push(...merged.map(({timestamp,sourceId,...message})=>({...message,id:sourceId,imported:true,createdAt:timestamp})));
+        target.previousConversationsDismissed=true;
         return response({imported:merged.length,updated:0,duplicate:false,conversationId:chat.id,projectId:target.id,projectName:target.name,conversations:chosen.length,missingFolders:[]});
       }
       if(usageRead){assert.equal(request.method,'GET','Usage is read-only.');return response(usage?.[usageRead[1]]||{provider:usageRead[1],available:false,reason:'Not reported.'});}
@@ -135,6 +137,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   const context=vm.createContext({document,window,fetch,console,crypto:{randomUUID},CustomEvent:UIEvent,Event:UIEvent,EventSource:class extends Events{},requestAnimationFrame:fn=>fn(),setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),setInterval:()=>++timerId,localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,String(value))},URL,Blob,navigator:{clipboard:{writeText:async()=>{}}}});
   vm.runInContext(fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8'),context,{filename:'public/app.js'});if(workbench)vm.runInContext(fs.readFileSync(new URL('../public/workbench.js',import.meta.url),'utf8'),context,{filename:'public/workbench.js'});
   if(insights)vm.runInContext(fs.readFileSync(new URL('../public/insights.js',import.meta.url),'utf8'),context,{filename:'public/insights.js'});
+  if(historyUI)vm.runInContext(fs.readFileSync(new URL('../public/conversation-history.js',import.meta.url),'utf8'),context,{filename:'public/conversation-history.js'});
   if(desktopControls)vm.runInContext(fs.readFileSync(new URL('../public/desktop-controls.js',import.meta.url),'utf8'),context,{filename:'public/desktop-controls.js'});
   if(setup)vm.runInContext(fs.readFileSync(new URL('../public/setup.js',import.meta.url),'utf8'),context,{filename:'public/setup.js'});
   if(filesUI)vm.runInContext(fs.readFileSync(new URL('../public/files.js',import.meta.url),'utf8'),context,{filename:'public/files.js'});
@@ -344,16 +347,65 @@ test('plan usage shows remaining percent for both agents and the selected model'
 });
 
 test('separate Claude and Codex chats merge by time into the current workspace after review, without inference',async()=>{
-  const ui=await browser({insights:true});const id=ui.state().conversation.id;ui.canonical.get('project-one').messages.push({id:'existing',role:'user',text:'Keep existing history'});
-  ui.$('open-import').click();await flush();assert.equal(ui.$('import-dialog').open,true);assert.equal(ui.$('import-target').value,'project-one');assert.equal(ui.$('confirm-import').disabled,true);
+  const ui=await browser({historyUI:true,setup:true});const id=ui.state().conversation.id;ui.canonical.get('project-one').messages.push({id:'existing',role:'user',text:'Keep existing history'});
+  assert.equal(ui.$('previous-chats-notice').hidden,false);assert.match(ui.$('previous-chats-text').textContent,/Found 2 previous conversations/);
+  assert.equal(ui.$('import-dialog').open,false,'Discovery suggests chats without interrupting the workspace.');
+  ui.$('review-previous-chats').click();await flush();assert.equal(ui.$('import-dialog').open,true);assert.equal(ui.$('import-workspace-name').textContent,'Example workspace');assert.equal(ui.$('confirm-import').disabled,true);
   const lists=ui.requests.filter(row=>row.path==='/api/import-sources');assert.deepEqual(lists.map(row=>row.params.provider).sort(),['claude','codex']);assert(lists.every(row=>row.params.scope==='workspace'&&row.params.projectId==='project-one'));
-  const sessions=ui.document.querySelectorAll('.import-session');assert.equal(sessions.length,2);for(const session of sessions)session.click();await flush();
+  const sessions=ui.document.querySelectorAll('.import-session');assert.equal(sessions.length,2);assert.ok(sessions.every(session=>session.getAttribute('aria-checked')==='false'),'Nothing is selected automatically.');for(const session of sessions)session.click();await flush();
   assert.match(ui.$('import-preview').textContent,/2 conversations, merged by time/);assert.match(ui.$('import-preview').textContent,/Plan the API.*Build the API.*Claude planned it.*Codex built it/s,'The preview interleaves both chats in original time order.');
   assert.equal(ui.$('confirm-import').disabled,true,'Importing requires confirming the review.');ui.$('import-confirm').checked=true;ui.fire('import-confirm','change');assert.equal(ui.$('confirm-import').disabled,false);
   ui.$('confirm-import').click();await flush();
   const sent=ui.requests.find(row=>row.path==='/api/import-sources/import');assert.equal(sent.body.projectId,'project-one');assert.deepEqual(sent.body.sessions.map(row=>row.approvedDigest).sort(),['digest-claude-one','digest-codex-one']);
   assert.equal(ui.state().conversation.id,id);assert.deepEqual([...ui.state().conversation.messages.map(row=>row.text)],['Keep existing history','Plan the API','Build the API','Claude planned it','Codex built it']);
-  assert.match(ui.$('import-result').textContent,/Imported 4 messages into Example workspace/);assert.equal(ui.$('import-dialog').open,false);assert.equal(ui.requests.filter(request=>/\/(?:messages|continue)$/.test(request.path)).length,0);
+  assert.match(ui.$('import-result').textContent,/Merged 4 messages into Example workspace/);assert.equal(ui.$('import-dialog').open,false);assert.equal(ui.$('previous-chats-notice').hidden,true);assert.equal(ui.requests.filter(request=>/\/(?:messages|continue)$/.test(request.path)).length,0);
+});
+
+test('Not now is saved for its workspace and previous chats stay available manually',async()=>{
+  const ui=await browser({insights:true,setup:true,moreProjects:true});
+  assert.equal(ui.$('previous-chats-notice').hidden,false);ui.$('dismiss-previous-chats').click();await flush();
+  const dismissal=ui.requests.find(request=>request.path==='/api/projects/project-one'&&request.body?.previousConversationsDismissed);
+  assert(dismissal);assert.equal(ui.projects[0].previousConversationsDismissed,true);assert.equal(ui.projects[0].name,'Example workspace');assert.equal(ui.$('previous-chats-notice').hidden,true);
+  await ui.switchProject('project-two');assert.equal(ui.$('previous-chats-notice').hidden,true);
+  await ui.switchProject('project-one');await ui.window.relayUI.refreshProjects();await flush();assert.equal(ui.$('previous-chats-notice').hidden,true);
+  assert.equal(ui.requests.filter(request=>request.path==='/api/import-sources'&&request.projectId==='project-one').length,2,'Returning to a dismissed workspace does not repeat discovery.');
+  ui.$('open-import').click();await flush();assert.equal(ui.$('import-dialog').open,true);assert.equal(ui.document.querySelectorAll('.import-session').length,2);
+});
+
+test('late discovery results stay with their workspace, and the empty workspace is not prompted',async()=>{
+  const ui=await browser({insights:true,moreProjects:true}),held=deferred();
+  ui.setIntercept((request,next)=>request.path==='/api/import-sources'&&request.projectId==='project-one'?held.promise.then(next):next());
+  ui.window.dispatchEvent(new UIEvent('relay-setup-ready'));await flush();assert.equal(ui.$('previous-chats-notice').hidden,true);
+  await ui.switchProject('project-two');assert.equal(ui.$('previous-chats-notice').hidden,true);
+  held.resolve();await flush();assert.equal(ui.state().projectId,'project-two');assert.equal(ui.$('previous-chats-notice').hidden,true,'Another project’s conversations never appear in the current workspace.');
+  await ui.switchProject('project-one');assert.match(ui.$('previous-chats-text').textContent,/Found 2 previous conversations/);
+  assert.equal(ui.requests.filter(request=>request.path==='/api/import-sources'&&request.projectId==='project-one').length,2,'Completed discovery is reused for this session.');
+  ui.$('review-previous-chats').click();await flush();await ui.switchProject('project-two');assert.equal(ui.$('import-dialog').open,false,'Changing workspaces closes the previous workspace’s review.');
+});
+
+test('discovery ignores already merged chats and rechecks when workspace folders change',async()=>{
+  const ui=await browser({insights:true});
+  ui.setIntercept(async(request,next)=>{
+    const result=next();if(request.path!=='/api/import-sources')return result;
+    const payload=JSON.parse(await result.text());payload.sessions=payload.sessions.map(session=>({...session,imported:true}));return response(payload);
+  });
+  ui.window.dispatchEvent(new UIEvent('relay-setup-ready'));await flush();assert.equal(ui.$('previous-chats-notice').hidden,true);
+  ui.$('open-import').click();await flush();assert.match(ui.$('import-list').textContent,/Previously merged/);assert.equal(ui.$('confirm-import').disabled,true);ui.$('close-import').click();
+  ui.setIntercept(null);ui.projects[0].folders=[{id:'new',name:'new-app',path:'/workspace/new-app',available:true}];await ui.window.relayUI.refreshProjects();await flush();
+  assert.match(ui.$('previous-chats-text').textContent,/Found 1 previous conversation/);ui.$('review-previous-chats').click();await flush();
+  assert.match(ui.$('import-list').textContent,/Start new app/);assert.doesNotMatch(ui.$('import-list').textContent,/Plan the API/);
+});
+
+test('background discovery failures stay quiet, and a failed dismissal does not hide the suggestion permanently',async()=>{
+  const ui=await browser({insights:true});
+  ui.setIntercept((request,next)=>request.path==='/api/import-sources'?response({error:'Local history is unavailable.'},503):next());
+  ui.window.dispatchEvent(new UIEvent('relay-setup-ready'));await flush();assert.equal(ui.$('previous-chats-notice').hidden,true);assert.equal(ui.$('notice').hidden,true);assert.equal(ui.$('import-dialog').open,false);
+  ui.$('open-import').click();await flush();assert.match(ui.$('import-error').textContent,/Local history is unavailable/);
+  ui.setIntercept(null);ui.$('refresh-imports').click();await flush();assert.equal(ui.document.querySelectorAll('.import-session').length,2);ui.$('close-import').click();
+  const other=await browser({insights:true,setup:true});
+  other.setIntercept((request,next)=>request.path==='/api/projects/project-one'&&request.method==='POST'?response({error:'Could not save preferences.'},503):next());
+  other.$('dismiss-previous-chats').click();await flush();assert.equal(other.$('previous-chats-notice').hidden,false);assert.match(other.$('notice-text').textContent,/Could not save this choice/);
+  assert.equal(other.projects[0].previousConversationsDismissed,undefined);
 });
 
 test('the setup launcher shows only while setup is unfinished, and Settings reopens the guide',async()=>{
@@ -369,7 +421,7 @@ test('the setup launcher shows only while setup is unfinished, and Settings reop
 });
 
 test('export shows what a shareable conversation file contains before saving it',async()=>{
-  const ui=await browser({insights:true});assert.equal(ui.$('open-export').disabled,true,'There is nothing to export yet.');
+  const ui=await browser({historyUI:true});assert.equal(ui.$('open-export').disabled,true,'There is nothing to export yet.');
   ui.canonical.get('project-one').messages.push({id:'m1',role:'user',text:'Plan checkout'});await ui.window.relayUI.refresh();assert.equal(ui.$('open-export').disabled,false);
   ui.$('open-export').click();await flush();assert.equal(ui.$('export-dialog').open,true);
   let request=ui.requests.filter(row=>row.path==='/api/conversation/export').at(-1);assert.equal(request.projectId,'project-one');assert.equal(request.params.redact,'1');assert.equal(request.params.activity,'0');assert.equal(request.params.range,'all');
@@ -378,17 +430,16 @@ test('export shows what a shareable conversation file contains before saving it'
   ui.$('export-download').click();ui.$('export-markdown').click();assert.equal(ui.requests.filter(row=>/\/(?:messages|continue)$/.test(row.path)).length,0);
 });
 
-test('a shared conversation file imports into a new workspace at a folder the recipient chooses',async()=>{
-  const ui=await browser({insights:true});ui.$('open-import').click();await flush();ui.$('import-target').value='';ui.fire('import-target','change');
+test('a shared conversation file merges into the open workspace without another destination or folder step',async()=>{
+  const ui=await browser({insights:true});ui.$('open-import').click();await flush();
   const shared={schema:'ai-relay.conversation',version:1,id:'shared-one',exportedAt:'2026-10-21T00:00:00.000Z',workspace:{name:'Shop',folders:['web']},messages:[{id:'s1',role:'user',text:'Ship it',createdAt:'2026-10-20T09:00:00.000Z'},{id:'s2',role:'assistant',provider:'claude',text:'Shipped',createdAt:'2026-10-20T09:01:00.000Z'}],digest:'from-sender'};
   ui.$('import-file').files=[{size:600,text:async()=>JSON.stringify(shared)}];ui.fire('import-file','change');await flush();
   assert.equal(ui.requests.find(row=>row.path==='/api/import-sources/file-preview').body.package.id,'shared-one');
   assert.match(ui.$('import-preview').textContent,/import files only from people you trust/);assert.match(ui.$('import-preview').textContent,/User.*Ship it.*Claude.*Shipped/s);
-  assert.equal(ui.$('import-folder-field').hidden,false);assert.equal(ui.$('import-name').value,'Shop');assert.match(ui.$('import-folders').textContent,/sender used web/);
-  ui.$('import-confirm').checked=true;ui.fire('import-confirm','change');assert.equal(ui.$('confirm-import').disabled,true,'The recipient must choose their local folder.');
-  ui.$('import-folder-path').value='/workspace/shop';ui.fire('import-folder-path','input');assert.equal(ui.$('confirm-import').disabled,false);ui.$('confirm-import').click();await flush();
-  const sent=ui.requests.find(row=>row.path==='/api/import-sources/import');assert.deepEqual([...sent.body.folders],['/workspace/shop']);assert.equal(sent.body.files[0].approvedDigest,'digest-shared-one');assert.equal(sent.body.sessions.length,0);
-  assert.equal(ui.state().projectId,'project-2');assert.deepEqual([...ui.state().conversation.messages.map(row=>row.text)],['Ship it','Shipped']);assert.equal(ui.requests.filter(row=>/\/(?:messages|continue)$/.test(row.path)).length,0);
+  assert.equal(ui.$('import-workspace-name').textContent,'Example workspace');assert.equal(ui.$('import-target'),null);assert.equal(ui.$('import-folder-path'),null);
+  ui.$('import-confirm').checked=true;ui.fire('import-confirm','change');assert.equal(ui.$('confirm-import').disabled,false);ui.$('confirm-import').click();await flush();
+  const sent=ui.requests.find(row=>row.path==='/api/import-sources/import');assert.equal(sent.body.projectId,'project-one');assert.equal(sent.body.files[0].approvedDigest,'digest-shared-one');assert.equal(sent.body.sessions.length,0);
+  assert.equal(ui.projects.length,1);assert.equal(ui.state().projectId,'project-one');assert.deepEqual([...ui.state().conversation.messages.map(row=>row.text)],['Ship it','Shipped']);assert.equal(ui.requests.filter(row=>/\/(?:messages|continue)$/.test(row.path)).length,0);
 });
 
 test('a multi-folder workspace lists its folders and the Files view shows only the selected one',async()=>{
@@ -415,14 +466,14 @@ test('code blocks are syntax colored without parsing HTML',async()=>{
   assert(kinds.includes('tok-keyword:const'));assert(kinds.includes('tok-function:sum'));assert(kinds.includes('tok-comment:// <b>not markup</b>'));
 });
 
-test('a first-time user can import a chat from any project into a new workspace named after its folder',async()=>{
-  const ui=await browser({insights:true,empty:true});assert.equal(ui.$('project-empty-state').hidden,false);
-  ui.$('import-first').click();await flush();assert.equal(ui.$('import-target').value,'','First-run import creates a new workspace.');assert(ui.requests.filter(row=>row.path==='/api/import-sources').every(row=>row.params.scope==='all'));
-  const session=ui.document.querySelectorAll('.import-session').find(button=>/Start new app/.test(button.textContent));session.click();await flush();
-  assert.equal(ui.$('import-name').hidden,false);assert.equal(ui.$('import-name').value,'new-app');assert.match(ui.$('import-folders').textContent,/Creates a workspace with new-app/);
-  ui.$('import-confirm').checked=true;ui.fire('import-confirm','change');ui.$('confirm-import').click();await flush();
-  const sent=ui.requests.find(row=>row.path==='/api/import-sources/import');assert.equal(sent.body.projectId,undefined);assert.equal(sent.body.name,'new-app');
-  assert.equal(ui.state().projectId,'project-1');assert.equal(ui.state().ready,true);assert.deepEqual([...ui.state().conversation.messages.map(row=>row.text)],['Start new app']);assert.equal(ui.$('conversation-title').textContent,'new-app');
+test('previous chats require an open workspace, with other projects available only by explicit choice',async()=>{
+  const empty=await browser({insights:true,empty:true});assert.equal(empty.$('project-empty-state').hidden,false);assert.equal(empty.$('open-import').disabled,true);assert.equal(empty.$('import-first'),null);
+  empty.$('open-import').click();await flush();assert.equal(empty.$('import-dialog').open,false);assert.equal(empty.requests.filter(request=>request.path==='/api/import-sources').length,0);
+  const ui=await browser({insights:true});ui.$('open-import').click();await flush();assert.equal(ui.document.querySelectorAll('.import-session').length,2);assert.doesNotMatch(ui.$('import-list').textContent,/Start new app/);
+  ui.document.querySelectorAll('[data-import-scope]').find(button=>button.dataset.importScope==='all').click();await flush();
+  const session=ui.document.querySelectorAll('.import-session').find(button=>/Start new app/.test(button.textContent));assert(session);assert.equal(session.getAttribute('aria-checked'),'false');assert.equal(ui.$('confirm-import').disabled,true);
+  session.click();await flush();ui.$('import-confirm').checked=true;ui.fire('import-confirm','change');ui.$('confirm-import').click();await flush();
+  const sent=ui.requests.find(row=>row.path==='/api/import-sources/import');assert.equal(sent.body.projectId,'project-one');assert.equal(ui.projects.length,1);assert.equal(ui.state().projectId,'project-one');
 });
 
 test('run indicators distinguish reasoning, quiet providers, approvals, and real token counts',async()=>{
@@ -481,7 +532,7 @@ test('first run welcomes, walks through three steps and a summary, saves real ch
   const effort=ui.labelledInput('Reasoning effort');effort.value='high';effort.dispatchEvent(new UIEvent('change'));
   ui.document.querySelectorAll('.setup-access-option').find(button=>button.dataset.mode==='read').click();await flush();
   ui.document.querySelectorAll('.setup-theme').find(button=>button.dataset.theme==='light').click();await flush();
-  ui.$('setup-next').click();await flush();assert.match(ui.$('setup-content').textContent,/Import existing chats/);
+  ui.$('setup-next').click();await flush();assert.match(ui.$('setup-content').textContent,/Choose the folders/);assert.equal(ui.document.querySelector('.setup-import-card'),null);
   ui.$('close-setup').click();await flush();assert.equal(dialog.open,false);
   const saved=ui.requests.filter(request=>request.path==='/api/preferences'&&request.method==='POST').at(-1).body;
   assert.deepEqual(saved.defaults,{provider:'claude',model:'model-one',effort:'high',mode:'read',billing:'subscription'});assert.equal(saved.theme,'light');
@@ -495,13 +546,39 @@ test('first run welcomes, walks through three steps and a summary, saves real ch
   const completed=ui.requests.filter(request=>request.path==='/api/preferences'&&request.method==='POST').at(-1).body;assert.equal(completed.onboarding.completed,true);
 });
 
-test('setup supports importing before a workspace exists and failed saves keep the current step',async()=>{
+test('setup resumes its folder step without importing, and failed saves keep the current step',async()=>{
   const ui=await browser({empty:true,existing:false,setup:true,insights:true,savedPreferences:{onboarding:{step:3,dismissed:true}}});
   assert.equal(ui.$('setup-dialog').open,false);ui.$('open-setup').click();await flush();assert.match(ui.$('setup-step-status').textContent,/3 of 3/,'A step saved by the earlier four-step setup resumes at the last step.');
-  ui.document.querySelectorAll('.setup-import-card')[0].click();await flush();assert.equal(ui.$('setup-dialog').open,false);assert.equal(ui.$('import-dialog').open,true);assert.equal(ui.$('import-target').value,'');
-  ui.$('close-import').click();ui.$('open-setup').click();await flush();
+  assert.equal(ui.document.querySelector('.setup-import-card'),null);assert.equal(ui.$('import-dialog').open,false);
+  assert.equal(ui.requests.some(request=>request.path==='/api/import-sources'),false,'Onboarding does not discover or import chats.');
   ui.setIntercept((request,next)=>request.path==='/api/preferences'&&request.method==='POST'?response({error:'Preferences could not be written.'},503):next());
   ui.$('setup-back').click();await flush();assert.match(ui.$('setup-step-status').textContent,/3 of 3/);assert.equal(ui.$('setup-error').hidden,false);assert.match(ui.$('setup-error').textContent,/could not be written/);
+});
+
+test('onboarding finishes folder setup and the summary before discovering project conversations',async()=>{
+  const ui=await browser({empty:true,existing:false,desktop:true,setup:true,insights:true}),setup=ui.$('setup-dialog');
+  ui.document.querySelector('.onboarding-cta').click();await flush();
+  ui.$('setup-next').click();await flush();ui.$('setup-next').click();await flush();
+  assert.equal(ui.document.querySelector('.setup-import-card'),null);ui.pickedFolders.push('/workspace/example/frontend');ui.document.querySelector('.setup-folder-card').click();await flush();
+  assert.equal(setup.open,true);assert.equal(setup.dataset.screen,'flow');assert.match(ui.$('setup-content').textContent,/frontend is ready/);
+  assert.equal(ui.$('previous-chats-notice').hidden,true);assert.equal(ui.requests.some(request=>request.path==='/api/import-sources'),false);
+  ui.$('setup-next').click();await flush();assert.equal(setup.dataset.screen,'done');assert.equal(setup.open,true);assert.match(ui.$('setup-hero-content').textContent,/frontend is ready/);
+  assert.equal(ui.requests.some(request=>request.path==='/api/import-sources'),false,'Discovery waits until the user enters the workspace.');
+  ui.document.querySelector('.onboarding-cta').click();await flush();assert.equal(setup.open,false);
+  assert.equal(ui.requests.filter(request=>request.path==='/api/preferences'&&request.method==='POST').at(-1).body.onboarding.completed,true);
+  assert.equal(ui.$('previous-chats-notice').hidden,false);assert.match(ui.$('previous-chats-text').textContent,/Found 2 previous conversations/);assert.equal(ui.$('import-dialog').open,false);
+  assert.equal(ui.requests.filter(request=>/\/(?:messages|continue|connect)$/.test(request.path)).length,0);
+  ui.$('open-import').click();await flush();ui.$('close-import').click();await flush();assert.equal(setup.open,false,'Later imports from the main app do not reopen onboarding.');
+});
+
+test('a failed merge can be cancelled with Escape without changing the workspace or its conversation',async()=>{
+  const ui=await browser({insights:true});const conversationId=ui.state().conversation.id;
+  ui.$('open-import').click();await flush();
+  ui.document.querySelectorAll('.import-session')[0].click();await flush();ui.$('import-confirm').checked=true;ui.fire('import-confirm','change');
+  ui.setIntercept((request,next)=>request.path==='/api/import-sources/import'?response({error:'The source changed; review it again.'},409):next());
+  ui.$('confirm-import').click();await flush();assert.equal(ui.$('import-dialog').open,true);assert.match(ui.$('import-error').textContent,/source changed/);
+  const cancel=new UIEvent('cancel');ui.$('import-dialog').dispatchEvent(cancel);if(!cancel.defaultPrevented)ui.$('import-dialog').close();await flush();
+  assert.equal(ui.$('import-dialog').open,false);assert.equal(ui.state().projectId,'project-one');assert.equal(ui.state().conversation.id,conversationId);assert.equal(ui.state().conversation.messages.length,0);
 });
 
 test('a new install that finds saved workspaces asks to continue or start fresh',async()=>{

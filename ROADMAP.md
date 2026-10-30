@@ -17,6 +17,7 @@ The fastest way to make Throughline better is to use it on your real projects an
 - **More agents and models.** Gemini, Grok, DeepSeek, Qwen and local models (for example through Ollama) in the same project conversation, each on your own account or API key, using official CLIs where they exist.
 - **Windows and Linux builds.** Package and test both platforms in CI, including CLI discovery in `resolve-binary.mjs` and the Git safety settings.
 - **Commit from the Git panel.** Stage reviewed changes, write a message and commit. The panel is read-only today.
+- **Integrated workspace terminal.** A collapsible, resizable bottom panel for running your own shell in a chosen workspace folder. Run tests, install dependencies and keep a dev server running alongside the conversation. Each workspace keeps its terminal session while you switch projects; hiding the panel leaves processes running, and closing a session or quitting the app cleans them up. Start with one terminal per workspace on macOS, then add tabs and split panes. Later, send selected output to the conversation for help debugging.
 - **Search the conversation.** Find earlier messages, code and decisions in a long project conversation and jump to them.
 - **Easier link-service hosting.** Ready-made deployment templates, so Ask a Friend links work without setting up a server by hand.
 - **Run project tests on returned patches.** With your approval, run the project's own test command after applying a friend's patch. Today verification stops at syntax and whitespace checks.

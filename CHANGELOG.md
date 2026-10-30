@@ -2,6 +2,27 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-10-30
+
+### Added
+
+- Optional suggestions for previous Claude Code and Codex conversations matching an opened workspace's folders, with a remembered **Not now** choice for each workspace.
+- `npm run start:fresh` and `npm start -- --fresh` replay onboarding in an isolated temporary profile. Add `--no-agents` to preview setup without installed agents; existing workspaces and CLI sign-ins stay intact.
+- Patreon support links in the README and the repository's Sponsor button.
+- A contributor architecture guide and a roadmap proposal for an integrated workspace terminal.
+
+### Changed
+
+- Onboarding completes the project-folder step and final summary before opening the workspace and suggesting previous chats.
+- **Previous chats** reviews and merges selected conversations into the open workspace. Its folders are the default search scope; browsing other projects and opening shared conversation files remain optional.
+- Conversation discovery, import and export have separate interface and HTTP route modules, keeping them independent of Git and account-usage controls.
+- Clearer Throughline positioning in the README, welcome screen, package description and social-preview artwork: your workspace for AI coding agents, using your own accounts.
+
+### Fixed
+
+- Workspace-scoped chat discovery excludes Throughline's own agent sessions.
+- Desktop packages exclude disposable generated assets in `output/`.
+
 ## [0.5.0] - 2026-10-30
 
 ### Changed
@@ -25,5 +46,6 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.6.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.0
 [0.5.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.5.0
 [0.4.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.4.0

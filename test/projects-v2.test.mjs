@@ -16,6 +16,16 @@ function setup(t) {
   t.after(async () => { for (const registry of instances) await registry.close(); fs.rmSync(root, { recursive: true, force: true }); });
   return { root, dataRoot, folders, open };
 }
+test('previous-conversation dismissal persists per workspace across restarts, renames and folder changes', async t => {
+  const f=setup(t),registry=f.open();const first=registry.add({path:f.folders[0]}),second=registry.add({path:f.folders[1]});
+  assert.equal(registry.get(first.id).previousConversationsDismissed,false);
+  registry.update(first.id,{previousConversationsDismissed:true});registry.update(first.id,{name:'Renamed workspace'});registry.addFolder(first.id,f.folders[2]);
+  const restarted=f.open();assert.equal(restarted.get(first.id).previousConversationsDismissed,true);assert.equal(restarted.get(first.id).name,'Renamed workspace');
+  assert.equal(restarted.get(second.id).previousConversationsDismissed,false);
+  assert.throws(()=>restarted.update(first.id,{previousConversationsDismissed:'true'}),{status:400});
+  restarted.update(first.id,{previousConversationsDismissed:false});assert.equal(registry.get(first.id).previousConversationsDismissed,false);
+});
+
 test('v1 migration preserves project ID and journals, deterministically selects newest main, and archives others', async t => {
   const f = setup(t); const directory = f.folders[0]; const id = createHash('sha256').update(directory).digest('hex').slice(0, 16);
   const broker = new Broker({ workspace: directory, dataDir: path.join(f.dataRoot, id), bins: { codex: '/disabled', claude: '/disabled' } });

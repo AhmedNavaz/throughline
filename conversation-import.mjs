@@ -37,11 +37,11 @@ export class ConversationImporter {
     const roots = folders.map(folder => path.resolve(folder.path));
     if (provider === 'codex') return this.withCodex(roots[0], async client => {
       const result = await client.request('thread/list', { cwd: roots, limit: 50, sortKey: 'updated_at', sourceKinds: ['cli', 'vscode', 'appServer', 'exec'], ...(cursor ? { cursor } : {}) });
-      return { sessions: (result.data || []).filter(row => roots.includes(path.resolve(row.cwd || ''))).map(row => ({ id: row.id, title: conversationTitle(row.name || row.preview, 'Codex conversation'), provider, updatedAt: new Date((row.updatedAt || row.createdAt) * 1000).toISOString(), folder: folders[roots.indexOf(path.resolve(row.cwd))]?.displayName || path.basename(row.cwd), cwd: row.cwd })), nextCursor: result.nextCursor || null };
+      return { sessions: (result.data || []).filter(row => roots.includes(path.resolve(row.cwd || '')) && !relaySession(row.preview) && !relaySession(row.name)).map(row => ({ id: row.id, title: conversationTitle(row.name || row.preview, 'Codex conversation'), provider, updatedAt: new Date((row.updatedAt || row.createdAt) * 1000).toISOString(), folder: folders[roots.indexOf(path.resolve(row.cwd))]?.displayName || path.basename(row.cwd), cwd: row.cwd })), nextCursor: result.nextCursor || null };
     });
     const sdk = await this.sdkLoader(), sessions = [];
     for (const folder of folders) {
-      const rows = await sdk.listSessions({ dir: folder.path, limit: 50, includeWorktrees: false });
+      const rows = await sdk.listSessions({ dir: folder.path, limit: 50, includeWorktrees: false, includeProgrammatic: false });
       for (const row of rows) {
         if (row.cwd && !roots.includes(path.resolve(row.cwd))) continue;
         if (!sessions.some(item => item.id === row.sessionId)) sessions.push({ id: row.sessionId, title: conversationTitle(row.customTitle || row.summary || row.firstPrompt, 'Claude conversation'), provider, updatedAt: new Date(row.lastModified).toISOString(), folder: folder.displayName || folder.name, cwd: row.cwd || folder.path });

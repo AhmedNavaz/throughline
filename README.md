@@ -68,7 +68,7 @@ npm start
 
 1. **Create a workspace** and add your project's folders.
 2. **Pick Claude or Codex** in the composer, choose the model and send. Switch agents whenever you like; the next one receives the shared conversation as context.
-3. **Bring people and history in.** Use **Import chat** for existing Claude Code and Codex chats, **Export** to hand a conversation to someone else, and **Ask a Friend** to get a reviewable patch back.
+3. **Bring people and history in.** After opening a workspace, review the previous chats found for its folders, or use **Previous chats** to select and merge Claude Code and Codex conversations. **Export** hands a conversation to someone else, and **Ask a Friend** brings back a patch you review.
 
 Nothing runs until you press **Send**, and every run uses your own installed CLI and account. The [guide](docs/guide.md) covers each feature in detail, including limits and what is stored where.
 

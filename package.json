@@ -1,6 +1,6 @@
 {
   "name": "throughline",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "An open-source desktop workspace for Claude Code and Codex. Keep project context and switch agents without starting over, using your own accounts.",
   "keywords": [
     "claude-code",
@@ -29,6 +29,7 @@
   "productName": "Throughline",
   "scripts": {
     "start": "node desktop/launch.mjs",
+    "start:fresh": "node desktop/launch.mjs --fresh",
     "desktop": "node desktop/launch.mjs",
     "web": "node server.mjs",
     "test": "node --test test/*.test.mjs sharing/test/*.test.mjs",

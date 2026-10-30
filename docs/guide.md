@@ -68,18 +68,17 @@ PDF, Office, audio, video and other binary attachments are not supported. SVG is
 
 Files are saved as immutable snapshots in the workspace’s local application storage. Selecting or previewing a file starts no inference; **Send** transmits it to the selected agent. Draft attachments stay with their workspace and survive reloads and failed sends. Journals store attachment metadata, not image base64. Recent unseen text/image attachments are included on model handoff within context/image limits; the agent is told when older images are omitted.
 
-The first launch opens a short setup: a welcome, then three steps (connect your agents, choose the theme and default access, and open a project folder or import chats) and a summary before the app appears. **Skip for now** leaves a **Getting started** shortcut in the sidebar, and **Settings › Setup guide** reopens the steps at any time. Setup never changes existing chats.
+The first launch opens a short setup: a welcome, then three steps (connect your agents, choose the theme and default access, and choose your project folders) and a summary before the app appears. **Finish** leads to the summary, and **Open Throughline** completes setup. Previous conversations are offered inside the workspace after setup. **Skip for now** leaves a **Getting started** shortcut in the sidebar, and **Settings › Setup guide** reopens the steps at any time. Setup never changes existing chats.
 
 When a newly installed copy of the desktop app finds saved workspaces, it asks whether to **continue where you left off** or **start fresh**. Starting fresh renames the saved data to `relay-data-backup-<date>` in the same folder instead of deleting it; rename it back while the app is closed to restore it.
 
 ## Import Claude Code and Codex chats
 
-New to Throughline? Choose **Import existing chats** on the first screen, or **Import chat** in any workspace header. The import window lists your Claude Code and Codex conversations, grouped by project folder, either from the current workspace's folders or from **All projects** on this computer. Select one or several, from either agent or both, and review them in the preview. Conversations from different agents are merged by their original message times.
+Create or open a workspace first. Throughline checks its project folders for previous Claude Code and Codex conversations and offers **Review conversations** when it finds chats that have not been merged. The suggestion never opens a dialog or merges messages by itself. **Not now** is remembered for that workspace across restarts; after a successful merge, the automatic suggestion is also dismissed.
 
-Choose where they go:
+Choose **Review conversations** or **Previous chats** in the workspace header. The list defaults to **This workspace**, matches folder paths, and groups chats by project folder. Select one or several conversations from either agent, review their messages together, and confirm **Merge conversations**. Nothing is selected automatically. Messages merge into the open workspace’s single conversation by their original times, with their source and timestamps preserved.
 
-- **New workspace** creates a workspace from the conversations' project folders, named after the first one (you can rename it).
-- **An existing workspace** adds the messages to its single conversation and attaches any conversation folder it does not already include. Folders that no longer exist on disk are reported and not attached.
+**Browse other projects** is a secondary option for explicitly choosing unrelated chats. Their existing folders are attached to the open workspace if needed, with those additions shown before merging. Folders that no longer exist are reported and not attached. **Open conversation file…** brings a shared conversation into the workspace you have already opened. The destination workspace is always shown in the review.
 
 Importing copies visible user and assistant text, original timestamps and available model provenance. Claude Code slash-command records, native tool state and hidden reasoning are not imported. Import never resumes a native session, starts inference or modifies the provider's original conversation. When you next press **Send**, the selected agent starts with the imported history as shared context (most recent messages first, within the context budget) and runs on your own installed CLI and account. Throughline supplies no API keys of its own.
 
@@ -87,7 +86,7 @@ Discovery and preview use the installed Claude Agent SDK session readers and the
 
 ## Export a conversation
 
-**Export** in the workspace header saves the conversation as a `.throughline.json` file that another Throughline user can open with **Import chat › Open file…**. They choose their own copy of the project folder, review the messages, and continue with their own Claude or Codex account. Nothing runs during export or import.
+**Export** in the workspace header saves the conversation as a `.throughline.json` file that another Throughline user can open with **Previous chats › Open conversation file…** after opening their own project workspace. They review the messages and continue with their own Claude or Codex account. Nothing runs during export or import.
 
 By default an export contains the user and assistant text of the whole conversation plus the saved goal, decisions and tasks. Secrets and local paths are removed, and workspace paths become folder names such as `[frontend]/src/app.js`. You can limit it to recent messages, include tool activity, or turn removal off; the dialog shows what the file contains before you save it. **Save as Markdown** writes a readable copy instead. Files are limited to 2 MB (the oldest messages are left out first). A file that was edited after export is rejected on import. On import, shared context fills only fields the receiving conversation has not set, and the other person's messages are shown as theirs. Import files only from people you trust, because their messages become context for your assistant. To ask someone for code changes and receive a reviewable patch instead, use **Ask a Friend**.
 
@@ -143,6 +142,8 @@ Build a standalone app for your OS and architecture with `npm run package`; the 
 Electron starts and stops the loopback backend itself. No separate server terminal is required. Close the app to stop its managed provider processes. A second desktop launch focuses the existing window. Without a signing identity, `npm run package` signs macOS builds ad hoc; they are not notarized.
 
 The development launcher clears an inherited `ELECTRON_RUN_AS_NODE` flag before opening Electron, so `npm start` also works from terminals hosted by an Electron-based editor or coding agent. Provider workers retain their own Node-mode configuration.
+
+To replay onboarding from the welcome screen, run `npm run start:fresh` or `npm start -- --fresh`. Each launch uses an empty temporary profile and skips legacy-data migration. Setup changes and imported chats in that session are discarded when the window closes; existing saved workspaces stay intact. Installed agent sign-ins are still detected. To preview a new user with neither agent installed, run `npm run start:fresh -- --no-agents`; this hides the agents only for that temporary session and leaves their installations and sign-ins unchanged.
 
 If package installation disabled lifecycle scripts, run `node node_modules/electron/install.js` once to install Electron's official runtime. Build a fresh app for the current OS/architecture with `npm run package`; output goes to `dist/`. `AI_RELAY_SIGN_IDENTITY` can supply an installed macOS signing identity. Notarization requires separate Apple credentials/configuration.
 

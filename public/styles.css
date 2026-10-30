@@ -191,6 +191,10 @@ summary::-webkit-details-marker { display: none; }
 #notice-retry:hover { background: var(--hover); }
 
 /* Conversation */
+.previous-chats-notice { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; flex: none; padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--surface-raised); color: var(--text); font-size: 13px; }
+.previous-chats-notice p { margin: 0; line-height: 1.5; }
+.previous-chats-actions { display: flex; align-items: center; gap: 16px; }
+.previous-chats-actions .secondary-button { min-height: 30px; }
 .messages-scroll { flex: 1; min-height: 0; overflow: auto; }
 .messages { width: min(var(--content-width), calc(100% - 48px)); margin: 0 auto; padding: 12px 0 24px; }
 .message { padding: 12px 0; }
@@ -446,7 +450,7 @@ button.commit-hash:hover { text-decoration: underline; }
 .import-search { position: relative; flex: 1; min-width: 160px; }
 .import-search .icon { position: absolute; left: 8px; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
 .import-search input { width: 100%; height: 28px; padding: 0 8px 0 28px; border: 1px solid var(--input-border); border-radius: 5px; background: var(--surface-input); color: var(--text); font-size: 12px; }
-.import-search input:focus, .import-destination select:focus, .import-destination input:focus { outline: none; border-color: var(--focus); }
+.import-search input:focus { outline: none; border-color: var(--focus); }
 .import-error { margin: 0; padding: 8px 20px; background: var(--warning-bg); color: var(--text); font-size: 12px; line-height: 1.5; }
 .import-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); flex: 1; min-height: 0; }
 .import-list-pane { overflow: auto; padding: 6px 8px 12px; border-right: 1px solid var(--border); background: var(--sidebar); }
@@ -490,10 +494,8 @@ button.commit-hash:hover { text-decoration: underline; }
 .import-message p { margin: 4px 0 0 18px; color: var(--text); font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .import-dialog > footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; padding: 12px 20px; border-top: 1px solid var(--border); }
 .import-destination { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-width: 0; font-size: 12px; }
-.import-destination > label { color: var(--muted); }
-.import-destination select, .import-destination input { height: 28px; padding: 0 8px; border: 1px solid var(--input-border); border-radius: 5px; background: var(--surface-input); color: var(--text); font-size: 12px; }
-.import-destination select { max-width: 220px; }
-.import-destination input { width: 180px; }
+.import-destination > span { color: var(--muted); }
+.import-destination > strong { color: var(--text-strong); font-weight: 600; }
 .import-folders { flex-basis: 100%; margin: 0; color: var(--faint); font-size: 11px; }
 .import-folders:empty { display: none; }
 .import-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 10px 14px; margin-left: auto; }
@@ -533,8 +535,6 @@ button.commit-hash:hover { text-decoration: underline; }
 .import-dialog .agent-icon.file { color: var(--link); -webkit-mask-image: var(--icon-file); mask-image: var(--icon-file); }
 .import-toolbar .secondary-button { height: 28px; }
 .import-toolbar .secondary-button .icon { width: 14px; height: 14px; }
-.import-folder-field { display: inline-flex; align-items: center; gap: 6px; }
-.import-folder-field input { width: 260px; font-family: var(--mono); }
 .import-trust-note { margin: 8px 0 0; padding: 6px 10px; border-radius: 5px; background: var(--warning-bg); color: var(--text); font-size: 12px; }
 #workbench #workbench-tabs .workbench-nav-extra { margin-top: auto; color: var(--faint); }
 

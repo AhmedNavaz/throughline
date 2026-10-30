@@ -88,7 +88,7 @@ export class ProjectRegistry extends EventEmitter {
         }
         if (item.conversationId && !/^[\da-f-]{36}$/.test(item.conversationId)) throw new Error(`Invalid permanent conversation in: ${this.filename}`);
         if (item.removedAt !== undefined && (typeof item.removedAt !== 'string' || !Number.isFinite(Date.parse(item.removedAt)))) throw new Error(`Invalid workspace removal in: ${this.filename}`);
-        loaded.set(item.id, { id: item.id, name: item.name, path: folders[0].path, folders, folderAliases, conversationId: item.conversationId || null, createdAt: item.createdAt, ...(item.removedAt ? { removedAt: item.removedAt } : {}) });
+        loaded.set(item.id, { id: item.id, name: item.name, path: folders[0].path, folders, folderAliases, conversationId: item.conversationId || null, createdAt: item.createdAt, previousConversationsDismissed: item.previousConversationsDismissed === true, ...(item.removedAt ? { removedAt: item.removedAt } : {}) });
       }
     }
     this.projects = loaded;
@@ -109,7 +109,7 @@ export class ProjectRegistry extends EventEmitter {
     const broker = this.brokers.get(entry.id)?.broker;
     const count = broker ? broker.conversations.size : this.journalIds(entry.id).length;
     const { folderAliases, removedAt, ...visible } = entry;
-    return { ...visible, folders: entry.folders.map(folder => ({ ...folder, available: folderAvailable(folder.path) })), available: folderAvailable(entry.path), runningConversationId: broker?.running?.c.id || null, conversationCount: count ? 1 : 0, archivedConversationCount: Math.max(0, count - 1) };
+    return { ...visible, previousConversationsDismissed: entry.previousConversationsDismissed === true, folders: entry.folders.map(folder => ({ ...folder, available: folderAvailable(folder.path) })), available: folderAvailable(entry.path), runningConversationId: broker?.running?.c.id || null, conversationCount: count ? 1 : 0, archivedConversationCount: Math.max(0, count - 1) };
   }
   list() { this.reload(); return [...this.projects.values()].filter(entry => !entry.removedAt).map(entry => this.public(entry)); }
   get(id) { this.reload(); return this.public(this.entry(id)); }
@@ -141,7 +141,8 @@ export class ProjectRegistry extends EventEmitter {
 
   update(id, input = {}) {
     this.assertOpen();
-    const entry = withFileGuard(this.filename, () => { this.reload(); const previous = this.entry(id); const value = { ...previous, name: displayName(input.name, previous.name) }; this.projects.set(id, value); try { this.persist(); } catch (error) { this.reload(); throw error; } return value; });
+    if (input.previousConversationsDismissed !== undefined && typeof input.previousConversationsDismissed !== 'boolean') throw fail('Choose whether to dismiss previous conversations.');
+    const entry = withFileGuard(this.filename, () => { this.reload(); const previous = this.entry(id); const value = { ...previous, name: displayName(input.name, previous.name), ...(input.previousConversationsDismissed !== undefined ? { previousConversationsDismissed: input.previousConversationsDismissed } : {}) }; this.projects.set(id, value); try { this.persist(); } catch (error) { this.reload(); throw error; } return value; });
     this.emit('projects', { projectId: id }); return this.public(entry);
   }
 

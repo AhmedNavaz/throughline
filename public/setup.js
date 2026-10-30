@@ -38,7 +38,7 @@
   function reveal() { const shell = document.querySelector('.app-shell'); shell?.classList.remove('app-reveal'); shell?.classList.add('app-reveal'); }
   function leave() { dialog.close(); reveal(); }
   async function dismiss() { await save({dismissed:true}); leave(); }
-  async function complete(then) { await save({completed:true}); leave(); then?.(); }
+  async function complete() { await save({completed:true}); leave(); }
   async function openLink(url) { if (desktop) await desktop.openExternal(url); else window.open(url,'_blank','noopener,noreferrer'); }
   function show(name) {
     screen = name; dialog.dataset.screen = name; shownStep = -1;
@@ -52,7 +52,7 @@
     if (screen === 'welcome') {
       $('setup-title').textContent = 'Throughline';
       const points = node('ul',undefined,'onboarding-points');
-      for (const text of ['Shared project context','Your own agent accounts','Bring your existing chats']) points.append(node('li',text));
+      for (const text of ['Shared project context','Your own agent accounts','One conversation per project']) points.append(node('li',text));
       const start = button('Get started',()=>{ reviewing = false; show('flow'); },'primary-button onboarding-cta');
       host.append(node('p','Your workspace for AI coding agents. Work with Claude Code and Codex using your own accounts.','onboarding-tagline'),points,start,node('p','Takes about a minute.','onboarding-note'));
       start.focus();
@@ -74,7 +74,7 @@
       const item = (done, title, text) => { const row = node('li',undefined,done ? 'done' : 'todo'); row.append(node('strong',title),node('span',text)); summary.append(row); };
       item(connected,`${providerName(draft.provider)} starts the conversation`,connected ? 'Connected with your own account.' : 'Connect it in Settings before your first message.');
       item(true,theme === 'light' ? 'Light theme' : 'Dark theme',draft.mode === 'read' ? 'New workspaces start read only.' : 'Agents can edit files in your workspaces.');
-      item(count > 0,count ? (created ? `${created} is ready` : `${count} workspace${count === 1 ? ' is' : 's are'} ready`) : 'No workspace yet',count ? 'Your conversation is waiting.' : 'Add a folder or import chats from the sidebar.');
+      item(count > 0,count ? (created ? `${created} is ready` : `${count} workspace${count === 1 ? ' is' : 's are'} ready`) : 'No workspace yet',count ? 'Your conversation is waiting.' : 'Choose your project folders from the sidebar.');
       const open = button('Open Throughline',()=>complete(),'primary-button onboarding-cta');
       host.append(node('p','You can change any of this later in Settings.','onboarding-tagline'),summary,open); open.focus();
     }
@@ -169,13 +169,12 @@
   }
   function project(host) {
     const count = api.getState().projects.length;
-    host.append(node('p','Open the folder of a project you are working on, or continue a conversation you already had with Claude Code or Codex.','setup-description'));
+    host.append(node('p','Choose the folders for your project. After setup, you can review earlier Claude Code and Codex conversations linked to those folders.','setup-description'));
     if (created) host.append(node('p',`${created} is ready. You can add more folders to it later in workspace settings.`,'setup-ready'));
     else if (count) host.append(node('p',`${count} workspace${count === 1 ? ' is' : 's are'} ready. Your saved chats stay as they are.`,'setup-ready'));
     const grid = node('div',undefined,'setup-start-grid');
     const card = (cls, title, text, fn) => { const el = button('',fn,'setup-start-card ' + cls); el.append(node('i',undefined,'setup-start-icon'),node('strong',title),node('span',text)); grid.append(el); return el; };
     if (desktop) card('setup-folder-card',created ? 'Open another folder' : 'Open a project folder',`Pick a folder on ${computer}. It becomes a workspace with its own conversation.`,async()=>{const picked=await desktop.pickFolder();if(picked)await createWorkspace(Array.isArray(picked)?picked:[picked]);});
-    card('setup-import-card','Import existing chats','Bring in Claude Code or Codex conversations from any project.',()=>complete(()=>$('open-import').click()));
     host.append(grid);
     const name = field('Workspace name (optional)','input',projectName), paths = field('Folder paths, one per line','textarea',projectPaths); paths.input.rows = 2; paths.input.placeholder = '~/projects/frontend\n~/projects/backend'; name.input.maxLength = 120;
     name.input.addEventListener('input',()=>{projectName=name.input.value;}); paths.input.addEventListener('input',()=>{projectPaths=paths.input.value;});
@@ -205,5 +204,5 @@
   const ready = Promise.all([api.api('/api/preferences',{},null),desktop?.getLaunchState ? desktop.getLaunchState().catch(()=>null) : null]).then(([value,state])=>{
     preferences = value; launch = state; step = Math.min(value.onboarding?.step || 0, last); draft = {...value.defaults}; theme = value.theme; progress();
     if (launch?.choice) show('returning'); else if (value.firstRun) show('welcome');
-  }).catch(e=>{preferences={defaults:draft,theme,onboarding:{step:0}};api.showNotice('Setup preferences could not be loaded. '+e.message);}).finally(hideLaunch);
+  }).catch(e=>{preferences={defaults:draft,theme,onboarding:{step:0}};api.showNotice('Setup preferences could not be loaded. '+e.message);}).finally(()=>{hideLaunch();window.dispatchEvent(new CustomEvent('relay-setup-ready'));});
 })();
