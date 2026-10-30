@@ -52,9 +52,9 @@
     if (screen === 'welcome') {
       $('setup-title').textContent = 'Throughline';
       const points = node('ul',undefined,'onboarding-points');
-      for (const text of ['Both agents, one thread','Runs on your own subscriptions','Bring your existing chats']) points.append(node('li',text));
+      for (const text of ['Shared project context','Your own agent accounts','Bring your existing chats']) points.append(node('li',text));
       const start = button('Get started',()=>{ reviewing = false; show('flow'); },'primary-button onboarding-cta');
-      host.append(node('p','One coding conversation per project, shared across Claude Code, Codex and your teammates.','onboarding-tagline'),points,start,node('p','Takes about a minute.','onboarding-note'));
+      host.append(node('p','Your workspace for AI coding agents. Work with Claude Code and Codex using your own accounts.','onboarding-tagline'),points,start,node('p','Takes about a minute.','onboarding-note'));
       start.focus();
     }
     if (screen === 'returning') {

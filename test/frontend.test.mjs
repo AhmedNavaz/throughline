@@ -470,7 +470,7 @@ test('workspace removal failures keep the dialog and current chat; accepted resp
 test('first run welcomes, walks through three steps and a summary, saves real choices and never starts a provider run',async()=>{
   const ui=await browser({empty:true,existing:false,setup:true,insights:true}),dialog=ui.$('setup-dialog');
   await flush();
-  assert.equal(dialog.open,true);assert.equal(dialog.dataset.screen,'welcome');assert.equal(ui.$('setup-flow').hidden,true);assert.match(ui.$('setup-hero-content').textContent,/One coding conversation per project/);
+  assert.equal(dialog.open,true);assert.equal(dialog.dataset.screen,'welcome');assert.equal(ui.$('setup-flow').hidden,true);assert.match(ui.$('setup-hero-content').textContent,/Your workspace for AI coding agents/);
   assert.equal(ui.$('launch-screen').classList.contains('done'),true,'The launch screen gives way once setup knows what to show.');
   ui.document.querySelector('.onboarding-cta').click();await flush();
   assert.equal(dialog.dataset.screen,'flow');assert.equal(ui.$('setup-hero').hidden,true);assert.match(ui.$('setup-step-status').textContent,/1 of 3/);assert.match(ui.$('setup-content').textContent,/your subscription/);

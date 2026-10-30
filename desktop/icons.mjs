@@ -60,8 +60,8 @@ app.whenReady().then(async () => {
     p { margin: 16px 0 0; max-width: 680px; color: #aeb8cc; font-size: 34px; line-height: 1.35; }
     small { display: block; margin-top: 28px; color: #7f8aa3; font-size: 24px; letter-spacing: 0.01em; }
   </style><img src="data:image/svg+xml;base64,${Buffer.from(sized(tile, 260)).toString('base64')}"><div><h1>Throughline</h1>
-    <p>One coding conversation per project, shared across Claude Code, Codex and your teammates.</p>
-    <small>Open source · runs on your own Claude and Codex subscriptions</small></div>`;
+    <p>Your workspace for AI coding agents.</p>
+    <small>Open source · Your own agent accounts</small></div>`;
   await win.loadURL('data:text/html;base64,' + Buffer.from(card).toString('base64'));
   await new Promise(resolve => setTimeout(resolve, 300));
   const preview = await win.webContents.capturePage();

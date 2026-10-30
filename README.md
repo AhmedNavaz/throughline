@@ -2,13 +2,15 @@
 
 <h1 align="center">Throughline</h1>
 
-<p align="center">One coding conversation per project, shared across Claude Code, Codex and your teammates.<br>Runs on your own Claude and Codex subscriptions.</p>
+<p align="center">Your workspace for AI coding agents.<br>Keep project context across Claude Code and Codex, using your own accounts.</p>
 
 <p align="center"><a href="https://github.com/AhmedNavaz/throughline/actions/workflows/ci.yml"><img src="https://github.com/AhmedNavaz/throughline/actions/workflows/ci.yml/badge.svg" alt="CI"></a> <a href="https://github.com/AhmedNavaz/throughline/releases/latest"><img src="https://img.shields.io/github/v/release/AhmedNavaz/throughline" alt="Latest release"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a> <a href="https://www.patreon.com/17048317/join"><img src="https://img.shields.io/badge/Support-Patreon-FF424D?logo=patreon&amp;logoColor=white" alt="Support Throughline on Patreon"></a></p>
 
 <p align="center"><img src="docs/screenshot.png" alt="Throughline: a project conversation shared by Claude and Codex, with the file browser, Git activity and plan usage" width="900"></p>
 
-Throughline is a desktop app for working with AI coding agents. Each project is a workspace with one or more folders and exactly one permanent conversation. Use Claude Code or Codex in that conversation and switch between them whenever you like; the history, saved context and drafts stay in one place.
+Throughline is an open-source desktop workspace for AI coding agents. Work with Claude Code and Codex in one place, keep project context together, and switch agents without starting over, using your own accounts.
+
+Each project brings together one or more folders and one continuous conversation. Your history, saved context and drafts stay with the project as you switch agents, inspect files and Git changes, or ask a teammate for help.
 
 ## Features
 
