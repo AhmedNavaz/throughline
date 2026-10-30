@@ -4,7 +4,7 @@
 
 <p align="center">One coding conversation per project, shared across Claude Code, Codex and your teammates.<br>Runs on your own Claude and Codex subscriptions.</p>
 
-<p align="center"><a href="https://github.com/AhmedNavaz/throughline/actions/workflows/ci.yml"><img src="https://github.com/AhmedNavaz/throughline/actions/workflows/ci.yml/badge.svg" alt="CI"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a></p>
+<p align="center"><a href="https://github.com/AhmedNavaz/throughline/actions/workflows/ci.yml"><img src="https://github.com/AhmedNavaz/throughline/actions/workflows/ci.yml/badge.svg" alt="CI"></a> <a href="https://github.com/AhmedNavaz/throughline/releases/latest"><img src="https://img.shields.io/github/v/release/AhmedNavaz/throughline" alt="Latest release"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a></p>
 
 <p align="center"><img src="docs/screenshot.png" alt="Throughline: a project conversation shared by Claude and Codex, with the file browser, Git activity and plan usage" width="900"></p>
 
@@ -19,7 +19,17 @@ Throughline is a desktop app for working with AI coding agents. Each project is 
 
 ## Get started
 
-Requirements: Node.js 22.12 or later, and Claude Code and/or the Codex CLI installed and signed in.
+You need Claude Code and/or the Codex CLI installed and signed in. Throughline runs on those accounts.
+
+### Download for macOS
+
+Get the latest build from [Releases](https://github.com/AhmedNavaz/throughline/releases/latest): the `mac-apple-silicon` zip for M1 and later, or the `mac-intel` zip for Intel Macs. Unzip it and move **Throughline** to Applications.
+
+The app is not notarized by Apple yet, so the first time you open it macOS says it cannot verify the developer. Open **System Settings › Privacy & Security** and click **Open Anyway**. You only need to do this once. If macOS instead says the app is damaged, run `xattr -cr /Applications/Throughline.app` and open it again.
+
+### Run from source
+
+Requires Node.js 22.12 or later.
 
 ```sh
 git clone https://github.com/AhmedNavaz/throughline.git
@@ -30,7 +40,7 @@ npm start
 
 Build a standalone app for your OS and architecture with `npm run package`; the result is written to `dist/`. Regenerate the app icons from `assets/icon.svg` and `public/icon.svg` with `npm run icons`.
 
-Electron starts and stops the loopback backend itself. No separate server terminal is required. Close the app to stop its managed provider processes. A second desktop launch focuses the existing window. The local build is unsigned; distribution signing and notarization are not configured.
+Electron starts and stops the loopback backend itself. No separate server terminal is required. Close the app to stop its managed provider processes. A second desktop launch focuses the existing window. Without a signing identity, `npm run package` signs macOS builds ad hoc; they are not notarized.
 
 The development launcher clears an inherited `ELECTRON_RUN_AS_NODE` flag before opening Electron, so `npm start` also works from terminals hosted by an Electron-based editor or coding agent. Provider workers retain their own Node-mode configuration.
 
@@ -70,7 +80,7 @@ The run card shows elapsed time, the last provider activity, tool steps and prov
 
 **Git activity** opens the repository inspector. For each attached folder it shows the current branch, staged/unstaged/untracked changes and the latest 15 local commits. GitHub origin repositories also get repository/commit links. This is local history, not a remote fetch or a commit/push action. The panel refreshes while visible; configured hooks, fsmonitor and external clean/process filters are disabled for its Git reads. Select a changed file to review its diff against the last commit (staged and unstaged together; new files in full). External diff drivers and textconv are disabled for diffs too. On wide windows the panel stays open unless you close it, and it refreshes when a run finishes.
 
-The status bar shows the plan usage left for both agents (5-hour and weekly windows, plus model-specific weekly limits when the provider reports them); the composer shows the tightest limit for the selected agent and model. Codex usage comes from its app-server. Claude usage comes from an experimental Claude Agent SDK call and is shown as unavailable if a future SDK removes it. Reading usage never starts inference.
+The status bar shows the plan usage left for both agents (5-hour and weekly windows, plus model-specific weekly limits when the provider reports them); the composer shows the tightest limit for the selected agent and model. Select a meter or the composer chip to see that agent's windows and reset times. Codex usage comes from its app-server. Claude usage comes from an experimental Claude Agent SDK call and is shown as unavailable if a future SDK removes it. Reading usage never starts inference.
 
 Keyboard shortcuts (⌘ on macOS, Ctrl elsewhere): ⌘K filter workspaces (Enter opens the first match), ⌘1–9 switch workspace, ⌘L focus the composer, ⇧⌘G toggle Git activity, ⌘. stop the current run. Messages and code blocks have copy buttons.
 
@@ -136,7 +146,7 @@ For a same-computer test:
 npm run sharing
 ```
 
-Set the GUI service URL to `http://127.0.0.1:4319`. These are local test links; another computer cannot open them. Remote links require a separately deployed HTTPS service with persistent private storage. Deployment, Docker, limits, capabilities and proxy configuration are in [sharing/README.md](sharing/README.md). `AI_RELAY_SHARING_URL` can configure the client, and `AI_RELAY_SHARING_CREATE_KEY` can provide the service's optional creation key.
+Set the GUI service URL to `http://127.0.0.1:4319`. These are local test links; another computer cannot open them. Remote links require a separately deployed HTTPS service with persistent private storage. Each release publishes a container image, `ghcr.io/ahmednavaz/throughline-sharing`. Deployment, Docker, limits, capabilities and proxy configuration are in [sharing/README.md](sharing/README.md). `AI_RELAY_SHARING_URL` can configure the client, and `AI_RELAY_SHARING_CREATE_KEY` can provide the service's optional creation key.
 
 The sharing service stores only approved packages and solutions. It has no execution endpoints, provider credentials, repository mounts or account integration. Do not expose or tunnel the local coding server. Production hosting has **not** been deployed or verified by this implementation.
 
@@ -163,12 +173,14 @@ npm run package        # builds a standalone app into dist/
 npm run icons          # regenerates icons from assets/icon.svg and public/icon.svg
 ```
 
+To release, bump `version` in `package.json`, add a section to [CHANGELOG.md](CHANGELOG.md) and push a matching tag such as `v0.4.1`. GitHub Actions tests and builds both macOS apps, publishes the container image and creates the release.
+
 The app is plain JavaScript with no build step: Node.js ES modules for the local server (`server.mjs` and friends), Electron for the desktop shell (`desktop/`), and static HTML, CSS and JS for the interface (`public/`). Automated tests use mocks, temporary Git repositories, real subprocesses and local HTTP; they never run a model. `npm run test:desktop` does not open or migrate your saved history.
 
 ## Limitations
 
-- Builds are unsigned. macOS signing and notarization, and Windows/Linux packaging, have not been set up or verified.
-- The private-link sharing service is not hosted anywhere. Deploy it yourself with HTTPS and persistent storage (see `sharing/README.md`) before sharing remote links.
+- macOS builds are signed ad hoc and not notarized, so macOS asks you to approve the app once. Windows and Linux builds are not provided yet.
+- The private-link sharing service is not hosted for you. Run the container image yourself with HTTPS and persistent storage (see `sharing/README.md`) before sharing remote links.
 - Returned patches support UTF-8 text files only; binary files and symlinks are rejected, and stale baselines need a new solution.
 - Built-in verification covers reviewed JavaScript syntax and `git diff --check`, not arbitrary test scripts.
 - Secret scanning and redaction help you review what you share; they cannot guarantee that every secret is removed.

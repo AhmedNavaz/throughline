@@ -12,7 +12,7 @@ Run its automated tests with `node --test sharing/test/*.test.mjs`. Tests use te
 
 Use a separate host with HTTPS and a persistent private volume. Do not expose the main Throughline execution server, create a tunnel to it, or mount either person's project or home directory into this service.
 
-Build from the **project root**: `docker build -f sharing/Dockerfile -t ai-relay-sharing .`. Run one replica behind a TLS reverse proxy. Mount a volume writable by the container's `node` user at `/data`. Forward requests to port 4319 on a private network, set `X-Forwarded-Proto: https`, and keep the upstream port inaccessible to public clients. The built-in server is HTTP; the reverse proxy owns TLS. Set the approved application's service URL to the verified public `https://` origin. The local client rejects plaintext external URLs and redirects.
+Each release publishes a prebuilt image for `linux/amd64` and `linux/arm64`: `docker pull ghcr.io/ahmednavaz/throughline-sharing:latest`. To build it yourself, run this from the **project root**: `docker build -f sharing/Dockerfile -t throughline-sharing .`. Run one replica behind a TLS reverse proxy. Mount a volume writable by the container's `node` user at `/data`. Forward requests to port 4319 on a private network, set `X-Forwarded-Proto: https`, and keep the upstream port inaccessible to public clients. The built-in server is HTTP; the reverse proxy owns TLS. Set the approved application's service URL to the verified public `https://` origin. The local client rejects plaintext external URLs and redirects.
 
 Configuration:
 

@@ -1,4 +1,7 @@
 FROM node:22-alpine
+LABEL org.opencontainers.image.source="https://github.com/AhmedNavaz/throughline" \
+      org.opencontainers.image.description="Throughline private-link service for Ask a Friend" \
+      org.opencontainers.image.licenses="MIT"
 WORKDIR /app
 COPY collaboration-format.mjs ./collaboration-format.mjs
 COPY sharing/server.mjs sharing/store.mjs ./sharing/
