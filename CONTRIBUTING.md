@@ -35,7 +35,7 @@ The [architecture guide](docs/architecture.md) explains service boundaries, data
 | `conversation-routes.mjs`, `conversation-import.mjs`, `conversation-export.mjs` | Previous-chat discovery, reviewed imports and conversation files for other users |
 | `collaboration*.mjs`, `patches.mjs`, `sharing-client.mjs` | Ask a Friend: approved packages, returned patches and the private-link client |
 | `workspace-*.mjs`, `file-explorer.mjs`, `mutation-lock.mjs` | Safe file access, Git activity, snapshots and locks that prevent conflicting edits |
-| `public/` | Interface: `app.js` (core), `insights.js` (models, progress, Git and usage), `conversation-history.js` (import and export), `files.js`, `setup.js`, `workbench.js` (Ask a Friend) and the CSS |
+| `public/` | Interface: `app.js` (core), `insights.js` (models, progress, Git and usage), `conversation-history.js` (import and export), `conversation-search.js` (find in the conversation), `files.js`, `setup.js`, `workbench.js` (Ask a Friend) and the CSS |
 | `desktop/` | Electron main process, preload bridge, packaging and icon generation |
 | `sharing/` | The self-hostable private-link service and its container image |
 | `test/` | Node test runner suites; the interface tests use a small fake DOM |

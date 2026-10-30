@@ -48,6 +48,7 @@ The backend modules stay at the repository root while this remains a small appli
 | `conversation-history.js` | Previous-chat discovery, selection, review, merge and export |
 | `setup.js` | Onboarding and saved preferences; announces `relay-setup-ready` after initial setup state loads |
 | `files.js` | File explorer, previews and attachments |
+| `conversation-search.js` | Find in the conversation: match highlights, the match count and moving between matches |
 | `workbench.js` | Ask a Friend review flow |
 | `desktop-controls.js` | Native keep-awake controls |
 
