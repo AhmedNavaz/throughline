@@ -64,6 +64,12 @@
     try { await api.setConfiguration({ model, effort: null }); $('custom-model-editor').hidden = true; }
     catch (error) { api.showNotice(error.message); } finally { modelControls(); }
   });
+  // The field is inside the composer form, where Enter would send the draft with the previous model.
+  $('custom-model-input').addEventListener('keydown', event => {
+    if (event.key !== 'Enter' || event.isComposing) return;
+    event.preventDefault();
+    if (!$('save-custom-model').disabled) $('save-custom-model').click();
+  });
   $('effort-select').addEventListener('change', async () => { try { await api.setConfiguration({ effort: $('effort-select').value || null }); } catch (error) { api.showNotice(error.message); } finally { modelControls(); } });
 
   function progress() {

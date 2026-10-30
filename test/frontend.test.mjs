@@ -322,6 +322,12 @@ test('a custom model can be entered in the composer without starting inference',
   const ui=await browser({insights:true});ui.$('model-select').value='__custom__';ui.fire('model-select','change');await flush();assert.equal(ui.$('custom-model-editor').hidden,false);ui.$('custom-model-input').value='custom-model-id';ui.$('save-custom-model').click();await flush();assert.equal(ui.state().model,'custom-model-id');assert.equal(ui.$('model-select').value,'custom-model-id');assert.equal(ui.$('custom-model-editor').hidden,true);assert.equal(ui.requests.filter(request=>/\/(?:messages|continue)$/.test(request.path)).length,0);
 });
 
+test('Enter in the custom model field saves the model instead of sending the draft',async()=>{
+  const ui=await browser({insights:true});ui.$('message-input').value='Draft for the new model';ui.$('model-select').value='__custom__';ui.fire('model-select','change');await flush();
+  ui.$('custom-model-input').value='custom-model-id';const enter=new UIEvent('keydown',{key:'Enter'});ui.$('custom-model-input').dispatchEvent(enter);await flush();
+  assert.equal(enter.defaultPrevented,true,'The field is inside the composer form, so an unhandled Enter submits the draft.');assert.equal(ui.state().model,'custom-model-id');assert.equal(ui.$('custom-model-editor').hidden,true);assert.equal(ui.requests.filter(request=>/\/(?:messages|continue)$/.test(request.path)).length,0);
+});
+
 test('Git inspector sends workspace-scoped reads and shows changes and commit history',async()=>{
   const ui=await browser({insights:true});ui.$('open-git').click();await flush();assert.equal(ui.$('git-panel').hidden,false);assert.match(ui.$('git-summary').textContent,/feature\/design/);assert.match(ui.$('git-content').textContent,/app.js/);
   const request=ui.requests.find(row=>row.path==='/api/git');assert.equal(request.projectId,'project-one');assert.equal(request.method,'GET');ui.$('git-commits-tab').click();await flush();assert.match(ui.$('git-content').textContent,/Improve workspace navigation/);ui.$('close-git').click();assert.equal(ui.$('git-panel').hidden,true);
