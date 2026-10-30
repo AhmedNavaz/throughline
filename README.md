@@ -74,7 +74,7 @@ Nothing runs until you press **Send**, and every run uses your own installed CLI
 
 ## Roadmap
 
-Next up: notarized macOS builds, automatic updates, Windows and Linux builds, and more agents and models such as Gemini, Grok and DeepSeek. Further out: voice mode (say what you want, hear a short summary of what changed), automatic model and effort choice for each request, live progress in your Mac's menu bar or notch, and agents that review each other's work. See [ROADMAP.md](ROADMAP.md) for the full plan.
+Next up: notarized macOS builds, automatic updates, resuming work as soon as a usage limit resets, Windows and Linux builds, and more agents and models such as Gemini, Grok and DeepSeek. Further out: voice mode (say what you want, hear a short summary of what changed), automatic model and effort choice for each request, live progress in your Mac's menu bar or notch, and agents that review each other's work. See [ROADMAP.md](ROADMAP.md) for what has shipped and the full plan.
 
 ## Support Throughline
 
