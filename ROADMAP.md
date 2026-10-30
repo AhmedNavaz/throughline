@@ -1,6 +1,6 @@
 # Roadmap
 
-What Throughline already does, what is coming next and the bigger ideas being explored. Planned work follows the Now, Next, Later format: **Now** is first in line, **Next** follows once those land, **Later** is further out, and **Exploring** holds larger ideas that need design before anyone builds them. Priorities can change with feedback, so treat this as a plan rather than a promise.
+What Throughline already does, what is coming next and the bigger ideas being explored. **Now** is the current focus, **Next** is follow-up work, **Later** is further out, and **Exploring** holds larger ideas that need design before implementation. Dependencies are listed per item; blocked work does not hold up independent improvements. Priorities can change with feedback, so treat this as a plan rather than a promise.
 
 Every planned item has an issue. Comment there to shape it or to pick it up, and open one first for anything new. Release-by-release details are in the [changelog](CHANGELOG.md); bugs are tracked under the [bug label](https://github.com/AhmedNavaz/throughline/labels/bug).
 
@@ -35,11 +35,16 @@ These changes are merged on `main` and will be included in the next published bu
 | Feature | Pull request |
 | --- | --- |
 | Search the conversation with Cmd/Ctrl+F, highlights and next/previous matches | [#39](https://github.com/AhmedNavaz/throughline/pull/39) |
+| Recover from failed conversation saves and abandoned empty journals | [#41](https://github.com/AhmedNavaz/throughline/pull/41) |
 
 ## Now
 
 | Feature | Status | Issue |
 | --- | --- | --- |
+| Quiet background agent checks that preserve verified connection status | Planned, help wanted | [#43](https://github.com/AhmedNavaz/throughline/issues/43) |
+| Compact workspace activity with clear actions, results and expandable details | Planned, help wanted | [#45](https://github.com/AhmedNavaz/throughline/issues/45) |
+| Persistent approval indicators and desktop notifications that open the right request | Planned | [#46](https://github.com/AhmedNavaz/throughline/issues/46) |
+| System appearance alongside explicit Light and Dark themes | Planned, help wanted | [#44](https://github.com/AhmedNavaz/throughline/issues/44) |
 | Notarized macOS builds, so downloads open without a security prompt | Waiting on an Apple Developer account | [#1](https://github.com/AhmedNavaz/throughline/issues/1) |
 | Automatic updates from GitHub Releases | Depends on #1 | [#2](https://github.com/AhmedNavaz/throughline/issues/2) |
 | Install with Homebrew: `brew install --cask throughline` | Depends on #1 | [#3](https://github.com/AhmedNavaz/throughline/issues/3) |
@@ -48,11 +53,13 @@ These changes are merged on `main` and will be included in the next published bu
 
 | Feature | Status | Issue |
 | --- | --- | --- |
+| Run, test and stop the current project with saved commands and live output | Planned; first step toward the terminal | [#47](https://github.com/AhmedNavaz/throughline/issues/47) |
+| Full auto-approval for agent tool requests, with an explicit visible permission mode | Provider permission mapping needs design | [#48](https://github.com/AhmedNavaz/throughline/issues/48) |
 | Resume when limits reset: continue on whichever agent resets first, and queue prompts until then | Planned, help wanted | [#32](https://github.com/AhmedNavaz/throughline/issues/32) |
 | More agents and models: Gemini, Grok, DeepSeek, Qwen and local models, on your own accounts | Planned, help wanted | [#4](https://github.com/AhmedNavaz/throughline/issues/4) |
 | Windows and Linux builds | Planned, help wanted | [#5](https://github.com/AhmedNavaz/throughline/issues/5) |
 | Commit reviewed changes from the Git panel | Planned | [#6](https://github.com/AhmedNavaz/throughline/issues/6) |
-| Integrated workspace terminal | Needs design | [#7](https://github.com/AhmedNavaz/throughline/issues/7) |
+| Integrated workspace terminal | Follows project command controls; PTY design needed | [#7](https://github.com/AhmedNavaz/throughline/issues/7) |
 | Deployment templates for the private-link service | Planned, help wanted | [#9](https://github.com/AhmedNavaz/throughline/issues/9) |
 | Run the project's own tests on a returned patch, with approval | Planned | [#10](https://github.com/AhmedNavaz/throughline/issues/10) |
 
@@ -66,13 +73,13 @@ These changes are merged on `main` and will be included in the next published bu
 
 ## Exploring
 
-Things no coding tool brings together in one place today. Each needs design work first, so join the issue before building. Like everything else in Throughline, they run on your own subscriptions.
+Larger ideas for bringing project context, execution and collaboration into one workspace. Each needs design work first, so join the issue before building. They continue to use your own agent accounts.
 
 | Idea | Issue |
 | --- | --- |
 | **Voice mode.** Say what you want, the agent does it, then reads back a short spoken summary. Ask about the project out loud too. | [#11](https://github.com/AhmedNavaz/throughline/issues/11) |
 | **Smart model and effort.** Pick the agent, model and effort that fit each request, to save usage on simple tasks. | [#12](https://github.com/AhmedNavaz/throughline/issues/12) |
-| **Live status at a glance.** Progress, highlights and input requests in the Mac menu bar and around the notch. | [#13](https://github.com/AhmedNavaz/throughline/issues/13) |
+| **Live status at a glance.** Progress and input requests in the Mac menu bar and around the notch, extending the desktop approval alerts in [#46](https://github.com/AhmedNavaz/throughline/issues/46). | [#13](https://github.com/AhmedNavaz/throughline/issues/13) |
 | **Play while it works.** Small built-in games for long runs that pause the moment the agent needs you. | [#14](https://github.com/AhmedNavaz/throughline/issues/14) |
 | **Tag-team agents.** One agent builds while the other reviews the diff before you see it. | [#15](https://github.com/AhmedNavaz/throughline/issues/15) |
 | **Race mode.** Two agents take the same task in separate worktrees; keep the better result. | [#16](https://github.com/AhmedNavaz/throughline/issues/16) |
@@ -82,7 +89,7 @@ Things no coding tool brings together in one place today. Each needs design work
 | **Rewind.** One timeline of messages, file changes and commits, with checkpoints to undo any step. | [#20](https://github.com/AhmedNavaz/throughline/issues/20) |
 | **Project memory.** A living brief of goals, decisions and conventions that every agent reads. | [#21](https://github.com/AhmedNavaz/throughline/issues/21) |
 | **"While you were away" recaps.** A short written or spoken briefing of what ran and what is waiting. | [#22](https://github.com/AhmedNavaz/throughline/issues/22) |
-| **Approve from your phone.** Follow runs and answer approvals on your phone, with iPhone Live Activities. | [#23](https://github.com/AhmedNavaz/throughline/issues/23) |
+| **Approve from your phone.** Extend desktop approval alerts to a paired phone, with run progress and iPhone Live Activities. | [#23](https://github.com/AhmedNavaz/throughline/issues/23) |
 | **Live multiplayer.** Teammates in the same conversation in real time, each on their own subscription. | [#24](https://github.com/AhmedNavaz/throughline/issues/24) |
 
 ## Good places to start
