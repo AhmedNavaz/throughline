@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -238,6 +239,25 @@ test('locks apply only to opened projects and close releases them for another re
   const thirdRegistry = env.open();
   assert.equal(thirdRegistry.broker(first.id).list().length, 1);
   assert.equal(thirdRegistry.broker(second.id).list().length, 1);
+});
+
+test('a lock left by a crash is replaced once its process ID belongs to a newer process', async t => {
+  if (process.platform !== 'darwin') return t.skip('Only macOS reports when a process started on the wall clock.');
+  const env = setup(t);
+  const registry = env.open();
+  const project = registry.add({ path: env.workspaces[0] });
+  registry.broker(project.id).create();
+  await registry.close();
+  const other = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
+  t.after(() => other.kill());
+  const lock = path.join(env.dataRoot, project.id, 'server.lock');
+  fs.writeFileSync(lock, JSON.stringify({ pid: other.pid, token: 'left-by-a-crash' }));
+  assert.throws(() => env.open().broker(project.id), /already running for this project/, 'The process started before its lock was written.');
+
+  // The crashed instance wrote its lock an hour ago, and the process now using its ID started later.
+  const written = new Date(Date.now() - 60 * 60 * 1000);
+  fs.utimesSync(lock, written, written);
+  assert.equal(env.open().broker(project.id).list().length, 1);
 });
 
 test('projects can run independently and registry close stops every run before releasing locks', async t => {

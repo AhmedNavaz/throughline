@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -188,6 +189,27 @@ test('signalling an exited process group on macOS counts as stopped, not as an e
   assert.doesNotThrow(() => Broker.prototype.signal.call(null, run, 'SIGKILL'), 'macOS returns EPERM while the exited group awaits reaping.');
   Object.defineProperty(process, 'platform', { value: 'linux' });
   assert.throws(() => Broker.prototype.signal.call(null, run, 'SIGKILL'), { code: 'EPERM' }, 'Elsewhere EPERM is a real permission error.');
+});
+
+test('restart recovers a run whose process group ID now belongs to a newer process, and reports a live group', t => {
+  if (process.platform !== 'darwin') return t.skip('Only macOS reports when a process started on the wall clock.');
+  const env = setup(t);
+  const broker = env.open();
+  const c = conversation(broker);
+  const other = spawn('/bin/sleep', ['30'], { detached: true, stdio: 'ignore' });
+  t.after(() => other.kill());
+  broker.record(c, { type: 'run_start', id: 'crashed-run', provider: 'codex' });
+  broker.record(c, { type: 'run_process', pid: other.pid });
+  assert.throws(() => env.open(), { status: 409, message: /previous run may still be active \(process group \d+\)/ }, 'The group leader started before the run recorded it.');
+
+  // The crashed run recorded its process group an hour ago, and the group now using that ID started later.
+  const filename = path.join(env.dataDir, `${c.id}.jsonl`);
+  const records = fs.readFileSync(filename, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  records.at(-1).at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  fs.writeFileSync(filename, `${records.map(record => JSON.stringify(record)).join('\n')}\n`);
+  const recovered = env.open().get(c.id);
+  assert.equal(recovered.status, 'interrupted');
+  assert.ok(recovered.messages.some(m => m.role === 'error' && /previous run was interrupted/.test(m.text)));
 });
 
 test('rejects concurrent turns and preserves partial output when cancelled', async t => {

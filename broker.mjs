@@ -10,6 +10,7 @@ import { prepareContext, emptyContext, validateContext } from './context.mjs';
 import { classifyError, capabilities, accountStatus } from './providers.mjs';
 import { workspaceBaseline } from './workspace-baseline.mjs';
 import { AttachmentStore } from './attachments.mjs';
+import { startedAfter } from './mutation-lock.mjs';
 
 export const PROVIDERS = ['codex', 'claude'];
 const MODES = ['edit', 'read'];
@@ -95,7 +96,8 @@ export class Broker extends EventEmitter {
         if (conversation.activeRun.pid && process.platform !== 'win32') {
           try {
             process.kill(-conversation.activeRun.pid, 0);
-            throw new Error(`An assistant from the previous run may still be active (process group ${conversation.activeRun.pid}). Stop that process group before restarting Throughline.`);
+            // A leader that started after the run recorded its group means the ID now names a new group.
+            if (!startedAfter(conversation.activeRun.pid, Date.parse(conversation.activeRun.pidRecordedAt))) throw Object.assign(new Error(`An assistant from the previous run may still be active (process group ${conversation.activeRun.pid}). Stop that process group before restarting Throughline.`), { status: 409 });
           } catch (error) { if (!groupGone(error)) throw error; }
         }
         for (const message of conversation.messages.filter(m => m.runId === conversation.activeRun.id && m.role === 'assistant')) {
@@ -158,7 +160,7 @@ export class Broker extends EventEmitter {
       c.activeRun = { id: record.id, provider: record.provider, startedAt: record.at };
       c.status = 'running';
     }
-    if (record.type === 'run_process' && c.activeRun) c.activeRun.pid = record.pid;
+    if (record.type === 'run_process' && c.activeRun) Object.assign(c.activeRun, { pid: record.pid, pidRecordedAt: record.at });
     if (record.type === 'run_end') { c.lastRun = { ...c.activeRun, status: record.status, errorCategory: record.errorCategory || null, endedAt: record.at }; c.activeRun = null; c.status = record.status; }
   }
 

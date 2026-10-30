@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { fork } from 'node:child_process';
+import { fork, spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { EventEmitter, once } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -108,6 +109,25 @@ test('registry merges stale instances and overlapping mutations exclude provider
   assert.equal(c.messages.length, 0);
   release(); await held;
   await second.withMutation(child.id, 'patch', async () => {});
+});
+
+test('a mutation lease left by a crash is cleared once its process IDs belong to newer processes', t => {
+  if (process.platform !== 'darwin') return t.skip('Only macOS reports when a process started on the wall clock.');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-reused-pid-'));
+  const workspace = path.join(root, 'workspace'); fs.mkdirSync(workspace);
+  const coordinator = new MutationCoordinator(path.join(root, 'history'));
+  const other = spawn('/bin/sleep', ['30'], { detached: true, stdio: 'ignore' });
+  const stale = path.join(coordinator.root, `${randomUUID()}.json`);
+  t.after(() => { other.kill(); fs.rmSync(stale, { force: true }); fs.rmSync(root, { recursive: true, force: true }); });
+  const exited = spawnSync('/usr/bin/true').pid, written = new Date(Date.now() - 60 * 60 * 1000);
+  // The crashed instance's own process ID, then the process group of its assistant.
+  for (const owner of [{ pid: other.pid, processGroup: null }, { pid: exited, processGroup: other.pid }]) {
+    fs.writeFileSync(stale, JSON.stringify({ id: 'left-by-a-crash', workspace: fs.realpathSync(workspace), workspaces: [fs.realpathSync(workspace)], operation: 'provider:codex', ...owner, createdAt: written.toISOString() }));
+    assert.throws(() => coordinator.acquire(workspace, 'patch'), /Project files are busy/, 'The process started before its lease was written.');
+    fs.utimesSync(stale, written, written);
+    coordinator.acquire(workspace, 'patch').release();
+    assert.equal(fs.existsSync(stale), false);
+  }
 });
 test('Codex official JSON-RPC approvals return decisions and respect native access/model settings', async () => {
   class FakeClient extends EventEmitter {
