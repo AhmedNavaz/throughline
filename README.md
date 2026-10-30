@@ -21,11 +21,17 @@ Throughline is a desktop app for working with AI coding agents. Each project is 
 
 You need Claude Code and/or the Codex CLI installed and signed in. Throughline runs on those accounts.
 
-### Download for macOS
+### Install on macOS
 
-Get the latest build from [Releases](https://github.com/AhmedNavaz/throughline/releases/latest): the `mac-apple-silicon` zip for M1 and later, or the `mac-intel` zip for Intel Macs. Unzip it and move **Throughline** to Applications.
+Run this in Terminal:
 
-The app is not notarized by Apple yet, so the first time you open it macOS says it cannot verify the developer. Open **System Settings › Privacy & Security** and click **Open Anyway**. You only need to do this once. If macOS instead says the app is damaged, run `xattr -cr /Applications/Throughline.app` and open it again.
+```sh
+curl -fsSL https://raw.githubusercontent.com/AhmedNavaz/throughline/main/install.sh | sh
+```
+
+It downloads the latest release for your Mac (Apple Silicon or Intel), checks it against the release's published checksum and installs it in Applications. You can [read the script](install.sh) first.
+
+Or download the zip from [Releases](https://github.com/AhmedNavaz/throughline/releases/latest), unzip it and move **Throughline** to Applications. The app is not notarized by Apple yet, so the first time you open a browser download macOS says it cannot verify the developer. Open **System Settings › Privacy & Security** and click **Open Anyway**. You only need to do this once. If macOS instead says the app is damaged, run `xattr -cr /Applications/Throughline.app` and open it again.
 
 ### Run from source
 
@@ -179,7 +185,7 @@ The app is plain JavaScript with no build step: Node.js ES modules for the local
 
 ## Limitations
 
-- macOS builds are signed ad hoc and not notarized, so macOS asks you to approve the app once. Windows and Linux builds are not provided yet.
+- macOS builds are signed ad hoc and not notarized, so macOS asks you to approve a browser download once. Windows and Linux builds are not provided yet.
 - The private-link sharing service is not hosted for you. Run the container image yourself with HTTPS and persistent storage (see `sharing/README.md`) before sharing remote links.
 - Returned patches support UTF-8 text files only; binary files and symlinks are rejected, and stale baselines need a new solution.
 - Built-in verification covers reviewed JavaScript syntax and `git diff --check`, not arbitrary test scripts.
