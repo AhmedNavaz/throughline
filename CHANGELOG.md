@@ -8,6 +8,10 @@ Notable changes to Throughline. The format follows [Keep a Changelog](https://ke
 
 - Find in the conversation with Cmd/Ctrl+F: highlight matches across text formatting and code, move between results, and reveal matches in collapsed activity groups ([#39](https://github.com/AhmedNavaz/throughline/pull/39), thanks [@seeebbii](https://github.com/seeebbii)).
 
+### Fixed
+
+- A failed conversation save no longer corrupts the next saved message. Empty or incomplete unused journals no longer prevent the workspace from opening after restart ([#41](https://github.com/AhmedNavaz/throughline/pull/41), thanks [@seeebbii](https://github.com/seeebbii)).
+
 ## [0.6.2] - 2026-10-30
 
 ### Fixed
