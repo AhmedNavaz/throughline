@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { EventEmitter, once } from 'node:events';
 import { workspaceGit, workspaceGitDiff, githubRepository } from '../workspace-git.mjs';
 import { ConversationImporter } from '../conversation-import.mjs';
@@ -62,6 +63,35 @@ test('workspace discovery matches attached folder paths and excludes Throughline
   assert.deepEqual((await importer.list('claude',f.folders)).sessions.map(session=>session.id),['claude-match']);
   assert.equal(calls[0].includeProgrammatic,false);
   assert.deepEqual((await importer.list('codex',f.folders)).sessions.map(session=>session.id),['codex-match']);
+});
+
+test('a previous chat from a subfolder typed in another letter case stays inside the workspace folder',async t=>{
+  const f=fixture(t),workspace=fs.realpathSync(f.workspace);fs.mkdirSync(path.join(workspace,'Backend'));
+  const typed=path.join(path.dirname(workspace),path.basename(workspace).toUpperCase(),'backend');
+  if(!fs.existsSync(typed))return t.skip('This file system distinguishes letter case.');
+  const importer={preview:async(provider,sessionId)=>({provider,sessionId,title:'Backend chat',cwd:typed,digest:'reviewed',messages:[{sourceId:sessionId,role:'user',text:'Backend history',timestamp:'2026-10-20T09:00:00Z'}]})};
+  const app=createRelayServer({workspace,dataRoot:path.join(f.root,'app'),importer,bins:{codex:'/missing',claude:'/missing'}});
+  app.server.listen(0,'127.0.0.1');await once(app.server,'listening');f.closers.push(()=>app.close());
+  const project=app.registry.list()[0];
+  const response=await fetch('http://127.0.0.1:'+app.server.address().port+'/api/import-sources/import',{method:'POST',headers:{'X-AI-Relay':'1','Content-Type':'application/json'},body:JSON.stringify({projectId:project.id,sessions:[{provider:'claude',sessionId:'claude-backend',approvedDigest:'reviewed'}]})});
+  assert.equal(response.status,200);
+  assert.deepEqual(app.registry.get(project.id).folders.map(folder=>folder.path),[workspace],'The chat comes from a subfolder of the workspace folder, so no folder is added.');
+});
+
+test('a previous chat from a subfolder stays inside a workspace folder saved in another letter case',async t=>{
+  const f=fixture(t),workspace=fs.realpathSync(f.workspace);fs.mkdirSync(path.join(workspace,'Backend'));
+  const saved=path.join(path.dirname(workspace),path.basename(workspace).toUpperCase());
+  if(!fs.existsSync(saved))return t.skip('This file system distinguishes letter case.');
+  // Earlier versions saved a folder as it was typed, with IDs derived from that path.
+  const id=createHash('sha256').update(saved).digest('hex').slice(0,16),dataRoot=path.join(f.root,'app');
+  fs.mkdirSync(dataRoot,{recursive:true});
+  fs.writeFileSync(path.join(dataRoot,'projects.json'),JSON.stringify({version:2,projects:[{id,name:'saved',path:saved,folders:[{id,name:'saved',displayName:'saved',path:saved}],folderAliases:{[id]:'saved'},conversationId:null,createdAt:'2026-10-01T09:00:00.000Z'}]}));
+  const importer={preview:async(provider,sessionId)=>({provider,sessionId,title:'Backend chat',cwd:path.join(workspace,'Backend'),digest:'reviewed',messages:[{sourceId:sessionId,role:'user',text:'Backend history',timestamp:'2026-10-20T09:00:00Z'}]})};
+  const app=createRelayServer({dataRoot,importer,bins:{codex:'/missing',claude:'/missing'}});
+  app.server.listen(0,'127.0.0.1');await once(app.server,'listening');f.closers.push(()=>app.close());
+  const response=await fetch('http://127.0.0.1:'+app.server.address().port+'/api/import-sources/import',{method:'POST',headers:{'X-AI-Relay':'1','Content-Type':'application/json'},body:JSON.stringify({projectId:id,sessions:[{provider:'claude',sessionId:'claude-backend',approvedDigest:'reviewed'}]})});
+  assert.equal(response.status,200);
+  assert.deepEqual(app.registry.get(id).folders.map(folder=>folder.path),[saved],'The chat comes from a subfolder of the saved folder, so no folder is added.');
 });
 
 test('workspace history marks previously merged sources and remembers the completed review',async t=>{

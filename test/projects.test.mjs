@@ -85,6 +85,43 @@ test('projects persist with stable realpath IDs and deduplicate symlinks without
   assert.deepEqual(reopened.list(), [renamed]);
 });
 
+test('a folder typed in another letter case is the same workspace folder', t => {
+  const env = setup(t);
+  const registry = env.open();
+  const workspace = fs.realpathSync(env.workspaces[0]);
+  const typed = path.join(path.dirname(workspace), path.basename(workspace).toUpperCase());
+  if (!fs.existsSync(typed)) return t.skip('This file system distinguishes letter case.');
+  const project = registry.add({ path: workspace });
+  assert.equal(registry.add({ path: typed }).id, project.id);
+  assert.equal(registry.list().length, 1);
+  assert.deepEqual(registry.addFolder(project.id, typed).folders.map(folder => folder.path), [workspace]);
+  fs.mkdirSync(path.join(workspace, 'Backend'));
+  assert.equal(registry.add({ path: path.join(typed, 'backend') }).path, path.join(workspace, 'Backend'), 'A new folder is saved with its name as it is on disk.');
+});
+
+test('a workspace saved with a folder typed in another letter case keeps its identity and history', async t => {
+  const env = setup(t);
+  const workspace = fs.realpathSync(env.workspaces[0]);
+  const saved = path.join(path.dirname(workspace), path.basename(workspace).toUpperCase());
+  if (!fs.existsSync(saved)) return t.skip('This file system distinguishes letter case.');
+  // Earlier versions saved a folder as it was typed, with IDs derived from that path.
+  const id = createHash('sha256').update(saved).digest('hex').slice(0, 16);
+  fs.mkdirSync(env.dataRoot, { recursive: true });
+  fs.writeFileSync(path.join(env.dataRoot, 'projects.json'), JSON.stringify({ version: 2, projects: [{ id, name: 'saved', path: saved, folders: [{ id, name: 'saved', displayName: 'saved', path: saved }], folderAliases: { [id]: 'saved' }, conversationId: null, createdAt: '2026-10-01T09:00:00.000Z' }] }));
+  let registry = env.open();
+  const conversation = registry.mainConversation(id), broker = registry.broker(id);
+  broker.message(broker.get(conversation.id), 'user', 'Saved before the upgrade', 'codex');
+  await registry.close();
+
+  registry = env.open();
+  for (const folder of [saved, workspace, path.join(path.dirname(workspace), 'First Project')]) {
+    assert.equal(registry.add({ path: folder }).id, id, `${path.basename(folder)} is the saved workspace.`);
+    assert.deepEqual(registry.addFolder(id, folder).folders.map(item => [item.id, item.path]), [[id, saved]], 'The saved folder keeps its ID and path.');
+  }
+  assert.equal(registry.list().length, 1);
+  assert.deepEqual(registry.broker(id).get(registry.mainConversation(id).id).messages.map(m => m.text), ['Saved before the upgrade']);
+});
+
 test('registration validates folders and expands a leading home shortcut', t => {
   const env = setup(t);
   const registry = env.open();
