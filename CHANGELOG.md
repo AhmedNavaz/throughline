@@ -2,6 +2,18 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Deliver long agent replies and CLI output completely before the provider worker exits ([#34](https://github.com/AhmedNavaz/throughline/pull/34)).
+- Keep code blocks with language labels such as `constructor` or `__proto__` from blanking the conversation ([#35](https://github.com/AhmedNavaz/throughline/pull/35)).
+- Preserve Unicode characters split across HTTP request chunks ([#36](https://github.com/AhmedNavaz/throughline/pull/36)).
+- Save a custom model on Enter without submitting the conversation draft ([#37](https://github.com/AhmedNavaz/throughline/pull/37)).
+- Import the newest visible messages from long Claude conversations ([#38](https://github.com/AhmedNavaz/throughline/pull/38)).
+
+Thanks to [@seeebbii](https://github.com/seeebbii) for these five fixes.
+
 ## [0.6.1] - 2026-10-30
 
 ### Changed
@@ -63,6 +75,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[Unreleased]: https://github.com/AhmedNavaz/throughline/compare/v0.6.1...HEAD
 [0.6.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.1
 [0.6.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.0
 [0.5.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.5.0
