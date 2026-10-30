@@ -162,7 +162,8 @@ test('rejects concurrent turns and preserves partial output when cancelled', asy
   assert.deepEqual(broker.stop(other.id), { stopped: false });
   assert.equal(broker.running, active);
   assert.deepEqual(broker.stop(c.id), { stopped: true });
-  await active.done;
+  const completion = await active.done;
+  assert.equal(completion.error, undefined, completion.error);
 
   assert.equal(c.status, 'interrupted');
   assert.equal(c.activeRun, null);
