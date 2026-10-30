@@ -177,6 +177,26 @@ test('rejects invalid providers, malformed JSON and unknown conversations', asyn
   assert.equal((await (await fetch(`${f.url}/api/conversations`)).json()).length, 1);
 });
 
+test('keeps multi-byte characters that arrive split across request chunks', async t => {
+  const f = await fixture(t);
+  const { id } = await (await fetch(`${f.url}/api/conversation`)).json();
+  const body = Buffer.from(JSON.stringify({ goal: 'Café ☕ 東京' })), split = body.indexOf(Buffer.from('é')) + 1;
+  const response = await new Promise((resolve, reject) => {
+    const req = http.request(`${f.url}/api/conversations/${id}/context`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-AI-Relay': '1' } }, res => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { text += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(text) }));
+    });
+    req.on('error', reject);
+    // Two writes with a pause arrive as separate chunks, with the two bytes of "é" on either side.
+    req.write(body.subarray(0, split));
+    setTimeout(() => req.end(body.subarray(split)), 50);
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.context.goal, 'Café ☕ 東京');
+});
+
 test('rejects foreign origins, rebinding hosts and mutations without the application header', async t => {
   const f = await fixture(t);
   for (const origin of ['https://attacker.example', `http://127.0.0.1:${f.port + 1}`, 'null']) {
