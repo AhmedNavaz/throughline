@@ -13,6 +13,8 @@ import { AttachmentStore } from './attachments.mjs';
 
 export const PROVIDERS = ['codex', 'claude'];
 const MODES = ['edit', 'read'];
+// macOS reports EPERM, not ESRCH, for a process group whose remaining members have exited but are not yet reaped.
+const groupGone = error => error.code === 'ESRCH' || (error.code === 'EPERM' && process.platform === 'darwin');
 const clip = (text, max = 16000) => String(text ?? '').length > max
   ? `${String(text).slice(0, max)}\n[Output shortened; inspect project files for the full state.]`
   : String(text ?? '');
@@ -92,7 +94,7 @@ export class Broker extends EventEmitter {
           try {
             process.kill(-conversation.activeRun.pid, 0);
             throw new Error(`An assistant from the previous run may still be active (process group ${conversation.activeRun.pid}). Stop that process group before restarting Throughline.`);
-          } catch (error) { if (error.code !== 'ESRCH') throw error; }
+          } catch (error) { if (!groupGone(error)) throw error; }
         }
         for (const message of conversation.messages.filter(m => m.runId === conversation.activeRun.id && m.role === 'assistant')) {
           this.record(conversation, { type: 'message_update', id: message.id, update: { status: 'incomplete' } });
@@ -471,7 +473,7 @@ export class Broker extends EventEmitter {
     try {
       if (process.platform !== 'win32') process.kill(-run.child.pid, signal);
       else run.child.kill(signal);
-    } catch (error) { if (error.code !== 'ESRCH') throw error; }
+    } catch (error) { if (!groupGone(error)) throw error; }
   }
 
   stop(id) {

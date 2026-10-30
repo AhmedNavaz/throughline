@@ -146,6 +146,17 @@ test('restart recovers an unfinished run and repairs a torn final journal line',
   assert.ok(env.captures().at(-1).context.context.some(m => m.text === 'Saved before the process crashed' && m.status === 'incomplete'));
 });
 
+test('signalling an exited process group on macOS counts as stopped, not as an error', t => {
+  const kill = process.kill, platform = Object.getOwnPropertyDescriptor(process, 'platform');
+  t.after(() => { process.kill = kill; Object.defineProperty(process, 'platform', platform); });
+  process.kill = () => { throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' }); };
+  const run = { child: { pid: 4242, kill() {} } };
+  Object.defineProperty(process, 'platform', { value: 'darwin' });
+  assert.doesNotThrow(() => Broker.prototype.signal.call(null, run, 'SIGKILL'), 'macOS returns EPERM while the exited group awaits reaping.');
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  assert.throws(() => Broker.prototype.signal.call(null, run, 'SIGKILL'), { code: 'EPERM' }, 'Elsewhere EPERM is a real permission error.');
+});
+
 test('rejects concurrent turns and preserves partial output when cancelled', async t => {
   const env = setup(t, { 'Keep working': { behavior: 'hang', text: 'Partial work before cancellation' } });
   const broker = env.open();
