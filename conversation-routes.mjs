@@ -34,7 +34,8 @@ export function createConversationRoutes({ registry, body, json, importer = new 
     let project;
     if (input.projectId) {
       project = registry.get(input.projectId);
-      for (const folder of folders) if (!project.folders.some(entry => inside(folder, entry.path))) project = registry.addFolder(project.id, folder);
+      // A folder saved by an earlier version can differ from the disk in letter case.
+      for (const folder of folders) if (!project.folders.some(entry => inside(folder, existingFolder(entry.path) || entry.path))) project = registry.addFolder(project.id, folder);
     } else {
       if (!folders.length && !chosenFolders.length) fail(previews.every(preview => preview.provider === 'file') ? 'Choose the folder on this computer where you keep this project.' : 'The project folders of these conversations no longer exist on this computer. Create a workspace for the current folder, then import into it.', 422);
       project = registry.add({ ...(typeof input.name === 'string' && input.name.trim() ? { name: input.name } : {}), folders: [...folders, ...chosenFolders] });

@@ -33,6 +33,18 @@ test('overlapping workspaces exclude mutations when a folder is typed in another
   try {assert.throws(()=>coordinator.acquire(path.join(root,'shop','BACKEND'),'patch'),/overlapping workspace/);}finally{lease.release();}
 });
 
+test('a lease saved with a folder typed in another letter case still excludes overlapping mutations',t=>{
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'relay-case-lease-')));
+  const coordinator=new MutationCoordinator(path.join(root,'data')),saved=path.join(coordinator.root,`relay-case-lease-${process.pid}.json`);
+  t.after(()=>{fs.rmSync(saved,{force:true});fs.rmSync(root,{recursive:true,force:true});});
+  fs.mkdirSync(path.join(root,'Shop','Backend'),{recursive:true});
+  if(!fs.existsSync(path.join(root,'shop')))return t.skip('This file system distinguishes letter case.');
+  // Earlier versions saved a lease's folders as they were typed. This one belongs to a live instance.
+  fs.writeFileSync(saved,JSON.stringify({id:'before-the-upgrade',workspace:path.join(root,'shop'),workspaces:[path.join(root,'shop')],operation:'provider:codex',pid:process.pid,processGroup:null,createdAt:new Date().toISOString()}));
+  assert.throws(()=>coordinator.acquire(path.join(root,'shop','Backend'),'patch'),/overlapping workspace/);
+  assert.ok(fs.existsSync(saved),'The saved lease still belongs to its instance.');
+});
+
 function setup(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-reliability-'));
   const workspace = path.join(root, 'workspace'); fs.mkdirSync(workspace);

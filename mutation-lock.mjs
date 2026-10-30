@@ -73,7 +73,9 @@ export class MutationCoordinator {
         const other = JSON.parse(fs.readFileSync(full, 'utf8'));
         if (!alive(other.pid) && !groupAlive(other.processGroup)) { fs.unlinkSync(full); continue; }
         const otherRoots = other.workspaces || [other.workspace];
-        if (workspaces.some(workspace => otherRoots.some(otherRoot => overlaps(workspace, otherRoot)))) throw fail(`Project files are busy: ${other.operation} is active in an overlapping workspace.`);
+        // Leases from earlier versions hold folders as they were typed, so compare their paths on disk too.
+        const otherFolders = otherRoots.map(root => { try { return fs.realpathSync.native(root); } catch { return root; } });
+        if (workspaces.some(workspace => otherFolders.some(folder => overlaps(workspace, folder)))) throw fail(`Project files are busy: ${other.operation} is active in an overlapping workspace.`);
       }
       fs.writeFileSync(filename, JSON.stringify(value), { flag: 'wx', mode: 0o600 });
     });

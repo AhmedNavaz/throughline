@@ -22,6 +22,9 @@ function canonicalFolder(input) {
   try { directory = fs.realpathSync.native(directory); if (!fs.statSync(directory).isDirectory()) throw fail('The project path must be a folder.'); return directory; }
   catch (error) { if (error.status) throw error; throw fail(`Cannot open the project folder: ${input.trim()}. Check that it exists and is accessible.`); }
 }
+// Earlier versions saved folders in the letter case they were typed in, with IDs derived from that path.
+// Compare saved folders by their path on disk, and keep the saved path and ID.
+function diskPath(directory) { try { return fs.realpathSync.native(directory); } catch { return directory; } }
 function displayName(value, fallback) {
   if (value === undefined) return fallback;
   if (typeof value !== 'string' || !value.trim() || value.trim().length > 120) throw fail('Enter a name between 1 and 120 characters.');
@@ -36,7 +39,7 @@ function alias(value, reserved) {
 function folderRecord(input, previous = [], aliases = {}) {
   const value = typeof input === 'string' ? { path: input } : input;
   const directory = canonicalFolder(value?.path); const id = stableId(directory);
-  const existing = previous.find(folder => folder.id === id);
+  const existing = previous.find(folder => folder.id === id || diskPath(folder.path) === directory);
   if (existing) return { ...existing };
   const human = displayName(value.displayName ?? value.name, path.basename(directory) || directory);
   const name = aliases[id] || alias(value.name || path.basename(directory), new Set(Object.values(aliases)));
@@ -127,7 +130,7 @@ export class ProjectRegistry extends EventEmitter {
       for (const item of supplied) { const folder = folderRecord(item, folders, aliases); if (!folders.some(existing => existing.id === folder.id)) folders.push(folder); }
       if (folders.length > 32) throw fail('Select between 1 and 32 workspace folders.');
       const roots = [...folders.map(folder => folder.path)].sort();
-      const previous = [...this.projects.values()].find(project => project.folders.length === roots.length && project.folders.every(folder => roots.includes(folder.path)));
+      const previous = [...this.projects.values()].find(project => project.folders.length === roots.length && project.folders.every(folder => roots.includes(diskPath(folder.path))));
       if (previous) {
         const name = input.name === undefined ? previous.name : displayName(input.name, previous.name);
         if (name === previous.name && !previous.removedAt) return previous;
