@@ -63,6 +63,46 @@ test('standard home install locations and CODEX_INSTALL_DIR are discovered witho
   assert.equal(resolveBinary('claude', f.options), claude);
 });
 
+test('Windows CLI discovery splits PATH entries and ignores non-runnable .cmd shims', t => {
+  const f = setup(t);
+  const codex = f.executable(path.join(f.root, 'windows path', 'codex.exe'));
+  const claudeShim = f.executable(path.join(f.root, 'npm bin', 'claude.cmd'));
+  const options = {
+    ...f.options,
+    platform: 'win32',
+    arch: 'x64',
+    env: { Path: [path.dirname(codex), path.dirname(claudeShim)].join(';') },
+  };
+
+  assert.equal(resolveBinary('codex', options), codex);
+  assert.equal(resolveBinary('claude', options), null,
+    'npm .cmd shims are not selected because spawning them needs a shell');
+});
+
+test('Windows Codex install under LOCALAPPDATA is discovered', t => {
+  const f = setup(t);
+  const localAppData = path.join(f.root, 'local app data');
+  const codex = f.executable(path.join(localAppData, 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'));
+  const options = {
+    ...f.options,
+    platform: 'win32',
+    arch: 'x64',
+    env: { PATH: '', LOCALAPPDATA: localAppData },
+  };
+
+  assert.equal(resolveBinary('codex', options), codex);
+});
+
+test('Linux user install locations are discovered without PATH', t => {
+  const f = setup(t);
+  const codex = f.executable(path.join(f.home, '.local', 'bin', 'codex'));
+  const claude = f.executable(path.join(f.home, '.npm-global', 'bin', 'claude'));
+  const options = { ...f.options, platform: 'linux', arch: 'x64', env: { PATH: '' } };
+
+  assert.equal(resolveBinary('codex', options), codex);
+  assert.equal(resolveBinary('claude', options), claude);
+});
+
 test('macOS app bundles are discovered after standard installs', t => {
   const f = setup(t);
   const applications = path.join(f.root, 'Applications');
