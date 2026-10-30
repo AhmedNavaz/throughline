@@ -99,16 +99,18 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+      # The repository already has an assets/ folder of icons, so downloads go elsewhere.
       - uses: actions/download-artifact@v8
         with:
-          path: assets
+          pattern: mac-*
+          path: release-files
           merge-multiple: true
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          (cd assets && sha256sum Throughline-*.zip > SHA256SUMS.txt)
+          (cd release-files && sha256sum Throughline-*.zip > SHA256SUMS.txt)
           awk -v version="$version" 'index($0, "## [" version "]") == 1 { found = 1; next } found && /^## \[/ { exit } found && !/^\[[^]]*\]: /' CHANGELOG.md > changes.md
           test -s changes.md
           {
@@ -128,4 +130,4 @@ jobs:
             echo "## What's new"
             cat changes.md
           } > notes.md
-          gh release create "$GITHUB_REF_NAME" assets/* --title "Throughline $version" --notes-file notes.md --verify-tag
+          gh release create "$GITHUB_REF_NAME" release-files/* --title "Throughline $version" --notes-file notes.md --verify-tag
