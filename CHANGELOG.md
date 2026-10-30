@@ -2,7 +2,7 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] - 2026-10-30
 
 ### Changed
 
@@ -25,4 +25,5 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.5.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.5.0
 [0.4.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.4.0
