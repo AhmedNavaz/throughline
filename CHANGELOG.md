@@ -2,6 +2,13 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- A new first-run experience: a launch screen, an animated welcome, three short setup steps and a summary, then the app fades in.
+- A newly installed copy that finds saved workspaces asks whether to continue with them or start fresh. Starting fresh keeps the old data as a backup.
+
 ## [0.4.0] - 2026-10-30
 
 First public release.

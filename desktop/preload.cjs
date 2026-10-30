@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('relayDesktop', Object.freeze({
   pickFolder: () => ipcRenderer.invoke('relay:pick-folder'),
   openExternal: url => ipcRenderer.invoke('relay:open-external',url),
   platform: process.platform,
+  getLaunchState: () => ipcRenderer.invoke('relay:launch'),
+  chooseData: choice => ipcRenderer.invoke('relay:choose-data', choice),
   getKeepAwake: () => ipcRenderer.invoke('relay:keep-awake:get'),
   setKeepAwake: enabled => ipcRenderer.invoke('relay:keep-awake:set', enabled),
   onKeepAwakeChanged: callback => {

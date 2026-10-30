@@ -41,7 +41,7 @@ class Element extends Events {
 }
 function documentFixture(){
   const document=new Events();document.hidden=false;document.createElement=tag=>new Element(tag,document);document.createTextNode=text=>{const node=new Element('#text',document);node.data=String(text);return node;};document.createDocumentFragment=()=>new Element('#fragment',document);
-  const root=document.createElement('document');document.body=root;document.querySelectorAll=selector=>root.querySelectorAll(selector);document.getElementById=id=>root.querySelector('#'+id);document.sidebar=document.createElement('aside');document.sidebar.className='sidebar';root.append(document.sidebar);
+  const root=document.createElement('document');document.body=root;document.querySelectorAll=selector=>root.querySelectorAll(selector);document.querySelector=selector=>root.querySelector(selector);document.getElementById=id=>root.querySelector('#'+id);document.sidebar=document.createElement('aside');document.sidebar.className='sidebar';root.append(document.sidebar);
   // IDs/tags come from the shipped page. Only the small static child structure
   // accessed by app.js is needed; workbench elements are created by real JS.
   const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');for(const match of html.matchAll(/<([\w-]+)\b[^>]*\bid="([^"]+)"[^>]*>/g)){const node=document.createElement(match[1]);node.id=match[2];if(/\bhidden(?:\s|>|=)/.test(match[0]))node.hidden=true;root.append(node);}
@@ -54,8 +54,8 @@ const response=(data,status=200)=>({ok:status>=200&&status<300,status,text:async
 async function flush(){for(let index=0;index<12;index++)await new Promise(resolve=>setImmediate(resolve));}
 function deferred(){let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};}
 
-async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,savedPreferences={},desktopControls=false,filesUI=false}={}){
-  const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[];let timerId=0,intercept=null;
+async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,savedPreferences={},desktopControls=false,filesUI=false,launch=null}={}){
+  const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[],dataChoices=[];let timerId=0,intercept=null;
   let preferences=clone(savedPreferences);
   window.innerWidth=1280;window.innerHeight=800;
   const awakeChanges=[];
@@ -131,6 +131,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   if(wide)window.matchMedia=()=>({matches:true});
   if(desktop)window.relayDesktop={token:'desktop-test-token',pickFolder:async()=>pickedFolders.shift()||null};
   if(desktop)Object.assign(window.relayDesktop,{getKeepAwake:async()=>({enabled:false,active:false,runningCount:0}),setKeepAwake:async enabled=>{awakeChanges.push(enabled);return {enabled,active:false,runningCount:0};},onKeepAwakeChanged:callback=>{window.addEventListener('desktop-keep-awake',event=>callback(event.detail));return ()=>{};}});
+  if(desktop&&launch)Object.assign(window.relayDesktop,{getLaunchState:async()=>clone(launch),chooseData:async choice=>{dataChoices.push(choice);return {...clone(launch),choice:false};}});
   const context=vm.createContext({document,window,fetch,console,crypto:{randomUUID},CustomEvent:UIEvent,Event:UIEvent,EventSource:class extends Events{},requestAnimationFrame:fn=>fn(),setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),setInterval:()=>++timerId,localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,String(value))},URL,Blob,navigator:{clipboard:{writeText:async()=>{}}}});
   vm.runInContext(fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8'),context,{filename:'public/app.js'});if(workbench)vm.runInContext(fs.readFileSync(new URL('../public/workbench.js',import.meta.url),'utf8'),context,{filename:'public/workbench.js'});
   if(insights)vm.runInContext(fs.readFileSync(new URL('../public/insights.js',import.meta.url),'utf8'),context,{filename:'public/insights.js'});
@@ -141,7 +142,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   const $=id=>document.getElementById(id);const fire=(id,type)=>$(id).dispatchEvent(new UIEvent(type));const findButton=text=>document.querySelectorAll('button').find(button=>button.textContent===text);
   const labelledInput=label=>{const entry=document.querySelectorAll('label').find(item=>item.textContent.startsWith(label));assert(entry,'Missing field: '+label);return entry.children.find(child=>['INPUT','TEXTAREA','SELECT'].includes(child.tagName));};
   const switchProject=async id=>{$('project-select').value=id;fire('project-select','change');await flush();};
-  return {document,window,$,fire,findButton,labelledInput,requests,conversations,submissions,handoffs,projects,canonical,pickedFolders,storage,switchProject,awakeChanges,get chatCreations(){return chatCreations;},setIntercept:fn=>{intercept=fn;},state:()=>window.relayUI.getState()};
+  return {document,window,$,fire,findButton,labelledInput,requests,conversations,submissions,handoffs,projects,canonical,pickedFolders,dataChoices,storage,switchProject,awakeChanges,get chatCreations(){return chatCreations;},setIntercept:fn=>{intercept=fn;},state:()=>window.relayUI.getState()};
 }
 
 test('late same-project refresh cannot restore superseded provider/access settings',async()=>{
@@ -356,11 +357,15 @@ test('separate Claude and Codex chats merge by time into the current workspace a
 });
 
 test('the setup launcher shows only while setup is unfinished, and Settings reopens the guide',async()=>{
-  const fresh=await browser({setup:true,savedPreferences:{onboarding:{step:1}}});assert.equal(fresh.$('open-setup').hidden,false);
-  fresh.$('open-setup').click();await flush();fresh.$('close-setup').click();await flush();assert.equal(fresh.$('setup-dialog').open,false);assert.equal(fresh.$('open-setup').hidden,true,'Closing setup removes the sidebar launcher.');
-  const done=await browser({setup:true,workbench:true,savedPreferences:{onboarding:{step:3,completedAt:'2026-10-29T00:00:00.000Z'}}});assert.equal(done.$('open-setup').hidden,true);
+  const fresh=await browser({setup:true,savedPreferences:{onboarding:{step:1}}});assert.equal(fresh.$('open-setup').hidden,false);assert.equal(fresh.$('setup-dialog').open,false,'Setup does not interrupt someone who already has workspaces.');
+  fresh.$('open-setup').click();await flush();assert.equal(fresh.$('setup-dialog').dataset.screen,'flow','Resuming skips the welcome.');assert.match(fresh.$('setup-step-status').textContent,/2 of 3/);assert.equal(fresh.$('close-setup').textContent,'Skip for now');
+  fresh.$('close-setup').click();await flush();assert.equal(fresh.$('setup-dialog').open,false);assert.equal(fresh.$('open-setup').hidden,true,'Closing setup removes the sidebar launcher.');
+  const done=await browser({setup:true,workbench:true,savedPreferences:{onboarding:{step:2,completedAt:'2026-10-29T00:00:00.000Z'}}});assert.equal(done.$('open-setup').hidden,true);
   done.$('relay-settings').click();await flush();assert.equal(done.$('workbench').open,true);done.$('open-setup-guide').click();await flush();
-  assert.equal(done.$('workbench').open,false);assert.equal(done.$('setup-dialog').open,true);assert.match(done.$('setup-step-status').textContent,/1 of 4/,'The guide starts from the beginning once setup is complete.');
+  assert.equal(done.$('workbench').open,false);assert.equal(done.$('setup-dialog').open,true);assert.match(done.$('setup-step-status').textContent,/1 of 3/,'The guide starts from the beginning once setup is complete.');
+  assert.equal(done.$('close-setup').textContent,'Close');assert.equal(done.$('setup-back').disabled,true);
+  done.$('setup-next').click();await flush();done.$('setup-next').click();await flush();assert.equal(done.$('setup-next').textContent,'Done');
+  done.$('setup-next').click();await flush();assert.equal(done.$('setup-dialog').open,false,'Reviewing skips the welcome and the summary.');
 });
 
 test('export shows what a shareable conversation file contains before saving it',async()=>{
@@ -462,22 +467,29 @@ test('workspace removal failures keep the dialog and current chat; accepted resp
   ui.$('confirm-remove-workspace').click();await flush();assert.equal(ui.state().projectId,null);assert.equal(ui.$('notice-retry').textContent,'Undo');
 });
 
-test('first-run setup saves real assistant/model choices, resumes later, and never starts a provider run',async()=>{
-  const ui=await browser({empty:true,existing:false,setup:true,insights:true});
-  assert.equal(ui.$('setup-dialog').open,true);assert.match(ui.$('setup-content').textContent,/your subscription/);
+test('first run welcomes, walks through three steps and a summary, saves real choices and never starts a provider run',async()=>{
+  const ui=await browser({empty:true,existing:false,setup:true,insights:true}),dialog=ui.$('setup-dialog');
+  await flush();
+  assert.equal(dialog.open,true);assert.equal(dialog.dataset.screen,'welcome');assert.equal(ui.$('setup-flow').hidden,true);assert.match(ui.$('setup-hero-content').textContent,/One coding conversation per project/);
+  assert.equal(ui.$('launch-screen').classList.contains('done'),true,'The launch screen gives way once setup knows what to show.');
+  ui.document.querySelector('.onboarding-cta').click();await flush();
+  assert.equal(dialog.dataset.screen,'flow');assert.equal(ui.$('setup-hero').hidden,true);assert.match(ui.$('setup-step-status').textContent,/1 of 3/);assert.match(ui.$('setup-content').textContent,/your subscription/);
+  ui.$('setup-back').click();await flush();assert.equal(dialog.dataset.screen,'welcome','Back from the first step returns to the welcome.');ui.document.querySelector('.onboarding-cta').click();await flush();
   ui.document.querySelectorAll('.setup-agent-select').find(button=>button.textContent.startsWith('Claude')).click();await flush();ui.$('setup-next').click();await flush();
-  assert.match(ui.$('setup-content').textContent,/Each conversation/);
+  assert.match(ui.$('setup-content').textContent,/Make it yours/);
   const model=ui.labelledInput('Default model');model.value='model-one';model.dispatchEvent(new UIEvent('change'));
   const effort=ui.labelledInput('Reasoning effort');effort.value='high';effort.dispatchEvent(new UIEvent('change'));
-  const access=ui.labelledInput('Default workspace access');access.value='read';access.dispatchEvent(new UIEvent('change'));
-  ui.$('setup-next').click();await flush();assert.match(ui.$('setup-content').textContent,/Graphite/);
-  ui.$('close-setup').click();await flush();assert.equal(ui.$('setup-dialog').open,false);
-  const saved=ui.requests.filter(request=>request.path==='/api/preferences'&&request.method==='POST').at(-1).body;
-  assert.deepEqual(saved.defaults,{provider:'claude',model:'model-one',effort:'high',mode:'read',billing:'subscription'});
-  assert.equal(saved.onboarding.step,2);assert.equal(saved.onboarding.dismissed,true);
-  ui.$('open-setup').click();await flush();assert.match(ui.$('setup-step-status').textContent,/3 of 4/);
+  ui.document.querySelectorAll('.setup-access-option').find(button=>button.dataset.mode==='read').click();await flush();
+  ui.document.querySelectorAll('.setup-theme').find(button=>button.dataset.theme==='light').click();await flush();
   ui.$('setup-next').click();await flush();assert.match(ui.$('setup-content').textContent,/Import existing chats/);
-  ui.$('setup-next').click();await flush();assert.equal(ui.$('setup-dialog').open,false);assert.equal(ui.$('setup-progress').textContent,'Review');
+  ui.$('close-setup').click();await flush();assert.equal(dialog.open,false);
+  const saved=ui.requests.filter(request=>request.path==='/api/preferences'&&request.method==='POST').at(-1).body;
+  assert.deepEqual(saved.defaults,{provider:'claude',model:'model-one',effort:'high',mode:'read',billing:'subscription'});assert.equal(saved.theme,'light');
+  assert.equal(saved.onboarding.step,2);assert.equal(saved.onboarding.dismissed,true);
+  ui.$('open-setup').click();await flush();assert.equal(dialog.dataset.screen,'flow');assert.match(ui.$('setup-step-status').textContent,/3 of 3/,'Setup resumes where it was left.');
+  ui.$('setup-next').click();await flush();assert.equal(dialog.dataset.screen,'done');
+  assert.match(ui.$('setup-hero-content').textContent,/Claude Code starts the conversation/);assert.match(ui.$('setup-hero-content').textContent,/Light theme/);assert.match(ui.$('setup-hero-content').textContent,/read only/);
+  ui.document.querySelector('.onboarding-cta').click();await flush();assert.equal(dialog.open,false);assert.equal(ui.$('setup-progress').textContent,'Review');
   assert.equal(ui.window.relayBillingConfirmed,undefined,'Setup does not accept API charges.');
   assert.equal(ui.requests.filter(request=>/\/(?:messages|continue|connect)$/.test(request.path)).length,0);
   const completed=ui.requests.filter(request=>request.path==='/api/preferences'&&request.method==='POST').at(-1).body;assert.equal(completed.onboarding.completed,true);
@@ -485,11 +497,23 @@ test('first-run setup saves real assistant/model choices, resumes later, and nev
 
 test('setup supports importing before a workspace exists and failed saves keep the current step',async()=>{
   const ui=await browser({empty:true,existing:false,setup:true,insights:true,savedPreferences:{onboarding:{step:3,dismissed:true}}});
-  assert.equal(ui.$('setup-dialog').open,false);ui.$('open-setup').click();await flush();assert.match(ui.$('setup-step-status').textContent,/4 of 4/);
+  assert.equal(ui.$('setup-dialog').open,false);ui.$('open-setup').click();await flush();assert.match(ui.$('setup-step-status').textContent,/3 of 3/,'A step saved by the earlier four-step setup resumes at the last step.');
   ui.document.querySelectorAll('.setup-import-card')[0].click();await flush();assert.equal(ui.$('setup-dialog').open,false);assert.equal(ui.$('import-dialog').open,true);assert.equal(ui.$('import-target').value,'');
   ui.$('close-import').click();ui.$('open-setup').click();await flush();
   ui.setIntercept((request,next)=>request.path==='/api/preferences'&&request.method==='POST'?response({error:'Preferences could not be written.'},503):next());
-  ui.$('setup-back').click();await flush();assert.match(ui.$('setup-step-status').textContent,/4 of 4/);assert.equal(ui.$('setup-error').hidden,false);assert.match(ui.$('setup-error').textContent,/could not be written/);
+  ui.$('setup-back').click();await flush();assert.match(ui.$('setup-step-status').textContent,/3 of 3/);assert.equal(ui.$('setup-error').hidden,false);assert.match(ui.$('setup-error').textContent,/could not be written/);
+});
+
+test('a new install that finds saved workspaces asks to continue or start fresh',async()=>{
+  const ui=await browser({setup:true,desktop:true,launch:{choice:true,workspaces:4,lastUsed:'2026-10-30T09:00:00.000Z'}});
+  assert.equal(ui.$('setup-dialog').open,true);assert.equal(ui.$('setup-dialog').dataset.screen,'returning');assert.equal(ui.$('setup-title').textContent,'Welcome back');
+  assert.match(ui.$('setup-hero-content').textContent,/found 4 workspaces/);assert.match(ui.$('setup-hero-content').textContent,/kept as a backup, never deleted/);
+  ui.document.querySelectorAll('.onboarding-choice').find(choice=>choice.dataset.choice==='continue').click();await flush();
+  assert.deepEqual([...ui.dataChoices],['continue']);assert.equal(ui.$('setup-dialog').open,false,'Continuing opens the saved workspaces without setup.');
+  const fresh=await browser({setup:true,desktop:true,launch:{choice:true,workspaces:1,lastUsed:null}});
+  fresh.document.querySelectorAll('.onboarding-choice').find(choice=>choice.dataset.choice==='fresh').click();await flush();
+  assert.deepEqual([...fresh.dataChoices],['fresh']);const cards=fresh.document.querySelectorAll('.onboarding-choice');assert.ok(cards.every(card=>card.disabled),'Both choices lock while the choice is applied.');assert.match(cards.find(card=>card.dataset.choice==='fresh').textContent,/starting fresh…/);assert.equal(fresh.$('setup-dialog').open,true,'The window reloads into the fresh profile rather than showing the old data.');
+  const ordinary=await browser({setup:true,desktop:true});await flush();assert.equal(ordinary.$('setup-dialog').open,false,'Ordinary launches go straight to the app.');assert.equal(ordinary.$('launch-screen').classList.contains('done'),true);
 });
 
 test('workspace options rename without changing chat or draft and never remove on the first click',async()=>{

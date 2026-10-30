@@ -68,7 +68,9 @@ PDF, Office, audio, video and other binary attachments are not supported. SVG is
 
 Files are saved as immutable snapshots in the workspace’s local application storage. Selecting or previewing a file starts no inference; **Send** transmits it to the selected agent. Draft attachments stay with their workspace and survive reloads and failed sends. Journals store attachment metadata, not image base64. Recent unseen text/image attachments are included on model handoff within context/image limits; the agent is told when older images are omitted.
 
-**Getting started** walks through four short steps: assistants, defaults, appearance and your first workspace. Reopen it any time from **Settings › Setup guide**; it never changes existing chats.
+The first launch opens a short setup: a welcome, then three steps (connect your agents, choose the theme and default access, and open a project folder or import chats) and a summary before the app appears. **Skip for now** leaves a **Getting started** shortcut in the sidebar, and **Settings › Setup guide** reopens the steps at any time. Setup never changes existing chats.
+
+When a newly installed copy of the desktop app finds saved workspaces, it asks whether to **continue where you left off** or **start fresh**. Starting fresh renames the saved data to `relay-data-backup-<date>` in the same folder instead of deleting it; rename it back while the app is closed to restore it.
 
 ## Import Claude Code and Codex chats
 
