@@ -99,14 +99,16 @@ export class ConversationImporter {
       if (!found) fail(folders ? 'This conversation was not found in the attached workspace folders.' : 'This conversation was not found.', 404);
       cwd = found.info.cwd || found.dir || null;
       title = conversationTitle(found.info.customTitle || found.info.summary, 'Claude conversation');
-      const rows = await sdk.getSessionMessages(sessionId, { ...(found.dir ? { dir: found.dir } : {}), limit: 2000 });
-      for (const row of rows) {
+      // The SDK's limit keeps the oldest messages, so read them all and walk back from the newest.
+      const rows = await sdk.getSessionMessages(sessionId, found.dir ? { dir: found.dir } : {});
+      for (const row of rows.toReversed()) {
         if (!['user', 'assistant'].includes(row.type) || row.parent_tool_use_id) continue;
         const raw = textOf(typeof row.message === 'string' ? row.message : row.message?.content), text = row.type === 'user' ? conversationText(raw) : raw;
+        if (!text.trim()) continue;
+        if (messages.length === 1000) { clipped = true; break; }
         const timestamp = isoTime(row.timestamp);
-        if (text.trim()) messages.push({ sourceId: row.uuid || digest([row.type, text]), role: row.type, text, ...(row.message?.model ? { model: row.message.model } : {}), ...(timestamp ? { timestamp } : {}) });
+        messages.unshift({ sourceId: row.uuid || digest([row.type, text]), role: row.type, text, ...(row.message?.model ? { model: row.message.model } : {}), ...(timestamp ? { timestamp } : {}) });
       }
-      clipped = rows.length >= 2000;
     }
     while (messages.length > 1000 || Buffer.byteLength(JSON.stringify(messages)) > MAX_BYTES) { messages.shift(); clipped = true; }
     if (!messages.length) fail('This conversation has no importable text messages.', 422);
