@@ -46,7 +46,7 @@ These changes are merged on `main` and will be included in the next published bu
 | Persistent approval indicators and desktop notifications that open the right request | Planned | [#46](https://github.com/AhmedNavaz/throughline/issues/46) |
 | System appearance alongside explicit Light and Dark themes | Planned, help wanted | [#44](https://github.com/AhmedNavaz/throughline/issues/44) |
 | Notarized macOS builds, so downloads open without a security prompt | Waiting on an Apple Developer account | [#1](https://github.com/AhmedNavaz/throughline/issues/1) |
-| Automatic updates from GitHub Releases | Depends on #1 | [#2](https://github.com/AhmedNavaz/throughline/issues/2) |
+| Update button: get new versions from inside the app with one click | Planned | [#2](https://github.com/AhmedNavaz/throughline/issues/2) |
 | Install with Homebrew: `brew install --cask throughline` | Depends on #1 | [#3](https://github.com/AhmedNavaz/throughline/issues/3) |
 
 ## Next
