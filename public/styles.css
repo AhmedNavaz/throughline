@@ -195,6 +195,17 @@ summary::-webkit-details-marker { display: none; }
 .previous-chats-notice p { margin: 0; line-height: 1.5; }
 .previous-chats-actions { display: flex; align-items: center; gap: 16px; }
 .previous-chats-actions .secondary-button { min-height: 30px; }
+/* Find in the conversation: the bar lines up with the message column. */
+.conversation-search { display: flex; align-items: center; gap: 2px; flex: none; padding: 6px max(24px, calc((100% - var(--content-width)) / 2)); border-bottom: 1px solid var(--border); background: var(--surface-raised); }
+.file-preview-open .conversation-search { display: none; }
+.conversation-search-field { position: relative; flex: 1; min-width: 0; margin-right: 6px; }
+.conversation-search-field .icon { position: absolute; left: 8px; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
+.conversation-search-field input { width: 100%; height: 26px; padding: 0 8px 0 28px; border: 1px solid var(--input-border); border-radius: 5px; background: var(--surface-input); color: var(--text); font-size: 12px; }
+.conversation-search-field input::placeholder { color: var(--faint); }
+.conversation-search-field input:focus { outline: none; border-color: var(--focus); }
+.conversation-search-count { min-width: 64px; margin-right: 4px; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+::highlight(conversation-search) { background-color: var(--search-match); }
+::highlight(conversation-search-current) { background-color: var(--search-match-current); color: var(--search-match-current-text); }
 .messages-scroll { flex: 1; min-height: 0; overflow: auto; }
 .messages { width: min(var(--content-width), calc(100% - 48px)); margin: 0 auto; padding: 12px 0 24px; }
 .message { padding: 12px 0; }

@@ -52,7 +52,7 @@ The status bar shows the plan usage left for both agents (5-hour and weekly wind
 
 **Keep awake** in the status bar (desktop app) stops your Mac and its display from sleeping while any workspace has an agent running, so a long run is not interrupted. It shows **Auto** while switched on and waiting, **On** while it is holding the Mac awake, and releases as soon as the last run finishes. The setting is remembered between launches.
 
-Keyboard shortcuts (⌘ on macOS, Ctrl elsewhere): ⌘K filter workspaces (Enter opens the first match), ⌘1–9 switch workspace, ⌘L focus the composer, ⇧⌘G toggle Git activity, ⌘. stop the current run. Messages and code blocks have copy buttons.
+Keyboard shortcuts (⌘ on macOS, Ctrl elsewhere): ⌘K filter workspaces (Enter opens the first match), ⌘1–9 switch workspace, ⌘L focus the composer, ⌘F find in the conversation (Enter and Shift+Enter move between matches, Escape closes), ⇧⌘G toggle Git activity, ⌘. stop the current run. Messages and code blocks have copy buttons.
 
 ## Files and attachments
 

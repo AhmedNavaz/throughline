@@ -19,6 +19,7 @@ class UIEvent {
 }
 class Element extends Events {
   constructor(tag,document){super();this.tagName=tag.toUpperCase();this.document=document;this.childNodes=[];this.parentNode=null;this.attributes={};this.dataset={};this.style={};this.className='';this.id='';this.value='';this.disabled=false;this.hidden=false;this.checked=false;this.open=false;this.scrollTop=0;this.scrollHeight=100;this.clientHeight=500;this.classList={contains:name=>this.className.split(/\s+/).includes(name),add:name=>this.classList.toggle(name,true),remove:name=>this.classList.toggle(name,false),toggle:(name,on)=>{const set=new Set(this.className.split(/\s+/).filter(Boolean));if(on===undefined)on=!set.has(name);if(on)set.add(name);else set.delete(name);this.className=[...set].join(' ');return on;}};}
+  get nodeType(){return this.tagName==='#TEXT'?3:1;}
   get children(){return this.childNodes.filter(child=>child.tagName!=='#TEXT');}
   get firstChild(){return this.childNodes[0]||null;}get lastChild(){return this.childNodes.at(-1)||null;}get firstElementChild(){return this.children[0]||null;}get lastElementChild(){return this.children.at(-1)||null;}
   get textContent(){return this.tagName==='#TEXT'?this.data:this.childNodes.map(child=>child.textContent).join('');}
@@ -37,7 +38,7 @@ class Element extends Events {
   getBoundingClientRect(){return this.bounds || {left:40,top:750,right:240,bottom:774,width:200,height:24};}
   showPopover(){this.popoverOpen=true;this.dispatchEvent(new UIEvent('toggle',{newState:'open'}));}
   hidePopover(){this.popoverOpen=false;this.dispatchEvent(new UIEvent('toggle',{newState:'closed'}));}
-  focus(){this.document.activeElement=this;}click(){if(!this.disabled)this.dispatchEvent(new UIEvent('click'));}showModal(){this.open=true;}close(){if(this.open){this.open=false;this.dispatchEvent(new UIEvent('close'));}}
+  focus(){this.document.activeElement=this;}select(){}click(){if(!this.disabled)this.dispatchEvent(new UIEvent('click'));}showModal(){this.open=true;}close(){if(this.open){this.open=false;this.dispatchEvent(new UIEvent('close'));}}
 }
 function documentFixture(){
   const document=new Events();document.hidden=false;document.createElement=tag=>new Element(tag,document);document.createTextNode=text=>{const node=new Element('#text',document);node.data=String(text);return node;};document.createDocumentFragment=()=>new Element('#fragment',document);
@@ -55,7 +56,7 @@ const response=(data,status=200)=>({ok:status>=200&&status<300,status,text:async
 async function flush(){for(let index=0;index<12;index++)await new Promise(resolve=>setImmediate(resolve));}
 function deferred(){let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};}
 
-async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,savedPreferences={},desktopControls=false,filesUI=false,launch=null}={}){
+async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,launch=null}={}){
   const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[],dataChoices=[];let timerId=0,intercept=null;
   let preferences=clone(savedPreferences);
   window.innerWidth=1280;window.innerHeight=800;
@@ -134,18 +135,25 @@ async function browser({existing=true,available=true,providers={},authenticated=
   if(desktop)window.relayDesktop={token:'desktop-test-token',pickFolder:async()=>pickedFolders.shift()||null};
   if(desktop)Object.assign(window.relayDesktop,{getKeepAwake:async()=>({enabled:false,active:false,runningCount:0}),setKeepAwake:async enabled=>{awakeChanges.push(enabled);return {enabled,active:false,runningCount:0};},onKeepAwakeChanged:callback=>{window.addEventListener('desktop-keep-awake',event=>callback(event.detail));return ()=>{};}});
   if(desktop&&launch)Object.assign(window.relayDesktop,{getLaunchState:async()=>clone(launch),chooseData:async choice=>{dataChoices.push(choice);return {...clone(launch),choice:false};}});
-  const context=vm.createContext({document,window,fetch,console,crypto:{randomUUID},CustomEvent:UIEvent,Event:UIEvent,EventSource:class extends Events{},requestAnimationFrame:fn=>fn(),setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),setInterval:()=>++timerId,localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,String(value))},URL,Blob,navigator:{clipboard:{writeText:async()=>{}}}});
+  // Custom Highlight API stand-ins: ranges record their boundaries, and the registry is a Map.
+  class Range{setStart(node,offset){this.startContainer=node;this.startOffset=offset;}setEnd(node,offset){this.endContainer=node;this.endOffset=offset;}getBoundingClientRect(){return this.startContainer.parentNode.getBoundingClientRect();}}
+  class Highlight extends Set{constructor(...ranges){super(ranges);this.priority=0;}}
+  const highlights=new Map();document.createRange=()=>new Range();
+  const context=vm.createContext({document,window,fetch,console,CSS:{highlights},Highlight,crypto:{randomUUID},CustomEvent:UIEvent,Event:UIEvent,EventSource:class extends Events{},requestAnimationFrame:fn=>fn(),setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),setInterval:()=>++timerId,localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,String(value))},URL,Blob,navigator:{clipboard:{writeText:async()=>{}}}});
   vm.runInContext(fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8'),context,{filename:'public/app.js'});if(workbench)vm.runInContext(fs.readFileSync(new URL('../public/workbench.js',import.meta.url),'utf8'),context,{filename:'public/workbench.js'});
   if(insights)vm.runInContext(fs.readFileSync(new URL('../public/insights.js',import.meta.url),'utf8'),context,{filename:'public/insights.js'});
   if(historyUI)vm.runInContext(fs.readFileSync(new URL('../public/conversation-history.js',import.meta.url),'utf8'),context,{filename:'public/conversation-history.js'});
   if(desktopControls)vm.runInContext(fs.readFileSync(new URL('../public/desktop-controls.js',import.meta.url),'utf8'),context,{filename:'public/desktop-controls.js'});
   if(setup)vm.runInContext(fs.readFileSync(new URL('../public/setup.js',import.meta.url),'utf8'),context,{filename:'public/setup.js'});
   if(filesUI)vm.runInContext(fs.readFileSync(new URL('../public/files.js',import.meta.url),'utf8'),context,{filename:'public/files.js'});
+  if(searchUI)vm.runInContext(fs.readFileSync(new URL('../public/conversation-search.js',import.meta.url),'utf8'),context,{filename:'public/conversation-search.js'});
   await flush();assert.equal(window.relayUI.getState().ready,!empty);assert.equal(window.relayUI.getState().loading,false);
   const $=id=>document.getElementById(id);const fire=(id,type)=>$(id).dispatchEvent(new UIEvent(type));const findButton=text=>document.querySelectorAll('button').find(button=>button.textContent===text);
   const labelledInput=label=>{const entry=document.querySelectorAll('label').find(item=>item.textContent.startsWith(label));assert(entry,'Missing field: '+label);return entry.children.find(child=>['INPUT','TEXTAREA','SELECT'].includes(child.tagName));};
   const switchProject=async id=>{$('project-select').value=id;fire('project-select','change');await flush();};
-  return {document,window,$,fire,findButton,labelledInput,requests,conversations,submissions,handoffs,projects,canonical,pickedFolders,dataChoices,storage,switchProject,awakeChanges,get chatCreations(){return chatCreations;},setIntercept:fn=>{intercept=fn;},state:()=>window.relayUI.getState()};
+  const textNodes=node=>node.nodeType===3?[node]:node.childNodes.flatMap(textNodes);
+  const rangeText=range=>{const nodes=textNodes($('messages')),first=nodes.indexOf(range.startContainer),last=nodes.indexOf(range.endContainer);return nodes.slice(first,last+1).map((node,index)=>node.data.slice(index===0?range.startOffset:0,first+index===last?range.endOffset:undefined)).join('');};
+  return {document,window,$,fire,findButton,highlights,rangeText,labelledInput,requests,conversations,submissions,handoffs,projects,canonical,pickedFolders,dataChoices,storage,switchProject,awakeChanges,get chatCreations(){return chatCreations;},setIntercept:fn=>{intercept=fn;},state:()=>window.relayUI.getState()};
 }
 
 test('late same-project refresh cannot restore superseded provider/access settings',async()=>{
@@ -475,6 +483,46 @@ test('code blocks are syntax colored without parsing HTML',async()=>{
 test('code blocks labelled with built-in object property names render as plain code',async()=>{
   const ui=await browser();ui.canonical.get('project-one').messages.push({id:'a1',role:'assistant',provider:'codex',text:'```constructor\nconst a = 1;\n```\n\n```__proto__\nlet b = 2;\n```\n\n```toString\nvar c = 3;\n```'});await ui.window.relayUI.refresh();
   assert.deepEqual(ui.document.querySelectorAll('.code-block').map(block=>block.querySelector('code').textContent),['const a = 1;\n','let b = 2;\n','var c = 3;\n']);
+});
+
+test('Find in the conversation matches text across formatting, skips interface labels and moves between matches',async()=>{
+  const ui=await browser({searchUI:true});ui.canonical.get('project-one').messages.push({id:'u1',role:'user',text:'Where is the retry limit set?'},{id:'a1',role:'assistant',provider:'codex',text:'The **retry** limit is in `config.js`:\n```js\nconst retryLimit = 3;\n```'},{id:'u2',role:'user',text:'Raise the RETRY limit to 5.'});await ui.window.relayUI.refresh();
+  const find=new UIEvent('keydown',{key:'f',ctrlKey:true});ui.document.dispatchEvent(find);assert.equal(find.defaultPrevented,true);assert.equal(ui.$('conversation-search').hidden,false);assert.equal(ui.document.activeElement,ui.$('conversation-search-input'));
+  const search=async text=>{ui.$('conversation-search-input').value=text;ui.fire('conversation-search-input','input');await flush();},key=(key,shiftKey=false)=>ui.$('conversation-search-input').dispatchEvent(new UIEvent('keydown',{key,shiftKey})),texts=name=>[...ui.highlights.get(name)||[]].map(ui.rangeText),count=()=>ui.$('conversation-search-count').textContent;
+  await search('retry');assert.deepEqual(texts('conversation-search'),['retry','retry','retry','RETRY']);assert.equal(count(),'1 of 4');assert.deepEqual(texts('conversation-search-current'),['retry']);
+  key('Enter');assert.equal(count(),'2 of 4');key('Enter',true);key('Enter',true);assert.equal(count(),'4 of 4','Moving back from the first match wraps to the last.');assert.deepEqual(texts('conversation-search-current'),['RETRY']);
+  await search('const retry');assert.deepEqual(texts('conversation-search'),['const retry'],'A match can span syntax-colored tokens.');
+  await search('js');assert.equal(count(),'1 of 1','The code block language label is not conversation text.');
+  await search('codex');assert.equal(count(),'No results','Author names, times and buttons are not conversation text.');assert.equal(texts('conversation-search').length,0);
+});
+
+test('Find in the conversation reveals a collapsed activity match, follows re-renders and Escape returns to the composer',async()=>{
+  const ui=await browser({searchUI:true}),chat=ui.canonical.get('project-one');chat.messages.push({id:'u1',role:'user',text:'Run the tests'},{id:'t1',role:'activity',text:'Ran npm test: 12 passed'},{id:'a1',role:'assistant',provider:'codex',text:'All tests pass.'});await ui.window.relayUI.refresh();
+  ui.document.dispatchEvent(new UIEvent('keydown',{key:'f',ctrlKey:true}));const search=async text=>{ui.$('conversation-search-input').value=text;ui.fire('conversation-search-input','input');await flush();};
+  await search('workspace activity');assert.equal(ui.$('conversation-search-count').textContent,'No results','The group summary is not conversation text.');assert.equal(ui.document.querySelector('.activity-group').open,false);
+  await search('npm test');
+  assert.equal(ui.$('conversation-search-count').textContent,'1 of 1');assert.equal(ui.document.querySelector('.activity-group').open,true,'The collapsed group holding the match opens.');
+  chat.messages.push({id:'a2',role:'assistant',provider:'codex',text:'Run npm test again after the change.'});await ui.window.relayUI.refresh();
+  const attached=node=>{for(let current=node;current;current=current.parentNode)if(current===ui.$('messages'))return true;return false;};
+  assert.equal(ui.$('conversation-search-count').textContent,'1 of 2');assert.equal(ui.document.querySelector('.activity-group').open,true);assert([...ui.highlights.get('conversation-search')].every(range=>attached(range.startContainer)),'Highlights move to the re-rendered messages.');
+  const escape=new UIEvent('keydown',{key:'Escape'});ui.$('conversation-search-input').dispatchEvent(escape);
+  assert.equal(escape.defaultPrevented,true);assert.equal(ui.$('conversation-search').hidden,true);assert.equal(ui.highlights.size,0);assert.equal(ui.document.activeElement,ui.$('message-input'));
+});
+
+test('Find in the conversation starts from the match in view, or the closest one above it',async()=>{
+  const ui=await browser({searchUI:true});ui.canonical.get('project-one').messages.push({id:'u1',role:'user',text:'retry one'},{id:'u2',role:'user',text:'retry two'},{id:'u3',role:'user',text:'retry three'});await ui.window.relayUI.refresh();
+  const place=tops=>ui.document.querySelectorAll('.message-text').forEach((node,index)=>{node.bounds={top:tops[index],bottom:tops[index]+20,height:20};});ui.$('messages-scroll').bounds={top:100,bottom:600,height:500};
+  const search=async text=>{ui.$('conversation-search-input').value=text;ui.fire('conversation-search-input','input');await flush();},count=()=>ui.$('conversation-search-count').textContent;
+  ui.document.dispatchEvent(new UIEvent('keydown',{key:'f',ctrlKey:true}));place([-400,200,900]);
+  const before=ui.$('messages-scroll').scrollTop;await search('retry');assert.equal(count(),'2 of 3');assert.equal(ui.$('messages-scroll').scrollTop,before,'A match already in view does not scroll.');
+  place([-900,-600,-300]);await search('retry t');assert.equal(count(),'2 of 2','With every match above the view, the closest one is current.');
+  assert.equal(ui.$('messages-scroll').scrollTop,before-300-100-(500-20)/2,'The current match is scrolled to the middle of the view.');
+});
+
+test('Find in the conversation closes when another workspace opens',async()=>{
+  const ui=await browser({searchUI:true,moreProjects:true});ui.canonical.get('project-one').messages.push({id:'u1',role:'user',text:'Check the retry limit'});await ui.window.relayUI.refresh();
+  ui.document.dispatchEvent(new UIEvent('keydown',{key:'f',ctrlKey:true}));ui.$('conversation-search-input').value='retry';ui.fire('conversation-search-input','input');await flush();assert.equal(ui.$('conversation-search-count').textContent,'1 of 1');
+  await ui.switchProject('project-two');assert.equal(ui.$('conversation-search').hidden,true,'Matches from the previous conversation are gone.');assert.equal(ui.highlights.size,0);
 });
 
 test('previous chats require an open workspace, with other projects available only by explicit choice',async()=>{

@@ -60,6 +60,9 @@
   --focus: #0078d4;
   --link: #4daafc;
   --selection: #264f78;
+  --search-match: #e2c08d4d;
+  --search-match-current: #e2c08d;
+  --search-match-current-text: #1f1f1f;
   --codex: #4ec9b0;
   --codex-bg: #4ec9b01f;
   --claude: #e3a47a;
@@ -111,6 +114,9 @@
   --focus: #005fb8;
   --link: #005fb8;
   --selection: #add6ff;
+  --search-match: #bf8a0040;
+  --search-match-current: #f2cc60;
+  --search-match-current-text: #1f1f1f;
   --codex: #0b7a62;
   --codex-bg: #0b7a6214;
   --claude: #a4552a;
