@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import readline from 'node:readline';
 import os from 'node:os';
+import { probeCli } from './cli-probe.mjs';
 import { resolveBinary } from './resolve-binary.mjs';
 
 export function classifyError(error) {
@@ -172,11 +173,11 @@ export function closeAccountConnections() { for (const client of logins.values()
 export async function accountStatus(provider, { bin = resolveBinary(provider), workspace = os.homedir() } = {}) {
   const base = { installed: false, available: false, authenticated: 'unknown', authMode: 'unknown', billingSource: 'unknown', usage: 'unknown', path: bin, capabilities: capabilities(provider) };
   if (!bin) return base;
-  const version = spawnSync(bin, ['--version'], { encoding: 'utf8', timeout: 4000, shell: false });
+  const version = await probeCli(bin, ['--version'], 4000);
   if (version.status !== 0) return { ...base, errorCategory: 'installation' };
   base.installed = base.available = true; base.version = version.stdout.trim().slice(0, 200);
   if (provider === 'claude') {
-    const result = spawnSync(bin, ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 5000, shell: false });
+    const result = await probeCli(bin, ['auth', 'status', '--json'], 5000);
     try {
       const status = JSON.parse(result.stdout);
       return { ...base, authenticated: status.loggedIn ?? 'unknown', authMode: status.authMethod || status.apiKeySource || 'unknown', billingSource: /oauth|claude.?ai/i.test(status.authMethod || '') ? 'subscription' : /api.?key/i.test(status.authMethod || '') ? 'api' : 'unknown', subscriptionType: status.subscriptionType || null };

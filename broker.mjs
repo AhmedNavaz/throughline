@@ -1,8 +1,9 @@
-import { fork, spawnSync } from 'node:child_process';
+import { fork } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
+import { probeCli } from './cli-probe.mjs';
 import { resolveBinary } from './resolve-binary.mjs';
 import { fileURLToPath } from 'node:url';
 import { prepareContext, emptyContext, validateContext } from './context.mjs';
@@ -253,15 +254,20 @@ export class Broker extends EventEmitter {
     return { resolved: true };
   }
 
-  status() {
+  async status() {
     if (!this.providerStatus || Date.now() - this.providerStatusCheckedAt >= 10000) {
-      this.providerStatus = Object.fromEntries(PROVIDERS.map(provider => {
-        const bin = resolveBinary(provider, { override: this.configuredBins[provider] });
-        this.bins[provider] = bin;
-        const result = bin ? spawnSync(bin, ['--version'], { encoding: 'utf8', timeout: 4000, shell: false }) : null;
-        return [provider, { available: result?.status === 0, version: clip(result?.stdout?.trim(), 200), path: bin, installed: result?.status === 0, authenticated: 'unknown', billingSource: 'unknown', authMode: 'unknown', usage: 'unknown', capabilities: capabilities(provider, this.configuredBins[provider] ? 'cli' : 'auto') }];
-      }));
-      this.providerStatusCheckedAt = Date.now();
+      if (!this.providerStatusPending) {
+        this.providerStatusPending = Promise.all(PROVIDERS.map(async provider => {
+          const bin = resolveBinary(provider, { override: this.configuredBins[provider] });
+          this.bins[provider] = bin;
+          const result = bin ? await probeCli(bin, ['--version'], 4000) : null;
+          return [provider, { available: result?.status === 0, version: clip(result?.stdout?.trim(), 200), path: bin, installed: result?.status === 0, authenticated: 'unknown', billingSource: 'unknown', authMode: 'unknown', usage: 'unknown', capabilities: capabilities(provider, this.configuredBins[provider] ? 'cli' : 'auto') }];
+        })).then(entries => {
+          this.providerStatus = Object.fromEntries(entries);
+          this.providerStatusCheckedAt = Date.now();
+        }).finally(() => { this.providerStatusPending = null; });
+      }
+      await this.providerStatusPending;
     }
     return { workspace: this.workspace, workspaces: this.workspaces, workspaceFolders: this.workspaceFolders, providers: this.providerStatus, runningConversationId: this.running?.c.id || null, pendingApprovals: this.running ? [...this.running.approvals.values()] : [] };
   }
