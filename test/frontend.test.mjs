@@ -466,6 +466,11 @@ test('code blocks are syntax colored without parsing HTML',async()=>{
   assert(kinds.includes('tok-keyword:const'));assert(kinds.includes('tok-function:sum'));assert(kinds.includes('tok-comment:// <b>not markup</b>'));
 });
 
+test('code blocks labelled with built-in object property names render as plain code',async()=>{
+  const ui=await browser();ui.canonical.get('project-one').messages.push({id:'a1',role:'assistant',provider:'codex',text:'```constructor\nconst a = 1;\n```\n\n```__proto__\nlet b = 2;\n```\n\n```toString\nvar c = 3;\n```'});await ui.window.relayUI.refresh();
+  assert.deepEqual(ui.document.querySelectorAll('.code-block').map(block=>block.querySelector('code').textContent),['const a = 1;\n','let b = 2;\n','var c = 3;\n']);
+});
+
 test('previous chats require an open workspace, with other projects available only by explicit choice',async()=>{
   const empty=await browser({insights:true,empty:true});assert.equal(empty.$('project-empty-state').hidden,false);assert.equal(empty.$('open-import').disabled,true);assert.equal(empty.$('import-first'),null);
   empty.$('open-import').click();await flush();assert.equal(empty.$('import-dialog').open,false);assert.equal(empty.requests.filter(request=>request.path==='/api/import-sources').length,0);
