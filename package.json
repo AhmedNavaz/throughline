@@ -1,6 +1,6 @@
 {
   "name": "throughline",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "An open-source desktop workspace for Claude Code and Codex. Keep project context and switch agents without starting over, using your own accounts.",
   "keywords": [
     "claude-code",

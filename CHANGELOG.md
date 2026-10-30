@@ -2,6 +2,23 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-10-30
+
+### Changed
+
+- Tests cover Claude Code and Codex discovery on Windows and Linux ([#31](https://github.com/AhmedNavaz/throughline/pull/31), thanks @Vamsi-2581).
+
+### Fixed
+
+- The app stays responsive while it checks Claude Code and Codex at launch ([#33](https://github.com/AhmedNavaz/throughline/pull/33), thanks @ungaaaabungaaa).
+- **Start fresh** restarts immediately instead of waiting for launch-time checks to finish.
+- Stopping a run on macOS no longer reports a false error or leaves the run marked as running when the agent has just exited ([#30](https://github.com/AhmedNavaz/throughline/issues/30)).
+
+### Security
+
+- Electron 44.10.0, which no longer trusts the compromised eMudhra intermediate certificates.
+- body-parser 2.4.0 and fast-uri 3.1.9, fixing a denial of service from compressed request bodies and URL parsing flaws in the Claude Agent SDK's dependencies.
+
 ## [0.6.0] - 2026-10-30
 
 ### Added
@@ -46,6 +63,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.6.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.1
 [0.6.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.0
 [0.5.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.5.0
 [0.4.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.4.0
