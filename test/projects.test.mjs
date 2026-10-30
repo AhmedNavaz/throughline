@@ -85,6 +85,20 @@ test('projects persist with stable realpath IDs and deduplicate symlinks without
   assert.deepEqual(reopened.list(), [renamed]);
 });
 
+test('a folder typed in another letter case is the same workspace folder', t => {
+  const env = setup(t);
+  const registry = env.open();
+  const workspace = fs.realpathSync(env.workspaces[0]);
+  const typed = path.join(path.dirname(workspace), path.basename(workspace).toUpperCase());
+  if (!fs.existsSync(typed)) return t.skip('This file system distinguishes letter case.');
+  const project = registry.add({ path: workspace });
+  assert.equal(registry.add({ path: typed }).id, project.id);
+  assert.equal(registry.list().length, 1);
+  assert.deepEqual(registry.addFolder(project.id, typed).folders.map(folder => folder.path), [workspace]);
+  fs.mkdirSync(path.join(workspace, 'Backend'));
+  assert.equal(registry.add({ path: path.join(typed, 'backend') }).path, path.join(workspace, 'Backend'), 'A new folder is saved with its name as it is on disk.');
+});
+
 test('registration validates folders and expands a leading home shortcut', t => {
   const env = setup(t);
   const registry = env.open();

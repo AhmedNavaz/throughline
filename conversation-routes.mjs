@@ -4,7 +4,8 @@ import { exportConversation, readConversationPackage } from './conversation-expo
 import { ConversationImporter } from './conversation-import.mjs';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
-const existingFolder = value => { try { const folder = fs.realpathSync(value); return fs.statSync(folder).isDirectory() ? folder : null; } catch { return null; } };
+// A previous chat's folder may be recorded in another letter case; the native realpath matches it to the workspace folders.
+const existingFolder = value => { try { const folder = fs.realpathSync.native(value); return fs.statSync(folder).isDirectory() ? folder : null; } catch { return null; } };
 const inside = (folder, root) => folder === root || folder.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
 
 export function createConversationRoutes({ registry, body, json, importer = new ConversationImporter() }) {

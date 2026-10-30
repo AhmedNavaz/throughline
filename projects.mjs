@@ -17,7 +17,9 @@ function canonicalFolder(input) {
   if (directory === '~') directory = os.homedir();
   else if (directory.startsWith('~/')) directory = path.join(os.homedir(), directory.slice(2));
   if (!path.isAbsolute(directory)) throw fail('Use an absolute project folder path or a path starting with ~/.');
-  try { directory = fs.realpathSync(directory); if (!fs.statSync(directory).isDirectory()) throw fail('The project path must be a folder.'); return directory; }
+  // The native realpath also returns each name's letter case as stored on disk, so a folder typed in another case
+  // on a case-insensitive volume gets the same identity. The JavaScript version keeps the case as typed.
+  try { directory = fs.realpathSync.native(directory); if (!fs.statSync(directory).isDirectory()) throw fail('The project path must be a folder.'); return directory; }
   catch (error) { if (error.status) throw error; throw fail(`Cannot open the project folder: ${input.trim()}. Check that it exists and is accessible.`); }
 }
 function displayName(value, fallback) {

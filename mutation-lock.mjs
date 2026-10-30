@@ -54,7 +54,8 @@ export class MutationCoordinator {
   acquireMany(workspaces, operation) {
     if (!Array.isArray(workspaces) || !workspaces.length) throw fail('A workspace must contain at least one folder.');
     workspaces = [...new Set(workspaces.map(workspace => {
-      try { return fs.realpathSync(workspace); }
+      // The native realpath matches letter case to the disk, so leases taken through differently typed paths still overlap.
+      try { return fs.realpathSync.native(workspace); }
       catch (error) {
         // A saved canonical folder can become unavailable. Retain its absolute
         // identity while removing it from project membership under this lease.

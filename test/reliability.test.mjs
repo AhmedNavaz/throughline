@@ -23,6 +23,16 @@ test('overlapping workspaces exclude mutations even with different history roots
   const next=second.acquire(child,'patch');next.release();
 });
 
+test('overlapping workspaces exclude mutations when a folder is typed in another letter case',t=>{
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'relay-case-root-')));
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const shop=path.join(root,'Shop');fs.mkdirSync(path.join(shop,'backend'),{recursive:true});
+  if(!fs.existsSync(path.join(root,'shop')))return t.skip('This file system distinguishes letter case.');
+  const coordinator=new MutationCoordinator(path.join(root,'data'));
+  const lease=coordinator.acquire(shop,'provider');
+  try {assert.throws(()=>coordinator.acquire(path.join(root,'shop','BACKEND'),'patch'),/overlapping workspace/);}finally{lease.release();}
+});
+
 function setup(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-reliability-'));
   const workspace = path.join(root, 'workspace'); fs.mkdirSync(workspace);
