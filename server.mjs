@@ -1,0 +1,226 @@
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { ProjectRegistry } from './projects.mjs';
+import { CollaborationService } from './collaboration.mjs';
+import { SharingClient, validateSharingURL } from './sharing-client.mjs';
+import { collaborationRoute } from './collaboration-routes.mjs';
+import { closeAccountConnections } from './providers.mjs';
+import { createWorkspaceRoutes } from './workspace-routes.mjs';
+import { atomicJSON } from './patches.mjs';
+import { preferencePatch, publicPreferences } from './preferences.mjs';
+
+const root = path.dirname(fileURLToPath(import.meta.url));
+const assets = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/desktop-controls.js': ['desktop-controls.js', 'text/javascript; charset=utf-8'], '/setup.js': ['setup.js', 'text/javascript; charset=utf-8'], '/polish.css': ['polish.css', 'text/css; charset=utf-8'], '/files.js': ['files.js', 'text/javascript; charset=utf-8'], '/files.css': ['files.css', 'text/css; charset=utf-8'],
+  '/theme.js': ['theme.js', 'text/javascript; charset=utf-8'], '/editor-theme.css': ['editor-theme.css', 'text/css; charset=utf-8'], '/insights.js': ['insights.js', 'text/javascript; charset=utf-8'], '/styles.css': ['styles.css', 'text/css; charset=utf-8'], '/workbench.js': ['workbench.js', 'text/javascript; charset=utf-8'], '/workbench.css': ['workbench.css', 'text/css; charset=utf-8'], '/icon.svg': ['icon.svg', 'image/svg+xml'] };
+const json = (res, status, body) => {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(body));
+};
+
+async function body(req, limit = 3 * 1024 * 1024) {
+  if (!req.headers['content-type']?.startsWith('application/json')) {
+    throw Object.assign(new Error('Send JSON content.'), { status: 415 });
+  }
+  let input = '';
+  for await (const chunk of req) {
+    input += chunk;
+    if (Buffer.byteLength(input) > limit) throw Object.assign(new Error('Request is too large.'), { status: 413 });
+  }
+  try {
+    const value = JSON.parse(input || '{}');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
+    return value;
+  } catch { throw Object.assign(new Error('Invalid JSON request.'), { status: 400 }); }
+}
+
+export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDir, bins, lock = true, sharingURL = process.env.AI_RELAY_SHARING_URL, accessToken, importer } = {}) {
+  const registry = new ProjectRegistry({ dataRoot: dataRoot || dataDir || path.join(root, '.data'), bins, lock });
+  for (const folder of [...(workspace ? [workspace] : []), ...workspaces]) registry.add({ path: folder });
+  const collaboration = new CollaborationService({ registry, dataRoot: registry.dataRoot });
+  const settingsFile=path.join(registry.dataRoot,'settings.json');
+  let config=fs.existsSync(settingsFile)?JSON.parse(fs.readFileSync(settingsFile,'utf8')):{};
+  registry.conversationDefaults = () => config.defaults;
+  const saveSettings = patch => { config = { ...(fs.existsSync(settingsFile) ? JSON.parse(fs.readFileSync(settingsFile, 'utf8')) : config), ...patch }; atomicJSON(settingsFile, config); };
+  let sharing=(sharingURL||config.sharingURL)?new SharingClient({baseUrl:sharingURL||config.sharingURL,storePath:path.join(registry.dataRoot,'sharing-client.json'),createKey:process.env.AI_RELAY_SHARING_CREATE_KEY}):null;
+  const configureSharing=input=>{const baseUrl=validateSharingURL(input.baseUrl);sharing=new SharingClient({baseUrl,storePath:path.join(registry.dataRoot,'sharing-client.json'),createKey:process.env.AI_RELAY_SHARING_CREATE_KEY});saveSettings({sharingURL:baseUrl});return {baseUrl};};
+  const workspaceRoutes = createWorkspaceRoutes({ registry, body, json, importer });
+  const listeners = new Set();
+  let closing = false;
+  registry.on('update', update => {
+    for (const res of listeners) res.write(`event: update\ndata: ${JSON.stringify(update)}\n\n`);
+  });
+  registry.on('projects', () => {
+    for (const res of listeners) res.write('event: projects\ndata: {}\n\n');
+  });
+  function selectedProjectId(url) {
+    const id=url.searchParams.get('projectId');
+    if(id){registry.get(id);return id;}
+    const projects=registry.list();
+    if(projects.length===1)return projects[0].id;
+    throw Object.assign(new Error('Select a project workspace first.'),{status:400});
+  }
+  function selectedBroker(url) {return registry.broker(selectedProjectId(url));}
+  const heartbeat = setInterval(() => { for (const res of listeners) res.write(': keepalive\n\n'); }, 15000);
+  heartbeat.unref();
+
+  const server = http.createServer(async (req, res) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    try {
+      if (closing) return json(res, 503, { error: 'Throughline is stopping.' });
+      const port = server.address()?.port;
+      const allowedHosts = [`127.0.0.1:${port}`, `localhost:${port}`];
+      if (!allowedHosts.includes(req.headers.host)) return json(res, 403, { error: 'Only localhost is allowed.' });
+      if (req.headers.origin && !allowedHosts.map(host => `http://${host}`).includes(req.headers.origin)) {
+        return json(res, 403, { error: 'Cross-origin requests are not allowed.' });
+      }
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      if (req.method === 'GET' && assets[url.pathname]) {
+        const [filename, type] = assets[url.pathname];
+        const contents = fs.readFileSync(path.join(root, 'public', filename));
+        res.writeHead(200, { 'Content-Type': type });
+        return res.end(contents);
+      }
+      if (accessToken && req.headers['x-ai-relay-token'] !== accessToken && !(url.pathname === '/api/events' && url.searchParams.get('token') === accessToken)) return json(res, 403, { error: 'Desktop session required.' });
+      if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
+      if (req.method === 'GET' && url.pathname === '/api/projects') return json(res, 200, registry.list());
+      if (req.method === 'GET' && url.pathname === '/api/events') {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.write('event: ready\ndata: {}\n\n');
+        listeners.add(res);
+        req.on('close', () => listeners.delete(res));
+        return;
+      }
+      if (req.method === 'POST') {
+        if (req.headers['x-ai-relay'] !== '1') return json(res, 403, { error: 'Missing local application header.' });
+        if (url.pathname === '/api/projects') {
+          const input = await body(req);
+          if (closing) return json(res, 503, { error: 'Throughline is stopping.' });
+          return json(res, 201, registry.add(input));
+        }
+      }
+      if (url.pathname === '/api/preferences') {
+        if (req.method === 'POST') saveSettings(preferencePatch(await body(req), config));
+        else if (req.method !== 'GET') return json(res, 405, { error: 'Use GET or POST for preferences.' });
+        return json(res, 200, publicPreferences(config, registry.list().length > 0));
+      }
+      if (url.pathname === '/api/appearance') {
+        if (req.method === 'GET') return json(res, 200, { theme: ['graphite', 'light'].includes(config.appearance) ? config.appearance : null });
+        if (req.method !== 'POST') return json(res, 405, { error: 'Use GET or POST for appearance.' });
+        const input = await body(req);
+        if (!['graphite', 'light'].includes(input.theme)) return json(res, 400, { error: 'Choose Graphite or Light appearance.' });
+        saveSettings({ appearance: input.theme });
+        return json(res, 200, { theme: input.theme });
+      }
+      const workspaceAction = url.pathname.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/(remove|restore)$/);
+      if (req.method === 'POST' && workspaceAction) {
+        await body(req);
+        return json(res, 200, registry[workspaceAction[2]](workspaceAction[1]));
+      }
+      const folderRoute=url.pathname.match(/^\/api\/projects\/([a-zA-Z0-9-]+)\/folders(?:\/([a-zA-Z0-9-]+)\/remove)?$/);
+      if(req.method==='POST'&&folderRoute){
+        const input=await body(req);
+        const project=folderRoute[2]?await registry.removeFolder(folderRoute[1],folderRoute[2]):await registry.addFolder(folderRoute[1],input);
+        return json(res,200,project);
+      }
+      const projectRoute=url.pathname.match(/^\/api\/projects\/([a-zA-Z0-9-]+)$/);
+      if(req.method==='POST'&&projectRoute)return json(res,200,await registry.update(projectRoute[1],await body(req)));
+      if(req.method==='GET'&&url.pathname==='/api/conversation')return json(res,200,registry.mainConversation(selectedProjectId(url)));
+      if (await workspaceRoutes({ req, res, url })) return;
+      if (await collaborationRoute({req,res,url,registry,collaboration,sharing,configureSharing,body,json})) return;
+      if (req.method === 'GET' && url.pathname === '/api/status') {
+        const broker = selectedBroker(url);
+        const projectId = selectedProjectId(url);
+        return json(res, 200, { ...await broker.status(), projectId, project: registry.get(projectId) });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/conversations') return json(res, 200, selectedBroker(url).list());
+      if (req.method === 'POST') {
+        if (url.pathname === '/api/conversations') {
+          await body(req);
+          if (closing) return json(res, 503, { error: 'Throughline is stopping.' });
+          const projectId=selectedProjectId(url),existed=Boolean(registry.get(projectId).conversationId);
+          return json(res,existed?200:201,registry.mainConversation(projectId));
+        }
+      }
+      const match = url.pathname.match(/^\/api\/conversations\/([\da-f-]{36})(?:\/(messages|continue|stop|provider|context|approval))?$/);
+      if (match) {
+        const broker = selectedBroker(url);
+        const c = broker.get(match[1]);
+        if (req.method === 'GET' && !match[2]) return json(res, 200, broker.view(c));
+        if (req.method === 'POST') {
+          if(registry.mainConversation(selectedProjectId(url)).id!==c.id)return json(res,409,{error:'This project has one active chat. Open its project conversation to continue.'});
+          const input = await body(req);
+          if (closing) return json(res, 503, { error: 'Throughline is stopping.' });
+          if (match[2] === 'context') return json(res, 200, await broker.updateContext(c, input));
+          if (match[2] === 'approval') return json(res, 200, await broker.approve(input.runId, input.approvalId, input.allow === true));
+          if (match[2] === 'provider') return json(res, 200, await broker.settings(c, input));
+          if (match[2] === 'stop') return json(res, 200, broker.stop(c.id));
+          if (match[2] === 'messages') return json(res, 202, await broker.start(c, input));
+          if (match[2] === 'continue') return json(res, 202, await broker.start(c, { ...input,
+            fresh: true,
+            text: 'Continue the unfinished task from this shared conversation. Inspect the current files and saved activity first, and finish what remains.' }));
+        }
+      }
+      return json(res, 404, { error: 'Not found.' });
+    } catch (error) {
+      if (!error.status) console.error('Throughline request failed:', error.message);
+      return json(res, error.status || 500, { error: error.status ? error.message : 'Local server error. Check the terminal for details.' });
+    }
+  });
+
+  let closePromise;
+  const close = () => closePromise ||= (async () => {
+    closing = true;
+    closeAccountConnections();
+    await registry.close();
+    clearInterval(heartbeat);
+    for (const res of listeners) res.end();
+    await new Promise(resolve => server.close(resolve));
+  })();
+  return { server, registry, collaboration, sharing, close,
+    getKeepAwakePreference: () => config.keepAwake === true,
+    setKeepAwakePreference: enabled => { if (typeof enabled !== 'boolean') throw new Error('Keep awake must be enabled or disabled.'); saveSettings({ keepAwake: enabled }); },
+    get broker() { const projects = registry.list(); return projects.length === 1 ? registry.broker(projects[0].id) : null; } };
+}
+
+function main() {
+  const args = process.argv.slice(2);
+  if (args.includes('--help')) {
+    console.log('Throughline — shared Codex/Claude chats for your projects\n\nnode server.mjs [--workspace /absolute/project/path] [--port 4318]\n\nAdd projects in the browser, or repeat --workspace to register folders. Uses your installed CLIs and their existing logins.');
+    return;
+  }
+  const options = { workspaces: [] };
+  for (let i = 0; i < args.length; i += 2) {
+    if (!['--workspace', '--port'].includes(args[i]) || !args[i + 1]) throw new Error('Use --workspace PATH or --port NUMBER.');
+    if (args[i] === '--workspace') options.workspaces.push(args[i + 1]);
+    else options.port = args[i + 1];
+  }
+  const port = Number(options.port || process.env.AI_RELAY_PORT || 4318);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Port must be between 1 and 65535.');
+  const app = createRelayServer({ workspaces: options.workspaces, dataRoot: process.env.AI_RELAY_DATA_DIR });
+  app.server.once('error', async error => {
+    console.error(`Could not start Throughline: ${error.message}`);
+    await app.close();
+    process.exitCode = 1;
+  });
+  app.server.listen(port, '127.0.0.1', () => {
+    console.log(`Throughline: http://127.0.0.1:${port}\n${app.registry.list().length} saved project(s). Add or switch projects in the browser.\nPress Ctrl+C to stop.`);
+  });
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    await app.close();
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  try { main(); }
+  catch (error) { console.error(error.message); process.exitCode = 1; }
+}

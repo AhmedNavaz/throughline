@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <title>Throughline</title>
+  <!-- Full-bleed mark for the favicon, in-app logo and Windows icon. Same drawing as assets/icon.svg. -->
+  <defs>
+    <linearGradient id="tl-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f2a4a"/>
+      <stop offset="1" stop-color="#0b1020"/>
+    </linearGradient>
+    <linearGradient id="tl-thread" x1="10" y1="0" x2="90" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3fe0c5"/>
+      <stop offset="0.5" stop-color="#9aa8ff"/>
+      <stop offset="1" stop-color="#ff8c63"/>
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="22" fill="url(#tl-tile)"/>
+  <g transform="translate(0 5)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 62C30 62 46 58 57 44C64 35 62 23 50 23C38 23 36 35 43 44" stroke="url(#tl-thread)" stroke-width="8.5"/>
+    <path d="M43 44C54 58 70 62 88 62" pathLength="100" stroke="#151d35" stroke-width="17" stroke-dasharray="0 16 26 200"/>
+    <path d="M43 44C54 58 70 62 88 62" stroke="url(#tl-thread)" stroke-width="8.5"/>
+  </g>
+</svg>

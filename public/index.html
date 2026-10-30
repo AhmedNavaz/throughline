@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#181818" />
+    <title>Throughline</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/editor-theme.css" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/workbench.css" />
+    <script src="/app.js" defer></script>
+    <script src="/workbench.js" defer></script>
+    <script src="/insights.js" defer></script>
+    <script src="/setup.js" defer></script>
+    <script src="/desktop-controls.js" defer></script>
+    <script src="/files.js" defer></script>
+    <link rel="stylesheet" href="/polish.css" />
+    <link rel="stylesheet" href="/files.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Workspaces">
+        <div class="sidebar-titlebar">
+          <a class="brand" href="/" aria-label="Throughline home"><img class="brand-mark" src="/icon.svg" alt="" width="18" height="18" /><span class="brand-name">Throughline</span></a>
+          <button id="workspace-toggle" class="workspace-toggle" type="button" aria-expanded="false" aria-controls="workspace-list">Workspaces <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+        </div>
+        <div class="sidebar-heading"><span>Workspaces</span><span id="workspace-count" class="count-badge">0</span><button id="create-workspace" class="icon-button new-workspace" type="button" title="New workspace" aria-label="New workspace"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>
+        <label class="workspace-search"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span class="sr-only">Find a workspace</span><input id="workspace-search" type="search" placeholder="Filter workspaces" autocomplete="off" /></label>
+        <button id="open-setup" class="setup-launch" type="button" hidden><span>Getting started</span><span id="setup-progress">Setup</span></button>
+        <nav id="workspace-list" class="workspace-list" aria-label="Saved workspaces and folders"></nav>
+        <section class="explorer" id="explorer" aria-label="Workspace files">
+          <div class="explorer-heading"><button id="toggle-explorer" type="button" aria-expanded="true" aria-controls="file-tree"><span class="tree-chevron" aria-hidden="true"></span>Files</button><button id="refresh-files" class="icon-button" type="button" aria-label="Refresh files" title="Refresh files"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button></div>
+          <div id="file-tree" class="file-tree" role="region" aria-label="Folders and files"></div>
+          <p class="explorer-footnote">Select a file to preview or attach</p>
+        </section>
+        <span id="workspace-name" class="sr-only">No workspace selected</span>
+      </aside>
+
+      <main class="main-panel">
+        <header class="conversation-header">
+          <div class="header-title"><h1 id="conversation-title">No workspace selected</h1><p id="conversation-subtitle">Create a workspace to start.</p></div>
+          <div class="header-actions">
+            <div id="conversation-state" class="conversation-state" hidden><i aria-hidden="true"></i><span>Ready</span></div>
+            <span class="toolbar-divider" aria-hidden="true"></span>
+            <button id="open-import" class="toolbar-button" type="button" title="Import Claude Code or Codex conversations"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 21h14"/></svg><span class="button-label">Import chat</span></button>
+            <button id="open-export" class="toolbar-button" type="button" title="Export this conversation to share with another Throughline user"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m-4 4 4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg><span class="button-label">Export</span></button>
+            <button id="ask-friend" class="toolbar-button" type="button" title="Ask a friend for help"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.5A6.5 6.5 0 0 1 21.5 20"/></svg><span class="button-label">Ask a friend</span></button>
+            <button id="open-git" class="toolbar-button" type="button" aria-expanded="false" aria-controls="git-panel" title="Git activity"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="6" r="2"/><path d="M6 7v10M18 8v1a5 5 0 0 1-5 5H6"/></svg><span class="button-label">Git</span></button>
+          </div>
+        </header>
+
+        <label class="sr-only" for="project-select">Current workspace</label>
+        <select id="project-select" class="compatibility-control" tabindex="-1" aria-hidden="true" aria-describedby="workspace-breadcrumb"><option value="">Loading workspaces…</option></select>
+        <span id="workspace-breadcrumb" class="sr-only">Choose a workspace in the sidebar.</span>
+        <button id="add-project" type="button" aria-expanded="false" aria-controls="project-panel" hidden>New workspace</button>
+
+        <section id="project-panel" class="project-panel" aria-labelledby="project-panel-title" hidden>
+          <div class="project-panel-heading"><div><h2 id="project-panel-title">New workspace</h2><p>Add one or more project folders. Their files stay in their current locations.</p></div><button id="close-project" class="close-project icon-button" type="button" aria-label="Close workspace form"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+          <form id="project-form" class="project-form">
+            <label>Workspace name <span>optional</span><input id="project-name" name="name" autocomplete="off" placeholder="e.g. Customer portal" maxlength="100" /></label>
+            <label>Folders <span>one path per line</span><textarea id="project-paths" name="folders" autocomplete="off" placeholder="~/projects/frontend&#10;~/projects/backend" rows="3" required spellcheck="false"></textarea></label>
+            <div class="form-actions"><button id="pick-folder" class="secondary-button" type="button" hidden>Choose folder…</button><button id="save-project" class="primary-button" type="submit">Create workspace <span aria-hidden="true">→</span></button></div>
+          </form>
+          <p id="project-error" class="project-error" role="alert" hidden></p>
+          <p class="panel-alternative">Already working on this project in Claude Code or Codex? <button id="import-from-panel" class="text-link" type="button">Import those chats instead</button></p>
+        </section>
+
+        <section id="folder-panel" class="project-panel" aria-labelledby="folder-panel-title" hidden>
+          <div class="project-panel-heading"><div><h2 id="folder-panel-title">Add folder</h2><p id="folder-panel-description">Add another project folder to this workspace.</p></div><button id="close-folder" class="close-project icon-button" type="button" aria-label="Close add folder form"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+          <form id="folder-form" class="folder-form"><label>Folder path<input id="folder-path" name="path" autocomplete="off" placeholder="~/projects/backend" required spellcheck="false" /></label><div class="form-actions"><button id="pick-add-folder" class="secondary-button" type="button" hidden>Choose folder…</button><button id="save-folder" class="primary-button" type="submit">Add folder <span aria-hidden="true">→</span></button></div></form>
+          <p id="folder-error" class="project-error" role="alert" hidden></p>
+        </section>
+
+        <div id="notice" class="notice" role="alert" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></svg><span id="notice-text"></span><button id="notice-retry" type="button">Retry</button><button id="notice-dismiss" class="icon-button" type="button" aria-label="Dismiss notification"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+
+        <div id="messages-scroll" class="messages-scroll">
+          <section id="project-empty-state" class="empty-state" aria-label="Create a workspace" hidden><span class="empty-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10.5v5M9.5 13h5"/></svg></span><h2>Set up your first workspace</h2><p>Continue a Claude Code or Codex chat you already have, or start fresh from project folders. Everything runs on your own Claude and Codex accounts.</p><div class="empty-actions"><button id="import-first" class="primary-button" type="button">Import existing chats</button><button id="add-first-project" class="secondary-button" type="button">Add folders</button></div></section>
+          <section id="provider-empty-state" class="empty-state" aria-label="Connect an assistant" hidden><span class="empty-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M9 7V3M15 7V3M6 7h12v4a6 6 0 0 1-12 0zM12 17v4"/></svg></span><h2>Connect an assistant</h2><p>Connect Codex or Claude in Settings to send messages. Your saved work remains available.</p><button id="connect-assistant" class="primary-button" type="button">Open settings</button></section>
+          <section id="empty-state" class="empty-state" aria-label="Conversation"><span class="empty-mark" aria-hidden="true"><img src="/icon.svg" alt="" width="44" height="44" /></span><h2>Start a task</h2><p>Describe what you need, or import a conversation to pick up where you left off.</p><div class="starter-prompts"><button type="button" data-prompt="Explore this project and explain how it works."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><strong>Explore the project</strong><small>Explain how it works</small></button><button type="button" data-prompt="Review the current changes and help me find any bugs."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg><strong>Review my changes</strong><small>Find bugs in the current diff</small></button></div></section>
+          <div id="messages" class="messages" role="log" aria-label="Conversation messages" aria-live="off"></div>
+        </div>
+
+        <section id="file-preview" class="file-preview" aria-label="File preview" hidden>
+          <header><div><strong id="file-preview-name"></strong><span id="file-preview-path"></span></div><button id="attach-preview" type="button" class="secondary-button">Attach to message</button><button id="close-file-preview" type="button" class="icon-button" aria-label="Back to conversation" title="Back to conversation"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+          <div id="file-preview-content" class="file-preview-content"></div>
+          <footer id="file-preview-meta"></footer>
+        </section>
+        <div id="composer-region" class="composer-region">
+          <button id="jump-latest" class="jump-latest" type="button" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5.5 12.5 12 19l6.5-6.5"/></svg>Jump to latest</button>
+          <section id="run-progress" class="run-progress" role="region" aria-label="Run status" hidden>
+            <div class="run-progress-top"><span id="run-phase" class="run-phase" role="status" aria-live="polite">Starting</span><span id="run-elapsed" class="run-elapsed"></span></div>
+            <p id="run-detail"></p><div id="run-metrics" class="run-metrics"></div>
+          </section>
+          <div id="other-running" class="running-notice" hidden><span>This workspace has an active run.</span><button id="view-running" type="button">Refresh status</button></div>
+          <div id="continuation" class="continuation" hidden><span id="continuation-text">The last run stopped.</span><button id="continue-button" type="button">Continue with Codex <span aria-hidden="true">→</span></button></div>
+          <div id="connection-notice" class="connection-notice" role="status" hidden><span id="connection-notice-text"></span><button id="connection-action" type="button">Connect account</button></div>
+          <form id="composer" class="composer">
+            <div id="custom-model-editor" class="custom-model-editor" hidden><label for="custom-model-input">Custom model ID</label><input id="custom-model-input" maxlength="200" placeholder="Enter a supported model identifier" /><button id="save-custom-model" type="button">Use model</button><button id="cancel-custom-model" type="button">Cancel</button></div>
+            <div id="attachment-list" class="attachment-list" aria-label="Message attachments" hidden></div>
+            <p id="attachment-status" class="attachment-status" role="status" aria-live="polite" hidden></p>
+            <input id="attachment-input" type="file" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,text/*,.md,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.scss,.csv,.yaml,.yml,.toml,.xml,.sh,.sql,.rs,.go,.java,.c,.cpp,.h,.swift,.rb,.vue,.svelte,.log" />
+            <label class="sr-only" for="message-input">Message the selected assistant</label><textarea id="message-input" name="message" rows="3" placeholder="Describe a task…" autocomplete="off" spellcheck="true" aria-describedby="composer-hint"></textarea>
+            <div class="composer-toolbar">
+              <div class="composer-controls">
+                <button id="attach-files" class="attach-files" type="button" title="Attach images or text files · also paste or drop files" aria-label="Attach images or text files"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9M6 15l8-8"/></svg><span>Attach</span></button>
+                <span id="assistant-label" class="sr-only">Assistant</span>
+                <div class="provider-selector" role="group" aria-labelledby="assistant-label"><button id="select-codex" class="provider-button selected" type="button" aria-pressed="true"><i class="agent-icon codex" aria-hidden="true"></i>Codex</button><button id="select-claude" class="provider-button" type="button" aria-pressed="false"><i class="agent-icon claude" aria-hidden="true"></i>Claude</button></div>
+                <label class="picker model-picker" title="Model"><span class="sr-only">Model</span><select id="model-select" aria-label="Model"><option value="">Provider default</option></select></label>
+                <button id="refresh-models" class="icon-button refresh-button" type="button" title="Load models from the selected agent" aria-label="Refresh available models"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
+                <label class="picker effort-picker" title="Reasoning effort"><span class="sr-only">Reasoning effort</span><select id="effort-select" aria-label="Reasoning effort"><option value="">Provider default</option></select></label>
+                <label class="picker mode-control" title="Workspace access"><span class="sr-only">Access</span><select id="mode-select" aria-label="Workspace access"><option value="edit">Can edit files</option><option value="read">Read only</option></select></label>
+              </div>
+              <div class="composer-actions">
+                <button id="usage-chip" class="usage-chip" type="button" hidden></button>
+                <span id="composer-hint" class="sr-only">Enter to send, Shift and Enter for a new line.</span>
+                <button id="stop-button" class="stop-button" type="button" hidden><span aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg></span> Stop</button>
+                <button id="send-button" class="send-button" type="submit" title="Send (Enter)"><span class="sr-only">Send</span><span aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg></span></button>
+              </div>
+            </div>
+            <p id="model-description" class="model-description sr-only">Choose your agent and model for the next message.</p>
+          </form>
+          <p id="permission-note" class="sr-only">Review workspace permissions in Settings.</p>
+        </div>
+        <div id="announcer" class="sr-only" role="status" aria-live="polite"></div>
+      </main>
+
+      <aside id="git-panel" class="git-panel" aria-label="Git activity" hidden>
+        <div class="inspector-heading"><h2>Git activity</h2><div class="inspector-actions"><button id="refresh-git" class="icon-button refresh-button" type="button" aria-label="Refresh Git activity" title="Refresh"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button><button id="close-git" class="icon-button" type="button" aria-label="Close Git activity" title="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div></div>
+        <div class="git-toolbar"><label class="sr-only" for="git-repository">Repository</label><select id="git-repository" aria-label="Repository"></select></div>
+        <div id="git-summary"></div><div class="inspector-tabs" role="group" aria-label="Git view"><button id="git-changes-tab" type="button" aria-pressed="true">Changes</button><button id="git-commits-tab" type="button" aria-pressed="false">Commits</button></div>
+        <div id="git-content" class="git-content"></div><p id="git-updated" class="git-updated"></p>
+      </aside>
+
+      <footer class="status-bar" aria-label="Status">
+        <div class="status-group">
+          <span class="provider-status" data-provider="codex" title="Codex connection"><i id="codex-status-dot" class="status-dot" aria-hidden="true"></i><span class="provider-name">Codex</span><span id="codex-status-text" class="provider-state">Checking…</span><button id="codex-usage" class="usage-meter" type="button" hidden></button></span>
+          <span class="provider-status" data-provider="claude" title="Claude connection"><i id="claude-status-dot" class="status-dot" aria-hidden="true"></i><span class="provider-name">Claude</span><span id="claude-status-text" class="provider-state">Checking…</span><button id="claude-usage" class="usage-meter" type="button" hidden></button></span>
+        </div>
+        <div class="status-group">
+          <button id="keep-awake" class="status-button keep-awake" type="button" aria-pressed="false" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M8 9h.01M12 9h.01M16 9h.01"/></svg><span id="keep-awake-label">Keep awake · Off</span></button>
+          <p id="appearance-status" class="appearance-status" role="status"></p>
+          <div class="appearance-options" role="group" aria-label="Appearance"><button type="button" data-appearance="graphite" aria-pressed="true" title="Dark theme"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg><span class="sr-only">Dark</span></button><button type="button" data-appearance="light" aria-pressed="false" title="Light theme"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span class="sr-only">Light</span></button></div>
+          <button id="relay-settings" class="status-button" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>Settings</button>
+        </div>
+      </footer>
+    </div>
+
+    <dialog id="workspace-options-dialog" class="compact-dialog" aria-labelledby="workspace-options-title">
+      <header><h2 id="workspace-options-title">Workspace settings</h2><button id="close-workspace-options" class="icon-button" type="button" aria-label="Close workspace settings"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+      <form id="rename-workspace-form"><label for="rename-workspace-name">Workspace name</label><input id="rename-workspace-name" maxlength="120" required autocomplete="off" /><div class="form-actions"><button id="save-workspace-name" class="primary-button" type="submit">Save name</button></div></form>
+      <p id="workspace-options-error" class="project-error" role="alert" hidden></p>
+      <section class="workspace-folder-section" aria-labelledby="workspace-folders-title"><h3 id="workspace-folders-title">Folders</h3><div id="workspace-folder-settings"></div></section>
+      <div class="workspace-removal-option"><p>Remove this workspace from the sidebar. Project files and saved chat are kept.</p><button id="workspace-remove" class="secondary-button quiet-danger" type="button">Remove workspace…</button></div>
+    </dialog>
+    <dialog id="folder-options-dialog" class="compact-dialog" aria-labelledby="folder-options-title">
+      <header><h2 id="folder-options-title">Workspace folder</h2><button id="close-folder-options" class="icon-button" type="button" aria-label="Close folder details"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+      <p id="folder-options-path" class="folder-options-path"></p><p id="folder-options-description"></p>
+      <div class="form-actions"><button id="confirm-remove-folder" class="secondary-button quiet-danger" type="button">Remove folder from workspace</button></div>
+    </dialog>
+    <div id="usage-dialog" class="usage-popover" popover="auto" role="dialog" aria-labelledby="usage-title"><header><div><h2 id="usage-title">Plan usage</h2><p id="usage-plan"></p></div><button id="close-usage" class="icon-button" type="button" aria-label="Close usage details"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header><div id="usage-details"></div><footer class="usage-footer"><p id="usage-updated" role="status"></p><button id="refresh-usage" class="secondary-button" type="button">Refresh</button></footer></div>
+    <dialog id="setup-dialog" class="setup-dialog" aria-labelledby="setup-title"><header><div><span class="setup-eyebrow">THROUGHLINE</span><h2 id="setup-title">A workspace that works your way.</h2><p>A few preferences, then you’re ready to build.</p></div><button id="close-setup" class="icon-button" type="button" aria-label="Continue setup later"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header><div class="setup-layout"><nav id="setup-steps" aria-label="Setup steps"></nav><section id="setup-content"></section></div><p id="setup-error" class="project-error" role="alert" hidden></p><footer><button id="setup-back" class="secondary-button" type="button">Back</button><span id="setup-step-status" role="status"></span><button id="setup-next" class="primary-button" type="button">Continue</button></footer></dialog>
+
+    <dialog id="remove-workspace-dialog" class="remove-workspace-dialog" aria-labelledby="remove-workspace-title" aria-describedby="remove-workspace-description">
+      <h2 id="remove-workspace-title">Remove workspace?</h2>
+      <p id="remove-workspace-description">Remove <strong id="remove-workspace-name"></strong> from Throughline’s sidebar? Your project files and saved chat stay on this computer. You can undo this or add the same folders again to restore it.</p>
+      <p id="remove-workspace-error" class="project-error" role="alert" hidden></p>
+      <div class="form-actions"><button id="cancel-remove-workspace" class="secondary-button" type="button" autofocus>Cancel</button><button id="confirm-remove-workspace" class="primary-button" type="button">Remove workspace</button></div>
+    </dialog>
+
+    <dialog id="import-dialog" class="import-dialog" aria-labelledby="import-title" aria-describedby="import-description">
+      <header><div><h2 id="import-title">Import conversations</h2><p id="import-description">Bring your Claude Code and Codex chats into Throughline. Pick one or several, even from both agents. They merge in time order into one workspace conversation, so you can continue from there.</p></div><button id="close-import" class="icon-button" type="button" aria-label="Close import"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+      <div class="import-toolbar">
+        <div class="segmented" role="group" aria-label="Agent"><button type="button" data-import-provider="all" aria-pressed="true">All</button><button type="button" data-import-provider="claude" aria-pressed="false">Claude Code</button><button type="button" data-import-provider="codex" aria-pressed="false">Codex</button></div>
+        <div id="import-scope" class="segmented" role="group" aria-label="Show conversations from"><button type="button" data-import-scope="workspace" aria-pressed="false">This workspace</button><button type="button" data-import-scope="all" aria-pressed="true">All projects</button></div>
+        <label class="import-search"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span class="sr-only">Find a conversation</span><input id="import-search" type="search" placeholder="Search titles or folders" autocomplete="off" /></label>
+        <button id="import-file-button" class="secondary-button" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M12 11v6M9.5 14.5 12 17l2.5-2.5"/></svg>Open file…</button><input id="import-file" type="file" accept=".json,application/json" hidden />
+        <button id="refresh-imports" class="icon-button refresh-button" type="button" aria-label="Refresh conversations" title="Refresh"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
+      </div>
+      <p id="import-error" class="import-error" role="alert" hidden></p>
+      <div class="import-layout"><div class="import-list-pane"><div id="import-list"></div><button id="import-more" type="button" hidden>Load more</button></div><div class="import-preview-pane"><div id="import-preview"></div></div></div>
+      <footer>
+        <div class="import-destination"><label for="import-target">Import into</label><select id="import-target"></select><label class="sr-only" for="import-name">New workspace name</label><input id="import-name" maxlength="100" placeholder="Workspace name" autocomplete="off" hidden /><span id="import-folder-field" class="import-folder-field" hidden><label class="sr-only" for="import-folder-path">Local project folder</label><input id="import-folder-path" placeholder="Local project folder, e.g. ~/projects/shop" autocomplete="off" spellcheck="false" /><button id="import-folder-pick" class="secondary-button" type="button" hidden>Choose…</button></span><p id="import-folders" class="import-folders"></p></div>
+        <div class="import-actions"><label class="import-confirm"><input id="import-confirm" type="checkbox" /> <span id="import-confirm-text">Select conversations to import.</span></label><span id="import-result" role="status"></span><button id="confirm-import" class="primary-button" type="button" disabled>Import</button></div>
+      </footer>
+    </dialog>
+
+    <dialog id="export-dialog" class="export-dialog" aria-labelledby="export-title" aria-describedby="export-description">
+      <header><div><h2 id="export-title">Export conversation</h2><p id="export-description">Save this workspace’s conversation as a file. Another Throughline user can import it and continue with their own Claude or Codex account.</p></div><button id="close-export" class="icon-button" type="button" aria-label="Close export"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+      <div class="export-body">
+        <div class="export-options">
+          <label class="export-field" for="export-range">Messages<select id="export-range"><option value="all">Entire conversation</option><option value="100">Last 100 messages</option><option value="30">Last 30 messages</option></select></label>
+          <label class="export-check"><input id="export-redact" type="checkbox" checked /> <span><strong>Remove secrets and local paths</strong><small>Recommended. Workspace paths become folder names, like [frontend]/src/app.js.</small></span></label>
+          <label class="export-check"><input id="export-activity" type="checkbox" /> <span><strong>Include tool activity</strong><small>Commands, output and file changes. These can contain more sensitive detail.</small></span></label>
+        </div>
+        <div id="export-summary" class="export-summary" role="status"></div>
+        <p class="export-note">Only share with people you trust. They will see the full text of these messages. To ask someone for code changes instead, use <button id="export-ask-friend" class="text-link" type="button">Ask a friend</button>.</p>
+      </div>
+      <p id="export-error" class="project-error" role="alert" hidden></p>
+      <footer><button id="export-markdown" class="secondary-button" type="button" disabled>Save as Markdown</button><button id="export-download" class="primary-button" type="button" disabled>Save conversation file</button></footer>
+    </dialog>
+
+    <dialog id="diff-dialog" class="diff-dialog" aria-labelledby="diff-title">
+      <header><div><h2 id="diff-title">Changes</h2><p id="diff-meta"></p></div><button id="close-diff" class="icon-button" type="button" aria-label="Close changes"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+      <div id="diff-content" class="diff-content"></div>
+    </dialog>
+
+    <dialog id="workbench" aria-labelledby="workbench-title" aria-describedby="workbench-description">
+      <header><div><h2 id="workbench-title">Ask a friend</h2><p id="workbench-description">Choose the context and files to include in your request.</p></div><button id="workbench-close" class="icon-button" type="button" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+      <nav id="workbench-tabs" aria-label="Settings and collaboration"><button data-tab="request">Ask a friend</button><button data-tab="solutions">Returned solutions</button><button data-tab="friend">Help someone</button><button data-tab="accounts">Connections</button><button id="open-setup-guide" class="workbench-nav-extra" type="button">Setup guide</button></nav>
+      <p id="workbench-error" role="alert" hidden></p><div id="workbench-content"></div>
+    </dialog>
+  </body>
+</html>

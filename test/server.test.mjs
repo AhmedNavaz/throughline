@@ -1,0 +1,326 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
+import test from 'node:test';
+import { createRelayServer } from '../server.mjs';
+
+async function fixture(t) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-relay-http-'));
+  const workspace = path.join(directory, 'project');
+  const dataDir = path.join(directory, 'history');
+  fs.mkdirSync(workspace);
+  const instances = [];
+  const controllers = [];
+  t.after(async () => {
+    for (const controller of controllers) controller.abort();
+    for (const app of instances.reverse()) await app.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  const launch = async () => {
+    // Status probes only execute `node --version`; no assistant or live inference is used.
+    const app = createRelayServer({ workspace, dataDir,
+      bins: { codex: process.execPath, claude: process.execPath }, lock: false });
+    instances.push(app);
+    app.server.listen(0, '127.0.0.1');
+    await once(app.server, 'listening');
+    const port = app.server.address().port;
+    return { app, port, url: `http://127.0.0.1:${port}` };
+  };
+
+  return { ...await launch(), directory, workspace, launch, controllers };
+}
+
+function post(url, value, extraHeaders = {}) {
+  return fetch(url, { method: 'POST', headers: {
+    'Content-Type': 'application/json', 'X-AI-Relay': '1', ...extraHeaders,
+  }, body: JSON.stringify(value) });
+}
+
+function requestWithHost(port, host) {
+  return new Promise((resolve, reject) => {
+    const req = http.get({ hostname: '127.0.0.1', port, path: '/api/conversations',
+      headers: { Host: host } }, res => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(body) }));
+    });
+    req.on('error', reject);
+  });
+}
+
+function eventReader(reader) {
+  let buffered = '';
+  const decoder = new TextDecoder();
+  return async () => {
+    while (!buffered.includes('\n\n')) {
+      const { value, done } = await reader.read();
+      assert.equal(done, false, 'The SSE stream should remain open.');
+      buffered += decoder.decode(value, { stream: true });
+    }
+    const boundary = buffered.indexOf('\n\n');
+    const block = buffered.slice(0, boundary);
+    buffered = buffered.slice(boundary + 2);
+    const lines = block.split('\n');
+    return { type: lines.find(line => line.startsWith('event: '))?.slice(7),
+      data: JSON.parse(lines.find(line => line.startsWith('data: ')).slice(6)) };
+  };
+}
+
+test('serves the local interface and probes provider versions without inference', async t => {
+  const f = await fixture(t);
+  const page = await fetch(f.url);
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get('content-type'), /^text\/html/);
+  assert.equal(page.headers.get('cache-control'), 'no-store');
+  assert.equal(page.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+  const html = await page.text();
+  assert.match(html, /<title>Throughline/);
+  assert.match(html, /id="select-codex"/);
+  assert.match(html, /id="select-claude"/);
+  const statusResponse = await fetch(`${f.url}/api/status`);
+  assert.equal(statusResponse.status, 200);
+  const status = await statusResponse.json();
+  assert.equal(status.workspace, fs.realpathSync(f.workspace));
+  assert.equal(status.runningConversationId, null);
+  for (const provider of ['codex', 'claude']) {
+    assert.equal(status.providers[provider].available, true);
+    assert.equal(status.providers[provider].version, process.version);
+  }
+});
+
+test('opens one permanent project chat and reuses it across requests, switching and restart', async t => {
+  const f = await fixture(t);
+  const initial=await (await fetch(`${f.url}/api/conversation`)).json();
+  assert.equal((await (await fetch(`${f.url}/api/conversations`)).json()).length,1);
+  const createdResponse = await post(`${f.url}/api/conversations`, {}, { Origin: f.url });
+  assert.equal(createdResponse.status, 200);
+  assert.equal((await (await fetch(`${f.url}/api/conversation`)).json()).id,initial.id);
+  const created = await createdResponse.json();
+  assert.match(created.id, /^[\da-f-]{36}$/);
+  assert.equal(created.provider, 'codex');
+  assert.equal(created.mode, 'edit');
+  assert.deepEqual(created.messages, []);
+  assert.equal(Object.hasOwn(created, 'sessions'), false);
+
+  const endpoint = `/api/conversations/${created.id}`;
+  const changedResponse = await post(`${f.url}${endpoint}/provider`, { provider: 'claude', mode: 'read' });
+  assert.equal(changedResponse.status, 200);
+  const changed = await changedResponse.json();
+  assert.equal(changed.id, created.id);
+  assert.equal(changed.provider, 'claude');
+  assert.equal(changed.mode, 'read');
+  assert.deepEqual(await (await fetch(`${f.url}${endpoint}`)).json(), changed);
+  const list = await (await fetch(`${f.url}/api/conversations`)).json();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].id, created.id);
+  assert.equal(list[0].provider, 'claude');
+  assert.equal(list[0].mode, 'read');
+
+  await f.app.close();
+  const reopened = await f.launch();
+  const savedResponse = await fetch(`${reopened.url}${endpoint}`);
+  assert.equal(savedResponse.status, 200);
+  assert.deepEqual(await savedResponse.json(), changed);
+});
+
+test('rejects invalid providers, malformed JSON and unknown conversations', async t => {
+  const f = await fixture(t);
+  const created = await (await post(`${f.url}/api/conversations`, {})).json();
+  const endpoint = `${f.url}/api/conversations/${created.id}`;
+  for (const input of [{ provider: 'other' }, { mode: 'unrestricted' }]) {
+    const response = await post(`${endpoint}/provider`, input);
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /Choose Codex or Claude/);
+  }
+  assert.deepEqual(await (await fetch(endpoint)).json(), created);
+
+  for (const body of ['{', '[]', 'null', '"text"']) {
+    const response = await fetch(`${f.url}/api/conversations`, { method: 'POST', headers: {
+      'Content-Type': 'application/json', 'X-AI-Relay': '1',
+    }, body });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /Invalid JSON/);
+  }
+  const unsupported = await fetch(`${f.url}/api/conversations`, {
+    method: 'POST', headers: { 'X-AI-Relay': '1' }, body: '{}',
+  });
+  assert.equal(unsupported.status, 415);
+  const unknown = `${f.url}/api/conversations/${randomUUID()}`;
+  assert.equal((await fetch(unknown)).status, 404);
+  assert.equal((await post(`${unknown}/provider`, { provider: 'claude' })).status, 404);
+  assert.equal((await fetch(`${f.url}/unknown`)).status, 404);
+  assert.equal((await (await fetch(`${f.url}/api/conversations`)).json()).length, 1);
+});
+
+test('rejects foreign origins, rebinding hosts and mutations without the application header', async t => {
+  const f = await fixture(t);
+  for (const origin of ['https://attacker.example', `http://127.0.0.1:${f.port + 1}`, 'null']) {
+    const response = await post(`${f.url}/api/conversations`, {}, { Origin: origin });
+    assert.equal(response.status, 403);
+    assert.match((await response.json()).error, /Cross-origin/);
+  }
+  const foreignRead = await fetch(`${f.url}/api/conversations`, { headers: { Origin: 'https://attacker.example' } });
+  assert.equal(foreignRead.status, 403);
+  for (const host of [`attacker.example:${f.port}`, `127.0.0.1.attacker.example:${f.port}`]) {
+    const response = await requestWithHost(f.port, host);
+    assert.equal(response.status, 403);
+    assert.match(response.body.error, /Only localhost/);
+  }
+  const noHeader = await fetch(`${f.url}/api/conversations`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  assert.equal(noHeader.status, 403);
+  assert.match((await noHeader.json()).error, /application header/);
+  const wrongHeader = await post(`${f.url}/api/conversations`, {}, { 'X-AI-Relay': '0' });
+  assert.equal(wrongHeader.status, 403);
+  assert.equal(f.app.registry.brokers.size,0,'Rejected requests cannot open a workspace chat.');
+
+  const created = await (await post(`${f.url}/api/conversations`, {})).json();
+  const deniedSwitch = await fetch(`${f.url}/api/conversations/${created.id}/provider`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"provider":"claude"}',
+  });
+  assert.equal(deniedSwitch.status, 403);
+  assert.equal((await (await fetch(`${f.url}/api/conversations/${created.id}`)).json()).provider, 'codex');
+});
+
+test('streams readiness and updates for persisted conversation changes', { timeout: 10000 }, async t => {
+  const f = await fixture(t);
+  const [project] = await (await fetch(`${f.url}/api/projects`)).json();
+  const controller = new AbortController();
+  f.controllers.push(controller);
+  const response = await fetch(`${f.url}/api/events`, { signal: controller.signal });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /^text\/event-stream/);
+  const reader = response.body.getReader();
+  const nextEvent = eventReader(reader);
+  assert.deepEqual(await nextEvent(), { type: 'ready', data: {} });
+
+  const created = await (await post(`${f.url}/api/conversations`, {})).json();
+  assert.deepEqual(await nextEvent(), { type: 'update', data: { projectId: project.id, conversationId: created.id } });
+  assert.deepEqual(await nextEvent(), {type:'projects',data:{}});
+  const switched = await post(`${f.url}/api/conversations/${created.id}/provider`, { provider: 'claude' });
+  assert.equal(switched.status, 200);
+  await switched.json();
+  assert.deepEqual(await nextEvent(), { type: 'update', data: { projectId: project.id, conversationId: created.id } });
+  assert.equal((await (await fetch(`${f.url}/api/conversations/${created.id}`)).json()).provider, 'claude');
+  controller.abort();
+  await reader.cancel().catch(() => {});
+});
+
+test('adds multiple projects and keeps their conversations isolated across switches and restarts', async t => {
+  const f = await fixture(t);
+  const [first] = await (await fetch(`${f.url}/api/projects`)).json();
+  const secondPath = path.join(f.directory, 'second-project');
+  fs.mkdirSync(secondPath);
+  const added = await post(`${f.url}/api/projects`, { path: secondPath, name: 'Second project' });
+  assert.equal(added.status, 201);
+  const second = await added.json();
+  assert.equal(second.name, 'Second project');
+  assert.equal(second.path, fs.realpathSync(secondPath));
+  assert.notEqual(second.id, first.id);
+  assert.equal((await (await fetch(`${f.url}/api/projects`)).json()).length, 2);
+  assert.equal((await fetch(`${f.url}/api/conversations`)).status, 400, 'Ambiguous requests must not pick a folder.');
+  assert.equal((await fetch(`${f.url}/api/status?projectId=unknown`)).status, 404);
+
+  const scoped = (route, project) => `${f.url}${route}?projectId=${project.id}`;
+  const firstChat = await (await post(scoped('/api/conversations', first), {})).json();
+  const secondChat = await (await post(scoped('/api/conversations', second), {})).json();
+  await post(scoped(`/api/conversations/${firstChat.id}/provider`, first), { provider: 'claude', mode: 'read' });
+  assert.equal((await fetch(scoped(`/api/conversations/${firstChat.id}`, second))).status, 404);
+  assert.equal((await fetch(scoped(`/api/conversations/${secondChat.id}`, first))).status, 404);
+  const firstList = await (await fetch(scoped('/api/conversations', first))).json();
+  const secondList = await (await fetch(scoped('/api/conversations', second))).json();
+  assert.deepEqual(firstList.map(c => c.id), [firstChat.id]);
+  assert.deepEqual(secondList.map(c => c.id), [secondChat.id]);
+  assert.equal(firstList[0].provider, 'claude');
+  assert.equal(secondList[0].provider, 'codex');
+  const firstStatus = await (await fetch(scoped('/api/status', first))).json();
+  const secondStatus = await (await fetch(scoped('/api/status', second))).json();
+  assert.equal(firstStatus.workspace, first.path);
+  assert.equal(secondStatus.workspace, second.path);
+
+  await f.app.close();
+  const reopened = await f.launch();
+  const savedProjects = await (await fetch(`${reopened.url}/api/projects`)).json();
+  assert.equal(savedProjects.length, 2);
+  assert.equal(savedProjects.find(project => project.id === second.id).name, 'Second project');
+  for (const [project, chat] of [[first, firstChat], [second, secondChat]]) {
+    const response = await fetch(`${reopened.url}/api/conversations?projectId=${project.id}`);
+    assert.deepEqual((await response.json()).map(item => item.id), [chat.id]);
+  }
+});
+
+test('validates project folders and deduplicates canonical paths', async t => {
+  const f = await fixture(t);
+  const [first] = await (await fetch(`${f.url}/api/projects`)).json();
+  for (const input of [{}, { path: 123 }, { path: 'relative/folder' }, { path: path.join(f.directory, 'missing') }]) {
+    const response = await post(`${f.url}/api/projects`, input);
+    assert.equal(response.status, 400);
+  }
+  const file = path.join(f.directory, 'plain.txt');
+  fs.writeFileSync(file, 'not a directory');
+  assert.equal((await post(`${f.url}/api/projects`, { path: file })).status, 400);
+  const duplicate = await post(`${f.url}/api/projects`, { path: path.join(f.workspace, '.') });
+  assert.equal((await duplicate.json()).id, first.id);
+  const link = path.join(f.directory, 'project-link');
+  fs.symlinkSync(f.workspace, link, 'dir');
+  assert.equal((await (await post(`${f.url}/api/projects`, { path: link })).json()).id, first.id);
+  assert.equal((await (await fetch(`${f.url}/api/projects`)).json()).length, 1);
+});
+
+test('starts as a generic empty app without a default repository', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-relay-empty-'));
+  const app = createRelayServer({ dataRoot: directory, lock: false });
+  t.after(async () => { await app.close(); fs.rmSync(directory, { recursive: true, force: true }); });
+  app.server.listen(0, '127.0.0.1');
+  await once(app.server, 'listening');
+  const url = `http://127.0.0.1:${app.server.address().port}`;
+  assert.deepEqual(await (await fetch(`${url}/api/projects`)).json(), []);
+  assert.equal((await fetch(`${url}/api/conversations`)).status, 400);
+  assert.equal((await fetch(url)).status, 200);
+});
+
+test('workspace removal and Undo require the local header and retain the canonical chat', async t => {
+  const f = await fixture(t);
+  const [project] = await (await fetch(`${f.url}/api/projects`)).json();
+  const conversation = await (await fetch(`${f.url}/api/conversation?projectId=${project.id}`)).json();
+  const removeURL = `${f.url}/api/projects/${project.id}/remove`;
+  const denied = await fetch(removeURL, { method: 'POST', body: '{}' });
+  assert.equal(denied.status, 403);
+  assert.equal((await post(removeURL, {})).status, 200);
+  assert.deepEqual(await (await fetch(`${f.url}/api/projects`)).json(), []);
+  assert.equal((await fetch(`${f.url}/api/conversation?projectId=${project.id}`)).status, 404);
+  assert.equal(fs.statSync(f.workspace).isDirectory(), true);
+  assert.equal((await post(removeURL, {})).status, 200);
+  assert.equal((await post(`${f.url}/api/projects/${project.id}/restore`, {})).status, 200);
+  assert.equal((await (await fetch(`${f.url}/api/conversation?projectId=${project.id}`)).json()).id, conversation.id);
+});
+
+test('setup preferences survive restart, apply only to new chats, and do not change provider billing', async t => {
+  const f=await fixture(t), oldChat=await (await fetch(`${f.url}/api/conversation`)).json();
+  const invalid=await post(`${f.url}/api/preferences`,{defaults:{provider:'invalid'}});assert.equal(invalid.status,400);
+  const noHeader=await fetch(`${f.url}/api/preferences`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});assert.equal(noHeader.status,403);
+  const saved=await post(`${f.url}/api/preferences`,{defaults:{provider:'claude',model:'fixture-model',effort:'high',mode:'read',billing:'subscription'},theme:'light',onboarding:{step:3,completed:true}});
+  assert.equal(saved.status,200);const preferences=await saved.json();assert.equal(preferences.theme,'light');assert.ok(preferences.onboarding.completedAt);
+  const unchanged=await (await fetch(`${f.url}/api/conversation`)).json();assert.equal(unchanged.id,oldChat.id);assert.equal(unchanged.provider,oldChat.provider);
+  const folder=path.join(f.directory,'new-workspace');fs.mkdirSync(folder);
+  const project=await (await post(`${f.url}/api/projects`,{path:folder})).json();
+  const fresh=await (await fetch(`${f.url}/api/conversation?projectId=${project.id}`)).json();
+  assert.equal(fresh.provider,'claude');assert.equal(fresh.model,'fixture-model');assert.equal(fresh.effort,'high');assert.equal(fresh.mode,'read');assert.equal(fresh.messages.length,0);
+  await f.app.close();const reopened=await f.launch();const restored=await (await fetch(`${reopened.url}/api/preferences`)).json();
+  assert.deepEqual(restored.defaults,preferences.defaults);assert.equal(restored.theme,'light');assert.equal(restored.onboarding.completedAt,preferences.onboarding.completedAt);assert.equal(restored.firstRun,false);
+});
+
+test('desktop keep awake preference persists without overwriting theme or assistant defaults',async t=>{
+  const f=await fixture(t);assert.equal(f.app.getKeepAwakePreference(),false);
+  await post(`${f.url}/api/preferences`,{theme:'light',defaults:{provider:'claude'}});
+  f.app.setKeepAwakePreference(true);assert.throws(()=>f.app.setKeepAwakePreference('true'),/enabled or disabled/);
+  await f.app.close();const next=await f.launch();assert.equal(next.app.getKeepAwakePreference(),true);
+  const prefs=await (await fetch(`${next.url}/api/preferences`)).json();assert.equal(prefs.theme,'light');assert.equal(prefs.defaults.provider,'claude');
+});

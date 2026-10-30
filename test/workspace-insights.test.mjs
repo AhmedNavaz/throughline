@@ -1,0 +1,185 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { EventEmitter, once } from 'node:events';
+import { workspaceGit, workspaceGitDiff, githubRepository } from '../workspace-git.mjs';
+import { ConversationImporter } from '../conversation-import.mjs';
+import { exportConversation, readConversationPackage } from '../conversation-export.mjs';
+import { Broker, commandFor } from '../broker.mjs';
+import { runCodex, runClaude, codexUsageWindows, claudeUsageWindows } from '../providers.mjs';
+import { createRelayServer } from '../server.mjs';
+
+function fixture(t) { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-insights-')); const workspace = path.join(root, 'project'); fs.mkdirSync(workspace); const closers = []; t.after(async () => { for (const close of closers) await close(); fs.rmSync(root, { recursive: true, force: true }); }); return { root, workspace, closers, folders: [{ id: 'root', name: 'app', path: workspace }] }; }
+function git(cwd, ...args) { const result = spawnSync('/usr/bin/git', args, { cwd, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); return result.stdout; }
+
+test('Git activity reads real commits, branch, staged/untracked changes and safe GitHub URLs', t => {
+  const f = fixture(t); git(f.workspace, 'init', '-q'); git(f.workspace, 'config', 'user.name', 'Fixture'); git(f.workspace, 'config', 'user.email', 'fixture@example.invalid');
+  fs.writeFileSync(path.join(f.workspace, 'app.js'), 'const value = 1;\n'); git(f.workspace, 'add', '.'); git(f.workspace, 'commit', '-qm', 'Initial application');
+  git(f.workspace, 'remote', 'add', 'origin', 'git@github.com:example/fixture.git'); fs.appendFileSync(path.join(f.workspace, 'app.js'), '// staged\n'); git(f.workspace, 'add', '.'); fs.writeFileSync(path.join(f.workspace, 'new.js'), 'new file');
+  const [repo] = workspaceGit(f.folders).repositories; assert.equal(repo.available, true); assert.equal(repo.commits[0].subject, 'Initial application'); assert.equal(repo.commits[0].author, 'Fixture'); assert.match(repo.commits[0].url, /^https:\/\/github.com\/example\/fixture\/commit\/[a-f0-9]+$/); assert.equal(repo.totalChanges, 2); assert(repo.changes.some(file => file.path === 'app.js' && file.staged)); assert(repo.changes.some(file => file.path === 'new.js' && file.code === '??'));
+  assert.equal(githubRepository('https://secret@github.com/example/repo.git'), null); assert.equal(githubRepository('https://github.com.evil.test/example/repo'), null);
+});
+
+test('Git gracefully handles empty repositories and unavailable folders', t => { const f = fixture(t); git(f.workspace, 'init', '-q'); assert.deepEqual(workspaceGit(f.folders).repositories[0].commits, []); assert.equal(workspaceGit([{ id: 'gone', path: path.join(f.root, 'gone') }]).repositories[0].available, false); });
+
+test('Git status cannot run configured clean filters', t => {
+  const f = fixture(t), marker = path.join(f.root, 'filter-ran'); git(f.workspace, 'init', '-q'); git(f.workspace, 'config', 'user.name', 'Fixture'); git(f.workspace, 'config', 'user.email', 'fixture@example.invalid'); fs.writeFileSync(path.join(f.workspace, 'app.js'), 'const value = 1;\n'); git(f.workspace, 'add', '.'); git(f.workspace, 'commit', '-qm', 'Initial');
+  git(f.workspace, 'config', 'filter.fixture.clean', `touch '${marker}'; cat`); fs.writeFileSync(path.join(f.workspace, '.gitattributes'), '*.js filter=fixture\n'); fs.appendFileSync(path.join(f.workspace, 'app.js'), '// dirty\n'); assert.equal(workspaceGit(f.folders).repositories[0].available, true); assert.equal(fs.existsSync(marker), false);
+});
+
+test('first-run discovery lists conversations from every project, excluding Throughline runs, with folders and original times', async t => {
+  const f = fixture(t), calls = [];
+  const importer = new ConversationImporter({
+    sdkLoader: async () => ({
+      listSessions: async options => { calls.push(['claude', options]); return [{ sessionId: 'claude-one', summary: 'Claude task', lastModified: Date.parse('2026-10-20T10:00:00Z'), cwd: f.workspace }]; },
+      getSessionInfo: async (_id, options) => { calls.push(['info', options]); return { cwd: f.workspace, summary: 'Claude task' }; },
+      getSessionMessages: async (_id, options) => { calls.push(['messages', options]); return [{ uuid: 'cmd', type: 'user', timestamp: '2026-10-20T08:59:00Z', message: { content: '<command-name>/effort</command-name>\n<command-message>effort</command-message>\n<command-args></command-args>' } }, { uuid: 'out', type: 'user', timestamp: '2026-10-20T08:59:01Z', message: { content: '<local-command-stdout>Set effort level to high</local-command-stdout>' } }, { uuid: 'u', type: 'user', timestamp: '2026-10-20T09:00:00Z', message: { content: 'Plan the API' } }, { uuid: 'a', type: 'assistant', timestamp: '2026-10-20T09:01:00Z', message: { content: [{ type: 'text', text: 'API planned' }] } }]; },
+    }),
+    clientFactory: () => ({ initialize: async () => {}, close() {}, request: async (method, params) => { calls.push([method, params]); if (method === 'thread/list') return { data: [{ id: 'codex-one', preview: 'Build the UI', updatedAt: 1792000000, cwd: '/elsewhere/ui' }, { id: 'codex-command', preview: '<command-name>/effort</command-name>', updatedAt: 1791000000, cwd: '/elsewhere/ui' }, { id: 'relay-run', preview: 'You are working in Throughline {"currentRequest":"x"}', updatedAt: 1792000001, cwd: '/elsewhere/ui' }] }; if (method === 'thread/read') return { thread: { cwd: '/elsewhere/ui', name: 'UI' } }; return { data: [{ id: 'turn', startedAt: 1792000100, completedAt: 1792000160, items: [{ type: 'userMessage', id: 'q', content: [{ type: 'text', text: 'Build the UI' }] }, { type: 'agentMessage', id: 'r', text: 'UI built' }] }] }; } }),
+  });
+  const claude = await importer.list('claude', null); assert.deepEqual(claude.sessions.map(row => [row.id, row.cwd, row.folder]), [['claude-one', f.workspace, 'project']]); assert.equal(calls[0][1].includeProgrammatic, false, 'Throughline\'s own SDK sessions are not offered for import.'); assert.equal(calls[0][1].dir, undefined);
+  const codex = await importer.list('codex', null); assert.deepEqual(codex.sessions.map(row => [row.id, row.title]), [['codex-one', 'Build the UI'], ['codex-command', 'Codex conversation']], 'Slash-command markup never becomes a title.'); assert.equal(calls.find(row => row[0] === 'thread/list')[1].cwd, undefined);
+  const preview = await importer.preview('codex', 'codex-one', null); assert.equal(preview.cwd, '/elsewhere/ui'); assert.deepEqual(preview.messages.map(row => row.timestamp), [new Date(1792000100000).toISOString(), new Date(1792000160000).toISOString()]);
+  const claudePreview = await importer.preview('claude', 'claude-one', null); assert.equal(claudePreview.cwd, f.workspace); assert.deepEqual(claudePreview.messages.map(row => row.text), ['Plan the API', 'API planned'], 'Slash commands and their local output are not imported.'); assert.equal(claudePreview.messages[0].timestamp, '2026-10-20T09:00:00.000Z'); assert.equal(calls.find(row => row[0] === 'messages')[1].dir, undefined);
+  assert(!calls.some(([method]) => /resume|turn\/start/.test(method)), 'Discovery and preview never resume or run a session.');
+});
+
+test('separate Claude and Codex chats merge into one conversation in original time order', async t => {
+  const f = fixture(t), options = { workspace: f.workspace, dataDir: path.join(f.root, 'journal') }; let broker = new Broker(options); const c = broker.get(broker.create().id); broker.start = () => assert.fail('Import must not invoke a model');
+  const claude = { provider: 'claude', sessionId: 'c1', digest: 'c', messages: [{ sourceId: 'c-q', role: 'user', text: 'Design the schema', timestamp: '2026-10-20T09:00:00Z' }, { sourceId: 'c-a', role: 'assistant', text: 'Schema designed', timestamp: '2026-10-20T09:05:00Z' }] };
+  const codex = { provider: 'codex', sessionId: 'x1', digest: 'x', messages: [{ sourceId: 'x-q', role: 'user', text: 'Implement the schema', timestamp: '2026-10-20T09:02:00Z' }, { sourceId: 'x-a', role: 'assistant', text: 'Implemented', timestamp: '2026-10-20T09:10:00Z' }] };
+  const result = broker.importTranscripts(c, [claude, codex]); assert.equal(result.imported, 4);
+  assert.deepEqual(c.messages.map(row => [row.provider, row.text]), [['claude', 'Design the schema'], ['codex', 'Implement the schema'], ['claude', 'Schema designed'], ['codex', 'Implemented']]);
+  assert.equal(c.messages[0].createdAt, '2026-10-20T09:00:00.000Z', 'Imported messages keep their original time.'); assert(!c.messages.some(row => 'timestamp' in row));
+  await broker.close(); broker = new Broker(options); const restored = broker.get(c.id); assert.equal(broker.importTranscript(restored, codex).duplicate, true, 'Both merged sources are remembered after reload.'); assert.equal(restored.messages.length, 4); await broker.close();
+});
+
+test('HTTP import from any project creates or extends a workspace, merges chats, and starts no inference', async t => {
+  const f = fixture(t), other = path.join(f.root, 'backend'); fs.mkdirSync(other); let version = 'one';
+  const sources = { claude: { cwd: other, title: 'Backend plan', at: '2026-10-20T09:00:00Z' }, codex: { cwd: other, title: 'Backend build', at: '2026-10-20T09:30:00Z' }, gone: { cwd: path.join(f.root, 'deleted'), title: 'Old', at: '2026-10-19T09:00:00Z' } };
+  const importer = { list: async (provider, folders) => ({ sessions: folders ? [] : [{ id: provider, provider, title: sources[provider].title, cwd: other }], nextCursor: null }), preview: async (provider, sessionId, folders) => { assert.equal(folders, null); const source = sources[sessionId]; return { provider, sessionId, title: source.title, cwd: source.cwd, digest: sessionId === 'claude' ? version : 'fixed', messages: [{ sourceId: sessionId, role: 'user', text: source.title, timestamp: source.at }] }; } };
+  const app = createRelayServer({ workspace: f.workspace, dataRoot: path.join(f.root, 'app'), importer, bins: { codex: '/missing', claude: '/missing' } }); app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening'); f.closers.push(() => app.close());
+  const request = async (route, value) => { const r = await fetch(`http://127.0.0.1:${app.server.address().port}${route}`, { method: value ? 'POST' : 'GET', headers: { 'X-AI-Relay': '1', 'Content-Type': 'application/json' }, ...(value ? { body: JSON.stringify(value) } : {}) }); return { status: r.status, body: await r.json() }; };
+  assert.equal((await request('/api/import-sources?provider=claude')).body.sessions[0].cwd, other);
+  const sessions = [{ provider: 'claude', sessionId: 'claude', approvedDigest: 'one' }, { provider: 'codex', sessionId: 'codex', approvedDigest: 'fixed' }];
+  version = 'two'; assert.equal((await request('/api/import-sources/import', { sessions })).status, 409, 'A source that changed after review is not imported.'); version = 'one';
+  const created = await request('/api/import-sources/import', { sessions, name: 'Backend' }); assert.equal(created.status, 200); assert.equal(created.body.imported, 2); assert.equal(created.body.projectName, 'Backend');
+  const project = app.registry.get(created.body.projectId); assert.deepEqual(project.folders.map(folder => folder.path), [fs.realpathSync(other)]);
+  for (const id of app.registry.list().map(entry => entry.id)) app.registry.broker(id).start = () => assert.fail('Import must not run inference');
+  assert.deepEqual(app.registry.mainConversation(project.id).messages.map(row => [row.provider, row.text]), [['claude', 'Backend plan'], ['codex', 'Backend build']]);
+  const original = app.registry.list().find(entry => entry.id !== project.id);
+  const extended = await request('/api/import-sources/import', { sessions: [sessions[1], { provider: 'claude', sessionId: 'gone', approvedDigest: 'fixed' }], projectId: original.id }); assert.equal(extended.status, 200);
+  assert.deepEqual(app.registry.get(original.id).folders.map(folder => folder.path).sort(), [fs.realpathSync(f.workspace), fs.realpathSync(other)].sort(), 'The conversation folder is attached to the chosen workspace.'); assert.deepEqual(extended.body.missingFolders, [path.join(f.root, 'deleted')]);
+  assert.equal((await request('/api/import-sources/import', { sessions: [{ provider: 'claude', sessionId: 'gone', approvedDigest: 'fixed' }] })).status, 422, 'A new workspace needs at least one existing folder.');
+  assert.equal((await request('/api/import-sources/import', { sessions: [sessions[0], sessions[0]] })).status, 400);
+});
+
+test('conversation export keeps chat text, redacts secrets and local paths, and rejects altered files', () => {
+  const project = { name: 'Shop', folders: [{ id: 'web', name: 'web', displayName: 'web', path: '/Users/dev/shop/web' }] };
+  const conversation = { context: { goal: 'Ship checkout', decisions: ['Use Stripe'], tasks: [] }, messages: [
+    { id: 'u1', role: 'user', text: 'Fix /Users/dev/shop/web/src/cart.js', createdAt: '2026-10-20T09:00:00Z' },
+    { id: 'a1', role: 'assistant', provider: 'claude', model: 'opus', text: `Use api_key = ${['sk', 'ant', 'x'.repeat(32)].join('-')} from /Users/dev/.env`, createdAt: '2026-10-20T09:01:00Z' },
+    { id: 't1', role: 'activity', text: '$ npm test' }, { id: 'e1', role: 'error', text: 'Stopped.' }, { id: 'a2', role: 'assistant', provider: 'codex', text: 'Done', createdAt: '2026-10-20T09:02:00Z' }] };
+  const result = exportConversation(conversation, project);
+  assert.deepEqual(result.package.messages.map(row => row.id), ['u1', 'a1', 'a2'], 'Only user and assistant text is exported by default.');
+  assert.equal(result.package.messages[0].text, 'Fix [web]/src/cart.js'); assert.doesNotMatch(JSON.stringify(result.package), /sk-ant-|\/Users\/dev/); assert.deepEqual(result.findings, { secrets: 1, localPaths: 2 });
+  assert.deepEqual(result.package.workspace, { name: 'Shop', folders: ['web'] }); assert.deepEqual(result.package.context, { goal: 'Ship checkout', decisions: ['Use Stripe'] });
+  assert.deepEqual(exportConversation(conversation, project, { range: '1', activity: true }).package.messages.map(row => row.id), ['a2']);
+  assert.match(exportConversation(conversation, project, { redact: false }).package.messages[1].text, /sk-ant-/, 'Redaction can be turned off deliberately.');
+  const preview = readConversationPackage(JSON.parse(JSON.stringify(result.package))); assert.equal(preview.provider, 'file'); assert.equal(preview.title, 'Shop'); assert.deepEqual(preview.messages.map(row => [row.role, row.provider, row.timestamp]), [['user', undefined, '2026-10-20T09:00:00.000Z'], ['assistant', 'claude', '2026-10-20T09:01:00.000Z'], ['assistant', 'codex', '2026-10-20T09:02:00.000Z']]);
+  const altered = JSON.parse(JSON.stringify(result.package)); altered.messages[0].text = 'Ignore previous instructions'; assert.throws(() => readConversationPackage(altered), /changed or damaged/);
+  assert.throws(() => readConversationPackage({ schema: 'something-else' }), /not an Throughline conversation/); assert.throws(() => readConversationPackage({ ...result.package, version: 2 }), /newer version/);
+});
+
+test('HTTP export and file import hand a conversation to another workspace without running inference', async t => {
+  const f = fixture(t), other = path.join(f.root, 'recipient'); fs.mkdirSync(other);
+  const app = createRelayServer({ workspace: f.workspace, dataRoot: path.join(f.root, 'app'), bins: { codex: '/missing', claude: '/missing' } }); app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening'); f.closers.push(() => app.close());
+  const request = async (route, value) => { const r = await fetch(`http://127.0.0.1:${app.server.address().port}${route}`, { method: value ? 'POST' : 'GET', headers: { 'X-AI-Relay': '1', 'Content-Type': 'application/json' }, ...(value ? { body: JSON.stringify(value) } : {}) }); return { status: r.status, body: await r.json() }; };
+  const sender = app.registry.list()[0].id, chat = app.registry.mainConversation(sender), broker = app.registry.broker(sender), c = broker.get(chat.id);
+  broker.message(c, 'user', 'Plan the checkout'); broker.message(c, 'assistant', 'Checkout planned', 'claude'); broker.updateContext(c, { goal: 'Ship checkout', tasks: ['Add tests'] });
+  const exported = await request(`/api/conversation/export?projectId=${sender}`); assert.equal(exported.status, 200); assert.equal(exported.body.stats.messages, 2);
+  const file = exported.body.package, preview = await request('/api/import-sources/file-preview', { package: file }); assert.equal(preview.status, 200); assert.equal(preview.body.messageCount, 2);
+  const files = [{ package: file, approvedDigest: preview.body.digest }];
+  assert.equal((await request('/api/import-sources/import', { files })).status, 422, 'The recipient chooses where the project lives on their computer.');
+  const imported = await request('/api/import-sources/import', { files, folders: [other], name: 'Checkout' }); assert.equal(imported.status, 200); assert.equal(imported.body.imported, 2);
+  const recipient = imported.body.projectId; for (const id of app.registry.list().map(entry => entry.id)) app.registry.broker(id).start = () => assert.fail('Importing a shared conversation must not run inference');
+  const received = app.registry.mainConversation(recipient); assert.deepEqual(received.messages.map(row => [row.role, row.provider, row.text]), [['user', undefined, 'Plan the checkout'], ['assistant', 'claude', 'Checkout planned']]);
+  assert.equal(received.context.goal, 'Ship checkout'); assert.deepEqual(received.context.tasks, ['Add tests']); assert.deepEqual(app.registry.get(recipient).folders.map(folder => folder.path), [fs.realpathSync(other)]);
+  assert.equal((await request('/api/import-sources/import', { files, projectId: recipient })).body.duplicate, true);
+  assert.equal((await request('/api/import-sources/import', { files: [{ package: { ...file, workspace: { name: 'Changed' } }, approvedDigest: preview.body.digest }], projectId: recipient })).status, 400, 'Altered files are rejected.');
+});
+
+test('Git diff shows tracked, staged and untracked changes but only for paths Git reports as changed', t => {
+  const f = fixture(t), [folder] = f.folders; git(f.workspace, 'init', '-q'); git(f.workspace, 'config', 'user.name', 'Fixture'); git(f.workspace, 'config', 'user.email', 'fixture@example.invalid');
+  fs.writeFileSync(path.join(f.workspace, 'app.js'), 'const value = 1;\n'); fs.writeFileSync(path.join(f.workspace, 'clean.js'), 'clean\n'); git(f.workspace, 'add', '.'); git(f.workspace, 'commit', '-qm', 'Initial');
+  fs.appendFileSync(path.join(f.workspace, 'app.js'), '// staged\n'); git(f.workspace, 'add', 'app.js'); fs.appendFileSync(path.join(f.workspace, 'app.js'), '// unstaged\n'); fs.writeFileSync(path.join(f.workspace, 'new.js'), 'brand new\n');
+  const tracked = workspaceGitDiff(folder, 'app.js'); assert.match(tracked.diff, /^\+\/\/ staged$/m); assert.match(tracked.diff, /^\+\/\/ unstaged$/m); assert.equal(tracked.truncated, false);
+  assert.match(workspaceGitDiff(folder, 'new.js').diff, /^\+brand new$/m);
+  for (const rejected of ['clean.js', '../outside.js', '--output=/tmp/x', '']) assert.throws(() => workspaceGitDiff(folder, rejected), error => error.status === 404);
+  assert.equal(workspaceGitDiff(folder, 'app.js', { limit: 20 }).truncated, true);
+});
+
+test('Git diff cannot run configured clean filters, external diff drivers or textconv', t => {
+  const f = fixture(t), marker = path.join(f.root, 'driver-ran'); git(f.workspace, 'init', '-q'); git(f.workspace, 'config', 'user.name', 'Fixture'); git(f.workspace, 'config', 'user.email', 'fixture@example.invalid'); fs.writeFileSync(path.join(f.workspace, 'app.js'), 'const value = 1;\n'); git(f.workspace, 'add', '.'); git(f.workspace, 'commit', '-qm', 'Initial');
+  for (const [key, value] of [['filter.fixture.clean', `touch '${marker}'; cat`], ['diff.fixture.command', `touch '${marker}'`], ['diff.fixture.textconv', `touch '${marker}'; cat`], ['diff.external', `touch '${marker}'`]]) git(f.workspace, 'config', key, value);
+  fs.writeFileSync(path.join(f.workspace, '.gitattributes'), '*.js filter=fixture diff=fixture\n'); fs.appendFileSync(path.join(f.workspace, 'app.js'), '// dirty\n');
+  assert.match(workspaceGitDiff(f.folders[0], 'app.js').diff, /^\+\/\/ dirty$/m); assert.equal(fs.existsSync(marker), false);
+});
+
+test('provider usage windows normalize Codex and Claude plan limits to percent used with reset times', () => {
+  assert.deepEqual(codexUsageWindows({ primary: { usedPercent: 26, windowDurationMins: 300, resetsAt: 1793302849 }, secondary: { usedPercent: 18, windowDurationMins: 10080, resetsAt: null } }), [{ id: 'primary', label: '5-hour', usedPercent: 26, resetsAt: new Date(1793302849000).toISOString() }, { id: 'secondary', label: 'Weekly', usedPercent: 18, resetsAt: null }]);
+  assert.deepEqual(codexUsageWindows('unknown'), []);
+  const claude = claudeUsageWindows({ five_hour: { utilization: 74, resets_at: '2026-10-29T18:19:59Z' }, seven_day: { utilization: 35, resets_at: null }, seven_day_opus: null, seven_day_sonnet: { utilization: null }, model_scoped: [{ display_name: 'Fable', utilization: 12, resets_at: null }] });
+  assert.deepEqual(claude.map(row => [row.label, row.usedPercent, row.scope]), [['5-hour', 74, undefined], ['Weekly', 35, undefined], ['Weekly · Fable', 12, 'fable']]);
+  assert.deepEqual(claudeUsageWindows(null), []);
+});
+
+test('effort persists independently for each provider and model across journal reload', async t => {
+  const f = fixture(t), options = { workspace: f.workspace, dataDir: path.join(f.root, 'journal') }; let broker = new Broker(options); const c = broker.get(broker.create().id);
+  broker.settings(c, { model: 'first', effort: 'high' }); broker.settings(c, { model: 'second', effort: 'low' }); broker.settings(c, { model: 'first' }); assert.equal(c.effort, 'high'); broker.settings(c, { provider: 'claude', model: 'sonnet', effort: 'medium' });
+  await broker.close(); broker = new Broker(options); const restored = broker.get(c.id); broker.settings(restored, { provider: 'codex', model: 'first' }); assert.equal(restored.effort, 'high'); assert.equal(restored.efforts.claude.sonnet, 'medium'); assert.throws(() => broker.settings(restored, { effort: 'made-up' }), /reasoning effort/); await broker.close();
+  assert(commandFor('codex', { mode: 'edit', effort: 'high' }).args.includes('model_reasoning_effort=high')); assert(commandFor('claude', { mode: 'read', effort: 'low' }).args.includes('--effort'));
+});
+
+test('native provider transports receive the selected effort without exposing reasoning text', async () => {
+  const calls = [], events = [];
+  class Client extends EventEmitter { async initialize() {} close() {} async request(method, params) { calls.push({ method, params }); if (method === 'thread/start') return { thread: { id: 'thread' } }; if (method === 'turn/start') { queueMicrotask(() => { this.emit('message', { method: 'item/reasoning/summaryTextDelta', params: { threadId: 'thread', delta: 'private text' } }); this.emit('message', { method: 'turn/completed', params: { threadId: 'thread', turn: { status: 'completed' } } }); }); return { turn: { id: 'turn' } }; } } }
+  await runCodex({ workspace: '/tmp', mode: 'read', effort: 'high' }, { clientFactory: () => new Client(), event: value => events.push(value), metadata() {}, approval: async () => false });
+  assert.equal(calls.find(row => row.method === 'turn/start').params.effort, 'high'); assert(events.some(row => row.phase === 'reasoning')); assert(!JSON.stringify(events).includes('private text'));
+  let options; await runClaude({ workspace: '/tmp', mode: 'read', effort: 'low' }, { queryImpl: input => { options = input.options; return (async function* () { yield { type: 'result', subtype: 'success' }; })(); }, event() {}, metadata() {}, approval: async () => false }); assert.equal(options.effort, 'low');
+});
+
+test('selecting provider defaults on a resumed Codex thread resets the model and effort', async () => {
+  const calls = []; class Client extends EventEmitter { async initialize() {} close() {} async request(method, params) { calls.push({ method, params }); if (method === 'model/list') return { data: [{ id: 'selected', isDefault: true, defaultReasoningEffort: 'medium' }] }; if (method === 'thread/resume') return { thread: { id: 'existing' } }; if (method === 'turn/start') { queueMicrotask(() => this.emit('message', { method: 'turn/completed', params: { turn: { status: 'completed' } } })); return { turn: { id: 'turn' } }; } } }
+  await runCodex({ workspace: '/tmp', mode: 'read', model: null, sessionId: 'existing', effort: null }, { clientFactory: () => new Client(), event() {}, metadata() {}, approval: async () => false }); assert.equal(calls.find(row => row.method === 'turn/start').params.effort, 'medium'); assert.equal(calls.find(row => row.method === 'turn/start').params.model, 'selected');
+});
+
+test('Claude import preview is scoped, excludes private reasoning/tools, and imports atomically without running a model', async t => {
+  const f = fixture(t); const importer = new ConversationImporter({ sdkLoader: async () => ({ getSessionInfo: async (_id, options) => options.dir === f.workspace ? { cwd: f.workspace, summary: 'Existing task' } : null, getSessionMessages: async () => [{ uuid: 'u', type: 'user', message: { content: [{ type: 'text', text: 'Build this' }] } }, { uuid: 'a', type: 'assistant', message: { model: 'sonnet', content: [{ type: 'thinking', thinking: 'private' }, { type: 'text', text: 'Implemented' }, { type: 'tool_use', input: { secret: 'no' } }] } }] }) });
+  const preview = await importer.preview('claude', 'source-session', f.folders); assert.equal(preview.messageCount, 2); assert(!JSON.stringify(preview).includes('private')); assert(!JSON.stringify(preview).includes('secret'));
+  const options = { workspace: f.workspace, dataDir: path.join(f.root, 'journal') }; const broker = new Broker(options), c = broker.get(broker.create().id); broker.message(c, 'user', 'Existing Relay message'); broker.start = () => assert.fail('Import must not invoke a model');
+  assert.equal(broker.importTranscript(c, preview).imported, 2); assert.equal(c.messages[0].text, 'Existing Relay message'); assert.equal(broker.importTranscript(c, preview).duplicate, true); assert.equal(c.messages.length, 3); await broker.close();
+  const restored = new Broker(options); assert.equal(restored.importTranscript(restored.get(c.id), preview).duplicate, true); await restored.close();
+});
+
+test('reimporting a growing conversation updates an imported partial message without duplicating it', async t => {
+  const f = fixture(t), broker = new Broker({ workspace: f.workspace, dataDir: path.join(f.root, 'journal') }), c = broker.get(broker.create().id); const first = { provider: 'codex', sessionId: 'native', digest: 'one', messages: [{ sourceId: 'answer', role: 'assistant', text: 'Partial' }] };
+  broker.importTranscript(c, first); const updated = broker.importTranscript(c, { ...first, digest: 'two', messages: [{ sourceId: 'answer', role: 'assistant', text: 'Completed answer' }] }); assert.equal(updated.updated, 1); assert.equal(updated.imported, 0); assert.equal(c.messages.length, 1); assert.equal(c.messages[0].text, 'Completed answer'); await broker.close();
+});
+
+test('Codex preview pages text chronologically and rejects a thread from another workspace', async t => {
+  const f = fixture(t), requests = []; let outside = false;
+  const importer = new ConversationImporter({ clientFactory: () => ({ initialize: async () => {}, close() {}, request: async (method, params) => { requests.push({ method, params }); if (method === 'thread/read') return { thread: { cwd: outside ? '/elsewhere' : f.workspace, name: 'A task' } }; return { data: [{ id: 'turn', items: [{ type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'Question' }] }, { type: 'reasoning', text: 'hidden' }, { type: 'agentMessage', id: 'a', text: 'Answer' }] }] }; } }) });
+  const preview = await importer.preview('codex', 'native-thread', f.folders); assert.deepEqual(preview.messages.map(row => row.text), ['Question', 'Answer']); assert(!JSON.stringify(preview).includes('hidden')); outside = true; await assert.rejects(importer.preview('codex', 'native-thread', f.folders), /different workspace/); assert(!requests.some(row => /resume|turn\/start/.test(row.method)));
+});
+
+test('HTTP imports require exact preview approval, preserve one chat, deduplicate, and start no inference', async t => {
+  const f = fixture(t); let version = 'one'; const importer = { list: async () => ({ sessions: [{ id: 'source', provider: 'codex', title: 'Task' }] }), preview: async () => ({ provider: 'codex', sessionId: 'source', title: 'Task', digest: version, messages: [{ sourceId: version, role: 'user', text: 'Imported request' }] }) };
+  const app = createRelayServer({ workspace: f.workspace, dataRoot: path.join(f.root, 'app'), importer, bins: { codex: '/missing', claude: '/missing' } }); app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening'); f.closers.push(() => app.close()); const projectId = app.registry.list()[0].id;
+  const request = async (route, value) => { const r = await fetch(`http://127.0.0.1:${app.server.address().port}${route}?projectId=${projectId}`, { method: value ? 'POST' : 'GET', headers: { 'X-AI-Relay': '1', 'Content-Type': 'application/json' }, ...(value ? { body: JSON.stringify(value) } : {}) }); return { status: r.status, body: await r.json() }; };
+  const c = (await request('/api/conversation')).body; app.registry.broker(projectId).start = () => assert.fail('Import must not run inference'); assert.equal((await request('/api/imports', { provider: 'codex', sessionId: 'source', approvedDigest: 'stale' })).status, 409);
+  const result = await request('/api/imports', { provider: 'codex', sessionId: 'source', approvedDigest: 'one' }); assert.equal(result.status, 200); assert.equal(result.body.conversationId, c.id); assert.equal(result.body.imported, 1); assert.equal((await request('/api/imports', { provider: 'codex', sessionId: 'source', approvedDigest: 'one' })).body.duplicate, true); assert.equal((await request('/api/conversation')).body.messages.length, 1);
+});

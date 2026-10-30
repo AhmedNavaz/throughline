@@ -1,0 +1,47 @@
+{
+  "name": "throughline",
+  "version": "0.4.0",
+  "description": "One coding conversation per project, shared across Claude Code, Codex and your teammates, on your own subscriptions.",
+  "keywords": [
+    "claude-code",
+    "codex",
+    "ai",
+    "coding-agent",
+    "desktop",
+    "electron"
+  ],
+  "homepage": "https://github.com/AhmedNavaz/throughline#readme",
+  "bugs": {
+    "url": "https://github.com/AhmedNavaz/throughline/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AhmedNavaz/throughline.git"
+  },
+  "license": "MIT",
+  "author": "Ahmed Nawaz",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "main": "desktop/main.mjs",
+  "productName": "Throughline",
+  "scripts": {
+    "start": "node desktop/launch.mjs",
+    "desktop": "node desktop/launch.mjs",
+    "web": "node server.mjs",
+    "test": "node --test test/*.test.mjs sharing/test/*.test.mjs",
+    "test:desktop": "node desktop/launch.mjs --smoke-test",
+    "sharing": "node sharing/server.mjs",
+    "package": "node desktop/package.mjs",
+    "icons": "electron desktop/icons.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.302"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.9.0"
+  }
+}

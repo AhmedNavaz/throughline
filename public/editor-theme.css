@@ -1,0 +1,136 @@
+/* Design tokens. Every component in styles.css and workbench.css reads these;
+   Graphite is a neutral editor palette and Light mirrors it. */
+:root {
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue", sans-serif;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --titlebar-height: 40px;
+  --statusbar-height: 24px;
+  --sidebar-width: 248px;
+  --content-width: 780px;
+
+  /* Mask icons for script-rendered elements (drawn with currentColor). */
+  --icon-folder: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3C/svg%3E");
+  --icon-chevron-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 6 6 6-6 6'/%3E%3C/svg%3E");
+  --icon-chevron-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --icon-close: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6 6 18'/%3E%3C/svg%3E");
+  --icon-plus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E");
+  --icon-user: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21a8 8 0 0 1 16 0'/%3E%3C/svg%3E");
+  --icon-codex: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='3'/%3E%3Cpath d='m7.5 9.5 3 2.5-3 2.5M13 15h4'/%3E%3C/svg%3E");
+  --icon-claude: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9'/%3E%3C/svg%3E");
+  --icon-alert: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7.5v5.5M12 16.5h.01'/%3E%3C/svg%3E");
+  --icon-model: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='6' y='6' width='12' height='12' rx='2'/%3E%3Cpath d='M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3'/%3E%3C/svg%3E");
+  --icon-effort: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 17.5a9 9 0 1 1 17 0'/%3E%3Cpath d='m12 14 3.5-4.5'/%3E%3C/svg%3E");
+  --icon-access: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z'/%3E%3C/svg%3E");
+  --icon-branch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='6' cy='5' r='2'/%3E%3Ccircle cx='6' cy='19' r='2'/%3E%3Ccircle cx='18' cy='6' r='2'/%3E%3Cpath d='M6 7v10M18 8v1a5 5 0 0 1-5 5H6'/%3E%3C/svg%3E");
+  --icon-copy: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='8' y='8' width='12' height='12' rx='2'/%3E%3Cpath d='M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2'/%3E%3C/svg%3E");
+  --icon-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+  --icon-file: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5'/%3E%3C/svg%3E");
+  --icon-more: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Ccircle cx='5.5' cy='12' r='1.6'/%3E%3Ccircle cx='12' cy='12' r='1.6'/%3E%3Ccircle cx='18.5' cy='12' r='1.6'/%3E%3C/svg%3E");
+  --icon-minus-circle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='8.5'/%3E%3Cpath d='M8.5 12h7'/%3E%3C/svg%3E");
+  --icon-terminal: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 7 5 5-5 5M12 18h7'/%3E%3C/svg%3E");
+}
+
+:root,
+:root[data-theme="graphite"] {
+  color-scheme: dark;
+  --bg: #1f1f1f;
+  --sidebar: #181818;
+  --statusbar-bg: #181818;
+  --overlay-bg: #252526;
+  --surface-raised: #252526;
+  --surface-input: #2a2a2a;
+  --surface-strong: #3a3a3c;
+  --code-bg: #181818;
+  --code-inline-bg: #ffffff14;
+  --hover: #ffffff0f;
+  --list-active: #37373d;
+  --chip-bg: #ffffff12;
+  --border: #2b2b2b;
+  --border-strong: #3c3c3c;
+  --input-border: #3c3c3c;
+  --text: #cccccc;
+  --text-strong: #ececec;
+  --muted: #a3a3a3;
+  --faint: #8f8f8f;
+  --accent: #0078d4;
+  --accent-strong: #026ec1;
+  --on-accent: #ffffff;
+  --focus: #0078d4;
+  --link: #4daafc;
+  --selection: #264f78;
+  --codex: #4ec9b0;
+  --codex-bg: #4ec9b01f;
+  --claude: #e3a47a;
+  --claude-bg: #e3a47a1f;
+  --success: #73c991;
+  --success-bg: #73c9911a;
+  --warning: #e2c08d;
+  --warning-bg: #e2c08d14;
+  --warning-border: #e2c08d4d;
+  --danger: #f48771;
+  --danger-bg: #f487711a;
+  --danger-border: #f4877159;
+  --syntax-text: #d4d4d4;
+  --syntax-keyword: #569cd6;
+  --syntax-string: #ce9178;
+  --syntax-comment: #6a9955;
+  --syntax-number: #b5cea8;
+  --syntax-function: #dcdcaa;
+  --syntax-property: #9cdcfe;
+  --backdrop: #0000008c;
+  --shadow-sm: 0 1px 2px #0000004d;
+  --shadow-lg: 0 16px 48px #00000080, 0 0 0 1px #ffffff0a;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --sidebar: #f8f8f8;
+  --statusbar-bg: #f8f8f8;
+  --overlay-bg: #ffffff;
+  --surface-raised: #f8f8f8;
+  --surface-input: #ffffff;
+  --surface-strong: #ffffff;
+  --code-bg: #f8f8f8;
+  --code-inline-bg: #0000000d;
+  --hover: #0000000a;
+  --list-active: #e4e6f1;
+  --chip-bg: #0000000d;
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+  --input-border: #cecece;
+  --text: #3b3b3b;
+  --text-strong: #1f1f1f;
+  --muted: #5f5f5f;
+  --faint: #6e6e6e;
+  --accent: #005fb8;
+  --accent-strong: #0258a8;
+  --on-accent: #ffffff;
+  --focus: #005fb8;
+  --link: #005fb8;
+  --selection: #add6ff;
+  --codex: #0b7a62;
+  --codex-bg: #0b7a6214;
+  --claude: #a4552a;
+  --claude-bg: #a4552a14;
+  --success: #2f7d32;
+  --success-bg: #2f7d3214;
+  --warning: #8a5d00;
+  --warning-bg: #bf8a0014;
+  --warning-border: #bf8a0059;
+  --danger: #b42318;
+  --danger-bg: #b4231810;
+  --danger-border: #b4231840;
+  --syntax-text: #1f1f1f;
+  --syntax-keyword: #0000ff;
+  --syntax-string: #a31515;
+  --syntax-comment: #008000;
+  --syntax-number: #098658;
+  --syntax-function: #795e26;
+  --syntax-property: #0451a5;
+  --backdrop: #0000004d;
+  --shadow-sm: 0 1px 2px #0000000f;
+  --shadow-lg: 0 16px 48px #0000002e, 0 0 0 1px #0000000d;
+}
