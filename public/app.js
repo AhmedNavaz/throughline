@@ -291,7 +291,8 @@
   }
   // Splits code into lines of [kind, text] tokens; kind is '' for plain text.
   function highlightLines(text, language) {
-    const family = syntaxLanguages[String(language || '').toLowerCase()], lines = [[]];
+    // Own keys only, so a label such as "constructor" is not read from Object.prototype.
+    const key = String(language || '').toLowerCase(), family = Object.hasOwn(syntaxLanguages, key) ? syntaxLanguages[key] : null, lines = [[]];
     const push = (kind, value) => value.split('\n').forEach((part, index) => { if (index) lines.push([]); if (part) lines.at(-1).push([kind, part]); });
     if (!family) { push('', text); return lines; }
     const { pattern, keywords, caseless } = syntaxPattern(family); let last = 0;
