@@ -47,6 +47,7 @@ These changes are merged on `main` and will be included in the next published bu
 | System appearance alongside explicit Light and Dark themes | Planned, help wanted | [#44](https://github.com/AhmedNavaz/throughline/issues/44) |
 | Notarized macOS builds, so downloads open without a security prompt | Waiting on an Apple Developer account | [#1](https://github.com/AhmedNavaz/throughline/issues/1) |
 | Update button: get new versions from inside the app with one click | Planned | [#2](https://github.com/AhmedNavaz/throughline/issues/2) |
+| Native menus in the menu bar: File, Edit, View, Agent and Help with every feature and its shortcut | Planned, help wanted | [#51](https://github.com/AhmedNavaz/throughline/issues/51) |
 | Install with Homebrew: `brew install --cask throughline` | Depends on #1 | [#3](https://github.com/AhmedNavaz/throughline/issues/3) |
 
 ## Next
