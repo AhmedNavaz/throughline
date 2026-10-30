@@ -51,7 +51,7 @@ Nothing runs until you press **Send**, and every run uses your own installed CLI
 
 ## Roadmap
 
-Next up: notarized macOS builds, automatic updates, Windows and Linux builds, and committing from the Git panel. See [ROADMAP.md](ROADMAP.md) for the full plan and good places to help.
+Next up: notarized macOS builds, automatic updates, Windows and Linux builds, and committing from the Git panel. Further out: voice mode (say what you want, hear a short summary of what changed), agents that review each other's work, and racing Claude against Codex on the same task. See [ROADMAP.md](ROADMAP.md) for the full plan and good places to help.
 
 ## Contributing
 
