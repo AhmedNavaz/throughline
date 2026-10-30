@@ -2,19 +2,19 @@
 
 <h1 align="center">Throughline</h1>
 
-<p align="center">Your workspace for AI coding agents.<br>Keep project context across Claude Code and Codex, using your own accounts.</p>
+<p align="center">Your control plane for agentic development.<br>Coordinate Claude Code and Codex with persistent project context and your own accounts.</p>
 
 <p align="center"><a href="https://github.com/AhmedNavaz/throughline/actions/workflows/ci.yml"><img src="https://github.com/AhmedNavaz/throughline/actions/workflows/ci.yml/badge.svg" alt="CI"></a> <a href="https://github.com/AhmedNavaz/throughline/releases/latest"><img src="https://img.shields.io/github/v/release/AhmedNavaz/throughline" alt="Latest release"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a> <a href="https://www.patreon.com/17048317/join"><img src="https://img.shields.io/badge/Support-Patreon-FF424D?logo=patreon&amp;logoColor=white" alt="Support Throughline on Patreon"></a></p>
 
 <p align="center"><img src="docs/screenshot.png" alt="Throughline: a project conversation shared by Claude and Codex, with the file browser, Git activity and plan usage" width="900"></p>
 
-Throughline is an open-source agentic workspace for multi-agent orchestration with Claude Code and Codex. You direct the workflow: keep project context together, merge earlier conversations, and hand work between agents using your own accounts.
+Throughline is an open-source desktop control plane for agentic development. It brings Claude Code and Codex into a unified workspace for multi-agent orchestration, persistent project context, and human-in-the-loop collaboration.
 
-Each project brings together one or more folders and one continuous conversation. Your history, saved context and drafts stay with the project as you switch agents, inspect files and Git changes, or ask a teammate for help.
+Each project becomes a continuous working thread: its folders, conversation, saved context, and agent activity stay together as the work evolves. Carry work between agents, consolidate fragmented chat histories, inspect execution and code changes, and exchange reviewable patches with collaborators. Throughline runs through your installed agent CLIs and existing accounts, with you directing the workflow.
 
 ## Features
 
-**Both agents, one conversation**
+**Multi-agent orchestration and continuity**
 
 - One permanent conversation per project, shared by all its folders, such as frontend, backend and website.
 - Switch between Claude Code and Codex mid-task, for example when one hits its usage limit. The next agent picks up the shared context.
@@ -22,20 +22,20 @@ Each project brings together one or more folders and one continuous conversation
 - Approve agent actions in the app and follow each run live: current step, tool calls, elapsed time and token counts.
 - Run agents in several workspaces at once; the sidebar shows which ones are busy.
 
-**See what's happening**
+**Execution visibility and developer controls**
 
 - Git activity for each folder: changed files with diffs, and recent commits.
 - A file browser with syntax-highlighted previews. Attach files and images by clicking, dragging or pasting.
 - Plan usage for both agents in the status bar, with reset times.
 - Keep awake: your Mac stays awake while agents are working and sleeps normally once they finish.
 
-**Bring history and people in**
+**Context portability and human collaboration**
 
 - Import Claude Code and Codex chats from any project, merged in time order.
 - Export a conversation file for another Throughline user, with secrets and local paths removed.
 - Ask a Friend: share an approved snapshot of your code and get back a patch you review before applying.
 
-**Built like an editor, on your own accounts**
+**A local workspace, powered by your accounts**
 
 - Dark and light themes, keyboard shortcuts, Markdown replies with highlighted code and copy buttons, and a short setup guide.
 - Runs the official Claude Code and Codex CLIs you already have, on your own subscriptions. It ships no API keys and adds no service of its own.
