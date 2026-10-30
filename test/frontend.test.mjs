@@ -506,7 +506,7 @@ test('workspace options rename without changing chat or draft and never remove o
 test('usage details show exact resets and scoped limits, and retain readings after a refresh error',async()=>{
   const reset=new Date(Date.now()+125*60000).toISOString();
   const ui=await browser({insights:true,usage:{codex:{available:true,plan:'pro',windows:[{id:'primary',label:'5-hour',usedPercent:70,resetsAt:reset},{id:'weekly',label:'Weekly',usedPercent:10,resetsAt:null}]}}});
-  ui.$('codex-usage').click();await flush();assert.equal(ui.$('usage-dialog').matches(':popover-open'),true);assert.equal(ui.$('usage-title').textContent,'Plan usage');assert.equal(ui.$('usage-details').children[0].dataset.provider,'codex','The selected agent is listed first.');
+  ui.$('codex-usage').click();await flush();assert.equal(ui.$('usage-dialog').matches(':popover-open'),true);assert.equal(ui.$('usage-title').textContent,'Plan usage');assert.deepEqual([...ui.$('usage-details').children].map(section=>section.dataset.provider),['codex'],'Only the clicked agent is shown.');assert.equal(ui.$('usage-plan').textContent,'From your own Codex account');
   assert.match(ui.$('usage-details').textContent,/30% left/);assert.match(ui.$('usage-details').textContent,/Resets in 2h/);assert.match(ui.$('usage-details').textContent,/Reset time not reported/);
   const time=ui.document.querySelectorAll('time')[0];assert.equal(time.getAttribute('datetime'),reset);assert.match(ui.$('usage-details').children[0].textContent,/pro/);
   ui.setIntercept((request,next)=>request.path.endsWith('/usage')?response({error:'Provider unavailable'},503):next());ui.$('refresh-usage').click();await flush();
@@ -531,9 +531,10 @@ test('usage opens beside its meter, switches providers in place and closes on Es
   ui.$('codex-usage').click();await flush();
   const card=ui.$('usage-dialog');assert.equal(card.tagName,'DIV');assert.equal(card.matches(':popover-open'),true);assert.equal(ui.$('codex-usage').getAttribute('aria-expanded'),'true');
   assert.equal(card.style.left,'80px');assert.ok(Number.parseFloat(card.style.top)+390<772,'The card stays above its footer meter.');
-  ui.$('claude-usage').click();await flush();assert.equal(ui.$('usage-details').children[0].dataset.provider,'claude');assert.equal(ui.$('codex-usage').getAttribute('aria-expanded'),'false');
+  ui.$('claude-usage').click();await flush();assert.deepEqual([...ui.$('usage-details').children].map(section=>section.dataset.provider),['claude']);assert.equal(ui.$('codex-usage').getAttribute('aria-expanded'),'false');
   ui.$('claude-usage').click();await flush();assert.equal(card.matches(':popover-open'),false);
   ui.$('usage-chip').bounds={left:1190,top:700,bottom:726,right:1270,width:80,height:26};ui.$('usage-chip').click();await flush();assert.ok(Number.parseFloat(card.style.left)+340<=1280-12,'Composer usage stays inside the window.');
+  assert.deepEqual([...ui.$('usage-details').children].map(section=>section.dataset.provider),[ui.state().provider],'The composer chip shows only the selected agent.');
   ui.document.dispatchEvent(new UIEvent('keydown',{key:'Escape'}));assert.equal(card.matches(':popover-open'),false);assert.equal(ui.document.activeElement,ui.$('usage-chip'));
 });
 

@@ -216,31 +216,28 @@
     const days = Math.floor(minutes / 1440), hours = Math.floor(minutes % 1440 / 60), mins = minutes % 60;
     return 'Resets in ' + [days ? days + 'd' : '', hours ? hours + 'h' : '', mins ? mins + 'm' : ''].filter(Boolean).join(' ');
   }
+  // The card shows only the agent whose meter or chip opened it.
   function renderUsageDetails() {
     if (!usageProvider || !usageIsOpen()) return;
-    const state = api.getState(), host = $('usage-details'), order = [usageProvider, usageProvider === 'codex' ? 'claude' : 'codex'];
-    $('usage-title').textContent = 'Plan usage'; $('usage-plan').textContent = 'From your own Claude and Codex accounts';
-    host.replaceChildren();
-    for (const provider of order) {
-      const account = state.accounts?.[provider], result = usage[provider], plan = result?.plan || account?.planType || account?.subscriptionType;
-      const section = el('section', undefined, 'usage-provider' + (provider === usageProvider ? ' focused' : '')), heading = el('div', undefined, 'usage-provider-heading'), icon = el('i', undefined, 'agent-icon ' + provider);
-      section.dataset.provider = provider; icon.setAttribute('aria-hidden', 'true');
-      heading.append(icon, el('h3', name(provider))); if (plan) heading.append(el('span', String(plan).replace(/[_-]/g, ' '), 'usage-plan-badge'));
-      section.append(heading);
-      const rows = (result?.windows || []).filter(row => Number.isFinite(row.usedPercent));
-      for (const row of rows) {
-        const left = remaining(row), item = el('div', undefined, 'usage-window-row'), top = el('div', undefined, 'usage-window-top'), track = el('div', undefined, 'usage-track'), fill = el('i'), bottom = el('div', undefined, 'usage-window-bottom');
-        item.dataset.level = usageLevel(left); fill.style.width = left + '%'; track.append(fill); track.setAttribute('role', 'img'); track.setAttribute('aria-label', `${left}% of the ${row.label} allowance left`);
-        top.append(el('span', row.label, 'usage-window-label'), el('strong', `${left}% left`)); bottom.append(el('span', resetCountdown(row.resetsAt)));
-        const at = new Date(row.resetsAt || '');
-        if (!Number.isNaN(at.getTime())) { const time = el('time', at.toLocaleString(undefined, at.toDateString() === new Date().toDateString() ? { hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' })); time.setAttribute('datetime', at.toISOString()); time.title = at.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' }); bottom.append(time); }
-        item.append(top, track, bottom); section.append(item);
-      }
-      if (!rows.length) section.append(el('p', usageLoading[provider] ? 'Reading the current allowance…' : account?.authenticated === false ? 'Not signed in' : result?.reason || 'Not reported for this account.', 'usage-empty'));
-      if (usageErrors[provider]) section.append(el('p', 'Could not refresh. ' + usageErrors[provider] + (result?.fetchedAt ? ' The last successful reading is shown.' : ''), 'usage-error'));
-      host.append(section);
+    const state = api.getState(), provider = usageProvider, account = state.accounts?.[provider], result = usage[provider], plan = result?.plan || account?.planType || account?.subscriptionType;
+    $('usage-title').textContent = 'Plan usage'; $('usage-plan').textContent = `From your own ${name(provider)} account`;
+    const section = el('section', undefined, 'usage-provider'), heading = el('div', undefined, 'usage-provider-heading'), icon = el('i', undefined, 'agent-icon ' + provider);
+    section.dataset.provider = provider; icon.setAttribute('aria-hidden', 'true');
+    heading.append(icon, el('h3', name(provider))); if (plan) heading.append(el('span', String(plan).replace(/[_-]/g, ' '), 'usage-plan-badge'));
+    section.append(heading);
+    const rows = (result?.windows || []).filter(row => Number.isFinite(row.usedPercent));
+    for (const row of rows) {
+      const left = remaining(row), item = el('div', undefined, 'usage-window-row'), top = el('div', undefined, 'usage-window-top'), track = el('div', undefined, 'usage-track'), fill = el('i'), bottom = el('div', undefined, 'usage-window-bottom');
+      item.dataset.level = usageLevel(left); fill.style.width = left + '%'; track.append(fill); track.setAttribute('role', 'img'); track.setAttribute('aria-label', `${left}% of the ${row.label} allowance left`);
+      top.append(el('span', row.label, 'usage-window-label'), el('strong', `${left}% left`)); bottom.append(el('span', resetCountdown(row.resetsAt)));
+      const at = new Date(row.resetsAt || '');
+      if (!Number.isNaN(at.getTime())) { const time = el('time', at.toLocaleString(undefined, at.toDateString() === new Date().toDateString() ? { hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' })); time.setAttribute('datetime', at.toISOString()); time.title = at.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' }); bottom.append(time); }
+      item.append(top, track, bottom); section.append(item);
     }
-    const checked = Math.max(0, ...order.map(provider => usage[provider]?.fetchedAt || 0)), busy = order.some(provider => usageLoading[provider]);
+    if (!rows.length) section.append(el('p', usageLoading[provider] ? 'Reading the current allowance…' : account?.authenticated === false ? 'Not signed in' : result?.reason || 'Not reported for this account.', 'usage-empty'));
+    if (usageErrors[provider]) section.append(el('p', 'Could not refresh. ' + usageErrors[provider] + (result?.fetchedAt ? ' The last successful reading is shown.' : ''), 'usage-error'));
+    $('usage-details').replaceChildren(section);
+    const checked = result?.fetchedAt || 0, busy = Boolean(usageLoading[provider]);
     $('usage-updated').textContent = checked ? 'Checked ' + new Date(checked).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) + ' · reset times in your time zone' : 'Reported by each provider';
     $('refresh-usage').disabled = busy; $('refresh-usage').textContent = busy ? 'Refreshing…' : 'Refresh';
     positionUsage();
@@ -267,7 +264,7 @@
     usageAnchor?.setAttribute('aria-expanded','false'); usageProvider = provider; usageAnchor = nextAnchor;
     usageAnchor.setAttribute('aria-expanded','true');
     if (!usageIsOpen()) usagePopover.showPopover();
-    renderUsageDetails(); positionUsage(); loadUsage(provider,true); loadUsage(provider === 'codex' ? 'claude' : 'codex');
+    renderUsageDetails(); positionUsage(); loadUsage(provider,true);
   }
   window.relayUsage = { open: openUsage };
   for (const trigger of [$('codex-usage'), $('claude-usage'), $('usage-chip')]) { trigger.setAttribute('aria-controls','usage-dialog'); trigger.setAttribute('aria-haspopup','dialog'); trigger.setAttribute('aria-expanded','false'); }
@@ -275,7 +272,7 @@
   $('close-usage').addEventListener('click',()=>closeUsage(true));
   document.addEventListener('keydown',event=>{if(event.key==='Escape' && usageIsOpen()){event.preventDefault();closeUsage(true);}});
   document.addEventListener('scroll',positionUsage,true); window.addEventListener('resize',positionUsage);
-  $('refresh-usage').addEventListener('click',()=>{ for (const provider of ['codex','claude']) loadUsage(provider,true); });
+  $('refresh-usage').addEventListener('click',()=>{ if (usageProvider) loadUsage(usageProvider,true); });
   setInterval(renderUsageDetails,60000);
   $('refresh-git').addEventListener('click', loadGit); $('git-repository').addEventListener('change', () => { api.selectFolder?.($('git-repository').value); renderGit(); });
   $('git-changes-tab').addEventListener('click', () => { gitView = 'changes'; renderGit(); }); $('git-commits-tab').addEventListener('click', () => { gitView = 'commits'; renderGit(); });
