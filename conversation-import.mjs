@@ -24,9 +24,9 @@ export function conversationTitle(input, fallback = 'Untitled conversation') {
   return text.replace(/\s+/g, ' ').trim().slice(0, 160);
 }
 export class ConversationImporter {
-  constructor({ clientFactory = options => new CodexClient(options), sdkLoader = () => import('@anthropic-ai/claude-agent-sdk') } = {}) { this.clientFactory = clientFactory; this.sdkLoader = sdkLoader; }
+  constructor({ clientFactory = options => new CodexClient(options), sdkLoader = () => import('@anthropic-ai/claude-agent-sdk'), codexBin = () => resolveBinary('codex') } = {}) { this.clientFactory = clientFactory; this.sdkLoader = sdkLoader; this.codexBin = codexBin; }
   async withCodex(workspace, fn) {
-    const bin = resolveBinary('codex'); if (!bin) fail('Install Codex CLI to browse its conversations.', 503);
+    const bin = this.codexBin(); if (!bin) fail('Install Codex CLI to browse its conversations.', 503);
     const client = this.clientFactory({ bin, cwd: workspace });
     try { await client.initialize(); return await fn(client); } finally { client.close(); }
   }

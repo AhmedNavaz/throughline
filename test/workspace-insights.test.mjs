@@ -33,6 +33,7 @@ test('Git status cannot run configured clean filters', t => {
 test('first-run discovery lists conversations from every project, excluding Throughline runs, with folders and original times', async t => {
   const f = fixture(t), calls = [];
   const importer = new ConversationImporter({
+    codexBin: () => '/fixture/codex',
     sdkLoader: async () => ({
       listSessions: async options => { calls.push(['claude', options]); return [{ sessionId: 'claude-one', summary: 'Claude task', lastModified: Date.parse('2026-10-20T10:00:00Z'), cwd: f.workspace }]; },
       getSessionInfo: async (_id, options) => { calls.push(['info', options]); return { cwd: f.workspace, summary: 'Claude task' }; },
@@ -172,7 +173,8 @@ test('reimporting a growing conversation updates an imported partial message wit
 
 test('Codex preview pages text chronologically and rejects a thread from another workspace', async t => {
   const f = fixture(t), requests = []; let outside = false;
-  const importer = new ConversationImporter({ clientFactory: () => ({ initialize: async () => {}, close() {}, request: async (method, params) => { requests.push({ method, params }); if (method === 'thread/read') return { thread: { cwd: outside ? '/elsewhere' : f.workspace, name: 'A task' } }; return { data: [{ id: 'turn', items: [{ type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'Question' }] }, { type: 'reasoning', text: 'hidden' }, { type: 'agentMessage', id: 'a', text: 'Answer' }] }] }; } }) });
+  await assert.rejects(new ConversationImporter({ codexBin: () => null }).list('codex', null), /Install Codex CLI/);
+  const importer = new ConversationImporter({ codexBin: () => '/fixture/codex', clientFactory: () => ({ initialize: async () => {}, close() {}, request: async (method, params) => { requests.push({ method, params }); if (method === 'thread/read') return { thread: { cwd: outside ? '/elsewhere' : f.workspace, name: 'A task' } }; return { data: [{ id: 'turn', items: [{ type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'Question' }] }, { type: 'reasoning', text: 'hidden' }, { type: 'agentMessage', id: 'a', text: 'Answer' }] }] }; } }) });
   const preview = await importer.preview('codex', 'native-thread', f.folders); assert.deepEqual(preview.messages.map(row => row.text), ['Question', 'Answer']); assert(!JSON.stringify(preview).includes('hidden')); outside = true; await assert.rejects(importer.preview('codex', 'native-thread', f.folders), /different workspace/); assert(!requests.some(row => /resume|turn\/start/.test(row.method)));
 });
 
