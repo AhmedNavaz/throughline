@@ -53,7 +53,7 @@ npm run test:desktop
 
 ## Reporting bugs
 
-Open an issue with your OS, Node.js version, which agent you used (Claude Code or Codex, with its version) and the steps to reproduce. Please remove anything private from logs and screenshots. For security problems, follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
+Use the [bug report](https://github.com/AhmedNavaz/throughline/issues/new?template=bug_report.yml) form, or [design feedback](https://github.com/AhmedNavaz/throughline/issues/new?template=ux_feedback.yml) for anything confusing or rough in the interface. Include your Throughline and macOS versions, the agent you used and the steps to reproduce. Please remove anything private from logs and screenshots. For security problems, follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
 
 ## Releasing
 

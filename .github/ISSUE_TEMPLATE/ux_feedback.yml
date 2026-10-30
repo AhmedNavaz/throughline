@@ -1,0 +1,28 @@
+name: Design or usability feedback
+description: Something is confusing, slow, cluttered or harder than it should be
+labels: ["ux"]
+body:
+  - type: markdown
+    attributes:
+      value: Small details count. If something felt off, we want to hear about it.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What were you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: friction
+    attributes:
+      label: What got in the way?
+      description: What was confusing, slow or didn't look right?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could it be better?
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots

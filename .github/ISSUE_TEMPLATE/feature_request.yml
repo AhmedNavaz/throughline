@@ -1,0 +1,20 @@
+name: Feature idea
+description: Suggest something new, or help shape an item on the roadmap
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: Describe the situation or problem first, then the idea.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+  - type: input
+    id: roadmap
+    attributes:
+      label: Related roadmap item
+      placeholder: "Voice mode"

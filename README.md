@@ -51,11 +51,11 @@ Nothing runs until you press **Send**, and every run uses your own installed CLI
 
 ## Roadmap
 
-Next up: notarized macOS builds, automatic updates, Windows and Linux builds, and committing from the Git panel. Further out: voice mode (say what you want, hear a short summary of what changed), agents that review each other's work, and racing Claude against Codex on the same task. See [ROADMAP.md](ROADMAP.md) for the full plan and good places to help.
+Next up: notarized macOS builds, automatic updates, Windows and Linux builds, and more agents and models such as Gemini, Grok and DeepSeek. Further out: voice mode (say what you want, hear a short summary of what changed), automatic model and effort choice for each request, live progress in your Mac's menu bar or notch, and agents that review each other's work. See [ROADMAP.md](ROADMAP.md) for the full plan.
 
 ## Contributing
 
-Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains the setup, maps the codebase and lists where to start. Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+The most helpful thing you can do right now is use Throughline and tell us what you find: [report a bug](https://github.com/AhmedNavaz/throughline/issues/new?template=bug_report.yml) or [share design feedback](https://github.com/AhmedNavaz/throughline/issues/new?template=ux_feedback.yml). Code contributions are welcome too; [CONTRIBUTING.md](CONTRIBUTING.md) explains the setup, maps the codebase and lists where to start. Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
