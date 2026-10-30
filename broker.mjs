@@ -269,13 +269,19 @@ export class Broker extends EventEmitter {
           const bin = resolveBinary(provider, { override: this.configuredBins[provider] });
           this.bins[provider] = bin;
           const result = bin ? await probeCli(bin, ['--version'], 4000) : null;
-          return [provider, { available: result?.status === 0, version: clip(result?.stdout?.trim(), 200), path: bin, installed: result?.status === 0, authenticated: 'unknown', billingSource: 'unknown', authMode: 'unknown', usage: 'unknown', capabilities: capabilities(provider, this.configuredBins[provider] ? 'cli' : 'auto') }];
+          // A CLI that is slow to answer is still installed: keep its last known status, or treat it as usable but unverified.
+          if (result?.timedOut && this.providerStatus?.[provider]) return [provider, this.providerStatus[provider]];
+          const usable = result?.status === 0 || Boolean(result?.timedOut);
+          return [provider, { available: usable, version: clip(result?.stdout?.trim(), 200), path: bin, installed: usable, ...(result?.timedOut && { errorCategory: 'timeout' }), authenticated: 'unknown', billingSource: 'unknown', authMode: 'unknown', usage: 'unknown', capabilities: capabilities(provider, this.configuredBins[provider] ? 'cli' : 'auto') }];
         })).then(entries => {
           this.providerStatus = Object.fromEntries(entries);
           this.providerStatusCheckedAt = Date.now();
         }).finally(() => { this.providerStatusPending = null; });
+        // A background check that nobody awaits must not become an unhandled rejection.
+        this.providerStatusPending.catch(() => {});
       }
-      await this.providerStatusPending;
+      // Only the first check waits. Later ones refresh in the background, so a slow CLI never delays the conversation.
+      if (!this.providerStatus) await this.providerStatusPending;
     }
     return { workspace: this.workspace, workspaces: this.workspaces, workspaceFolders: this.workspaceFolders, providers: this.providerStatus, runningConversationId: this.running?.c.id || null, pendingApprovals: this.running ? [...this.running.approvals.values()] : [] };
   }

@@ -280,6 +280,108 @@ test('failed account probes remain advisory and do not invent an authentication 
   assert.equal(ui.requests.filter(request=>/\/(?:messages|continue)$/.test(request.path)).length,0);
 });
 
+const accountReply=(authenticated,extra={})=>response({installed:true,authenticated,billingSource:authenticated===true?'subscription':'unknown',usage:'unknown',...extra});
+test('a routine account check keeps a verified connection on screen while it runs',async()=>{
+  const ui=await browser(),held=deferred();
+  ui.setIntercept((request,next)=>request.path==='/api/providers/codex/account'?held.promise.then(next):next());
+  ui.$('message-input').value='Keep working during the check';ui.fire('message-input','input');
+  ui.state().accountsCheckedAt=0;ui.window.dispatchEvent(new UIEvent('focus'));await flush();
+  assert.equal(ui.requests.filter(request=>request.path==='/api/providers/codex/account').length,2,'Refocusing after a minute checks the account again.');
+  assert.equal(ui.$('codex-status-text').textContent,'Connected');assert.equal(ui.$('connection-notice').hidden,true);assert.equal(ui.$('conversation-state').textContent,'Ready');assert.equal(ui.$('send-button').disabled,false);
+  held.resolve();await flush();assert.equal(ui.$('codex-status-text').textContent,'Connected');assert.equal(ui.state().accountRefresh,null);
+});
+
+test('a first check with nothing known yet shows compact progress without a notice',async()=>{
+  const ui=await browser(),held=deferred();
+  ui.setIntercept((request,next)=>request.path==='/api/providers/codex/account'?held.promise.then(next):next());
+  delete ui.state().accounts.codex;ui.state().accountsCheckedAt=0;const checking=ui.window.relayUI.refreshAccounts();await flush();
+  assert.equal(ui.$('codex-status-text').textContent,'Checking…');assert.equal(ui.$('conversation-state').textContent,'Checking connection');assert.equal(ui.$('connection-notice').hidden,true,'A first check does not interrupt the conversation.');
+  held.resolve();await checking;assert.equal(ui.$('codex-status-text').textContent,'Connected');assert.equal(ui.$('conversation-state').textContent,'Ready');
+});
+
+test('a check that times out or fails keeps the last verified connection, and Settings says why it may be out of date',async()=>{
+  const ui=await browser({workbench:true});let reply=null;
+  ui.setIntercept((request,next)=>request.path==='/api/providers/codex/account'&&reply?reply():next());
+  ui.$('message-input').value='Draft during checks';ui.fire('message-input','input');
+  reply=()=>accountReply('unknown',{errorCategory:'timeout'});await ui.window.relayUI.refreshAccounts({force:true});
+  assert.equal(ui.state().accounts.codex.authenticated,true);assert.equal(ui.$('codex-status-text').textContent,'Connected');assert.equal(ui.$('connection-notice').hidden,true);assert.equal(ui.$('conversation-state').textContent,'Ready');
+  ui.$('relay-settings').click();await flush();
+  const card=()=>ui.document.querySelectorAll('.connection-card').find(card=>card.dataset.provider==='codex'),refresh=()=>card().querySelectorAll('button').find(button=>button.textContent==='Refresh status');
+  assert.match(card().textContent,/Connected/);assert.match(card().textContent,/Last checked/);assert.match(card().textContent,/latest check timed out/i);
+  reply=()=>response({error:'Account metadata is unavailable.'},503);refresh().click();await flush();
+  assert.match(card().textContent,/Connected/);assert.match(card().textContent,/latest check failed/i);assert.equal(ui.$('codex-status-text').textContent,'Connected');
+  reply=()=>accountReply(false);ui.state().accountsCheckedAt=0;ui.window.dispatchEvent(new UIEvent('focus'));await flush();
+  assert.equal(ui.$('codex-status-text').textContent,'Sign in required','A real change still replaces the last result.');assert.equal(ui.$('connection-notice-text').textContent,'Codex is not signed in.');assert.equal(ui.$('send-button').disabled,true);
+  assert.match(card().textContent,/Sign-in required/);assert.doesNotMatch(card().textContent,/latest check/i);
+});
+
+test('overlapping routine checks share one probe, and an older answer cannot overwrite a newer recheck',async()=>{
+  const ui=await browser(),older=deferred();let probes=0;
+  ui.setIntercept((request,next)=>{if(request.path!=='/api/providers/codex/account')return next();probes++;return probes===1?older.promise.then(()=>accountReply(true)):accountReply(false);});
+  ui.state().accountsCheckedAt=0;const routine=ui.window.relayUI.refreshAccounts(),again=ui.window.relayUI.refreshAccounts();ui.window.dispatchEvent(new UIEvent('focus'));await flush();
+  assert.equal(probes,1,'Routine checks that overlap share the probe already running.');
+  const explicit=ui.window.relayUI.refreshAccounts({force:true});await flush();assert.equal(probes,2,'An explicit recheck asks again instead of reusing an older answer.');
+  await explicit;assert.equal(ui.$('codex-status-text').textContent,'Sign in required');
+  older.resolve();await routine;await again;await flush();
+  assert.equal(ui.$('codex-status-text').textContent,'Sign in required','The older answer arrives last but cannot restore Connected.');assert.equal(ui.state().accounts.codex.authenticated,false);
+});
+
+test('an explicit recheck keeps its progress until its own answer arrives',async()=>{
+  const ui=await browser(),older=deferred(),newer=deferred();let probes=0;
+  ui.setIntercept((request,next)=>{if(request.path!=='/api/providers/codex/account')return next();const call=++probes;return (call===1?older:newer).promise.then(()=>accountReply(call===1));});
+  delete ui.state().accounts.codex;ui.state().accountsCheckedAt=0;const routine=ui.window.relayUI.refreshAccounts();await flush();
+  const explicit=ui.window.relayUI.refreshAccounts({force:true});await flush();assert.equal(probes,2);
+  older.resolve();await routine;await flush();assert.equal(ui.$('codex-status-text').textContent,'Checking…','The recheck is still running after the older answer arrives.');
+  newer.resolve();await explicit;assert.equal(ui.$('codex-status-text').textContent,'Sign in required');
+});
+
+test('a CLI removed after a failed check shows as not installed, without the earlier failure',async()=>{
+  const providers={codex:{available:true},claude:{available:true}},ui=await browser({workbench:true,providers});
+  ui.setIntercept((request,next)=>request.path==='/api/providers/codex/account'?accountReply('unknown',{errorCategory:'timeout'}):next());
+  await ui.window.relayUI.refreshAccounts({force:true});assert.equal(ui.$('codex-status-text').textContent,'Connected');
+  providers.codex.available=false;await ui.window.relayUI.refresh();await ui.window.relayUI.refreshAccounts({force:true});
+  assert.equal(ui.$('codex-status-text').textContent,'Not installed');assert.equal(ui.$('connection-notice-text').textContent,'Codex is not installed.');assert.equal(ui.$('connection-action').textContent,'Use Claude');
+  ui.$('relay-settings').click();await flush();const card=ui.document.querySelectorAll('.connection-card').find(card=>card.dataset.provider==='codex').textContent;
+  assert.match(card,/Not installed/);assert.doesNotMatch(card,/latest check|Not yet/i);
+});
+
+test('Settings shows every connection at once, with progress on the card being rechecked',async()=>{
+  const ui=await browser({workbench:true}),held=deferred();ui.$('relay-settings').click();await flush();
+  ui.setIntercept((request,next)=>request.path==='/api/providers/codex/account'?held.promise.then(next):next());
+  const text=provider=>ui.document.querySelectorAll('.connection-card').find(card=>card.dataset.provider===provider)?.textContent;
+  ui.document.querySelectorAll('.connection-card')[0].querySelectorAll('button').find(button=>button.textContent==='Refresh status').click();await flush();
+  assert.match(text('codex'),/Checking…/);assert.match(text('claude'),/Connected/,'A slow Codex check does not hide Claude.');assert.doesNotMatch(text('claude'),/Checking…/);
+  assert.equal(ui.$('workbench').getAttribute('aria-busy'),null,'The dialog stays usable while the check runs.');
+  held.resolve();await flush();assert.match(text('codex'),/Connected/);assert.doesNotMatch(text('codex'),/Checking…/);
+});
+
+test('Settings retries a connection that has not been checked successfully yet',async()=>{
+  const ui=await browser({workbench:true,accountErrors:['codex']});ui.$('relay-settings').click();await flush();
+  const card=()=>ui.document.querySelectorAll('.connection-card').find(card=>card.dataset.provider==='codex');
+  assert.match(card().textContent,/Status unavailable/);assert.match(card().textContent,/Account metadata is unavailable/);
+  ui.setIntercept((request,next)=>request.path==='/api/providers/codex/account'?accountReply(true):next());
+  card().querySelectorAll('button').find(button=>button.textContent==='Try again').click();await flush();
+  assert.match(card().textContent,/Connected/);assert.equal(ui.$('codex-status-text').textContent,'Connected');
+});
+
+test('setup shows progress while it refreshes connections, and none after a check has failed',async()=>{
+  const ui=await browser({empty:true,existing:false,setup:true,accountErrors:['codex']});ui.document.querySelector('.onboarding-cta').click();await flush();
+  const status=provider=>ui.document.querySelectorAll('.setup-agent').find(card=>card.dataset.provider===provider).querySelector('.setup-account-state').textContent;
+  assert.equal(status('codex'),'Not verified','A failed check does not look like it is still running.');assert.match(status('claude'),/^Connected/);
+  const held=deferred();ui.setIntercept((request,next)=>/^\/api\/providers\/(codex|claude)\/account$/.test(request.path)?held.promise.then(next):next());
+  ui.findButton('Refresh').click();await flush();assert.equal(status('claude'),'Checking…');
+  held.resolve();await flush();assert.match(status('claude'),/^Connected/);
+  ui.setIntercept((request,next)=>request.path==='/api/providers/codex/account'?accountReply('unknown',{errorCategory:'timeout'}):next());
+  ui.state().accountsCheckedAt=0;ui.window.dispatchEvent(new UIEvent('focus'));await flush();assert.equal(status('codex'),'Check timed out');
+});
+
+test('an explicit recheck reloads the model list, but opening Settings does not',async()=>{
+  const ui=await browser({workbench:true,insights:true}),models=()=>ui.requests.filter(request=>request.path==='/api/providers/codex/models').length,before=models();
+  ui.$('relay-settings').click();await flush();assert.equal(models(),before,'Opening Settings does not ask Codex for its models again.');
+  ui.document.querySelectorAll('.connection-card')[0].querySelectorAll('button').find(button=>button.textContent==='Refresh status').click();await flush();
+  assert(models()>before,'A connection that may have changed loads its models again.');
+});
+
 for(const billingSource of ['api','unknown'])test('known '+billingSource+' billing waits for explicit session confirmation',async()=>{
   const ui=await browser({billingSource});ui.$('message-input').value='Explicitly billed request';ui.fire('message-input','input');
   assert.equal(ui.$('send-button').disabled,true);assert.equal(ui.$('conversation-state').textContent,'Review billing');

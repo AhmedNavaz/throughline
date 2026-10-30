@@ -2,7 +2,7 @@
   'use strict';
   const $ = id => document.getElementById(id), api = () => window.relayUI;
   const modal = $('workbench'), content = $('workbench-content'), error = $('workbench-error');
-  let tab = 'request', busy = false, projectScope = null;
+  let tab = 'request', busy = false, projectScope = null, accountSignature = '';
   const page = {
     request: ['Ask a friend', 'Ask another person for help. They work in their own workspace and send back changes for you to review.'],
     solutions: ['Returned solutions', 'Manage shared requests and review the changes your friend sends back.'],
@@ -205,20 +205,20 @@
   }
   function fact(parent, label, value) { const row = node('div', undefined, 'connection-fact'); row.append(node('dt', label), node('dd', value)); parent.append(row); }
   function modelLocked(provider) { const state = api().getState(); return !state.projectId || !state.conversation?.id || state.provider !== provider || Boolean(state.pending || state.settingsPending || state.conversation?.status === 'running' || state.status?.runningConversationId); }
+  function accountState() { const state = api().getState(); return JSON.stringify([state.accounts, state.accountChecks, state.accountsChecking]); }
   async function accounts(force = false) {
     const state = api().getState(), cards = node('div', undefined, 'connection-grid'); content.append(cards);
-    if (state.accountRefresh) await state.accountRefresh;
+    // The app owns account checks. Each card shows its last result or progress at once and redraws when an answer arrives.
+    api().refreshAccounts({ force }).catch(() => {}); accountSignature = accountState();
     for (const provider of ['codex', 'claude']) {
       const card = node('section', undefined, 'connection-card'); card.dataset.provider = provider; cards.append(card);
-      let account;
-      try {
-        account = !force && state.accounts?.[provider] || await api().api(`/api/providers/${provider}/account`, {}, null); state.accounts = { ...state.accounts, [provider]: account };
-        window.dispatchEvent(new CustomEvent('relay-account', { detail: { provider, account } })); window.dispatchEvent(new CustomEvent('relay-state'));
-      } catch (e) { card.append(node('h3', providerName(provider)), badge('Status unavailable', 'warning'), node('p', e.message)); actions(card, button('Try again', () => render(true))); continue; }
-      const heading = node('div', undefined, 'connection-heading'); heading.append(node('h3', providerName(provider)), badge(accountLabel(account), account.authenticated === true ? 'positive' : !account.installed ? '' : 'warning')); card.append(heading);
+      const account = state.accounts?.[provider], check = state.accountChecks?.[provider] || {}, checking = Boolean(state.accountsChecking?.[provider]);
+      if (!account) { card.append(node('h3', providerName(provider)), badge(checking ? 'Checking…' : check.failure === 'timeout' ? 'Check timed out' : 'Status unavailable', checking ? '' : 'warning')); if (!checking) { card.append(node('p', check.failure === 'timeout' ? `${providerName(provider)} did not answer in time.` : check.error || 'This connection has not been checked yet.')); actions(card, button('Try again', () => render(true))); } continue; }
+      const heading = node('div', undefined, 'connection-heading'); heading.append(node('h3', providerName(provider)), checking ? badge('Checking…') : badge(accountLabel(account), account.authenticated === true ? 'positive' : !account.installed ? '' : 'warning')); card.append(heading);
       const facts = node('dl', undefined, 'connection-facts'); fact(facts, 'Billing', billingLabel(account.billingSource)); if (account.planType || account.subscriptionType) fact(facts, 'Plan', String(account.planType || account.subscriptionType).replace(/[_-]/g, ' ')); fact(facts, 'Usage', usageLabel(account.usage, state.usage?.[provider]));
       const selected = state.conversation?.models?.[provider] || (state.provider === provider ? state.model : '') || ''; fact(facts, 'Selected model', selected || 'Provider default');
-      if (state.conversation?.lastRun?.provider === provider && state.conversation.lastRun.effectiveModel) fact(facts, 'Last used', state.conversation.lastRun.effectiveModel); card.append(facts);
+      if (state.conversation?.lastRun?.provider === provider && state.conversation.lastRun.effectiveModel) fact(facts, 'Last used', state.conversation.lastRun.effectiveModel); fact(facts, 'Last checked', date(check.checkedAt) || 'Not yet'); card.append(facts);
+      if (check.failure) notice(card, `The latest check ${check.failure === 'timeout' ? 'timed out' : 'failed'} at ${date(check.failedAt)}, so this shows the result from ${date(check.checkedAt)}.`, 'info');
       if (!account.installed) card.append(node('p', `Install ${provider === 'codex' ? 'Codex CLI' : 'Claude Code'} on this computer, then refresh the connection.`, 'muted'));
       const controls = [button('Refresh status', () => render(true)), button('Usage & reset times', () => { modal.close(); window.relayUsage?.open(provider); })];
       if (account.installed && account.authenticated !== true) controls.unshift(button('Connect account', async () => { const result = await api().post(`/api/providers/${provider}/connect`), url = result.authUrl || result.url; notice(card, result.message || (url ? 'Open the provider sign-in page to finish connecting, then refresh status.' : 'Complete sign-in in the provider’s browser window, then refresh status.'), 'info'); if (url) actions(card, button('Open provider sign-in', async () => { if (window.relayDesktop) await window.relayDesktop.openExternal(url); else window.open(url, '_blank', 'noopener,noreferrer'); }, 'primary')); }, 'primary'));
@@ -244,5 +244,5 @@
   modal.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
   $('ask-friend').addEventListener('click', () => open('request')); $('relay-settings').addEventListener('click', () => open('accounts')); $('connection-action')?.addEventListener('click', () => open('accounts')); $('workbench-close').addEventListener('click', () => modal.close());
   $('workbench-tabs').addEventListener('click', event => { const target = event.target.closest('[data-tab]'); if (target?.dataset.tab) perform(async () => { tab = target.dataset.tab; await render(); }); });
-  window.addEventListener('relay-state', () => { approvals(); $('ask-friend').disabled = !api().getState().projectId; for (const save of document.querySelectorAll('.model-save')) save.disabled = modelLocked(save.dataset.provider); }); approvals();
+  window.addEventListener('relay-state', () => { approvals(); $('ask-friend').disabled = !api().getState().projectId; for (const save of document.querySelectorAll('.model-save')) save.disabled = modelLocked(save.dataset.provider); if (modal.open && tab === 'accounts' && !busy && accountSignature !== accountState()) perform(render); }); approvals();
 })();
