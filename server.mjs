@@ -24,11 +24,15 @@ async function body(req, limit = 3 * 1024 * 1024) {
   if (!req.headers['content-type']?.startsWith('application/json')) {
     throw Object.assign(new Error('Send JSON content.'), { status: 415 });
   }
-  let input = '';
+  // Decode once at the end: a multi-byte character can be split across chunks.
+  const chunks = [];
+  let size = 0;
   for await (const chunk of req) {
-    input += chunk;
-    if (Buffer.byteLength(input) > limit) throw Object.assign(new Error('Request is too large.'), { status: 413 });
+    size += chunk.length;
+    if (size > limit) throw Object.assign(new Error('Request is too large.'), { status: 413 });
+    chunks.push(chunk);
   }
+  const input = Buffer.concat(chunks).toString('utf8');
   try {
     const value = JSON.parse(input || '{}');
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
