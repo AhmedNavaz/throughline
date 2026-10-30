@@ -174,10 +174,13 @@ export async function accountStatus(provider, { bin = resolveBinary(provider), w
   const base = { installed: false, available: false, authenticated: 'unknown', authMode: 'unknown', billingSource: 'unknown', usage: 'unknown', path: bin, capabilities: capabilities(provider) };
   if (!bin) return base;
   const version = await probeCli(bin, ['--version'], 4000);
+  // An installed CLI that answers too slowly is unverified, not missing.
+  if (version.timedOut) return { ...base, installed: true, errorCategory: 'timeout' };
   if (version.status !== 0) return { ...base, errorCategory: 'installation' };
   base.installed = base.available = true; base.version = version.stdout.trim().slice(0, 200);
   if (provider === 'claude') {
     const result = await probeCli(bin, ['auth', 'status', '--json'], 5000);
+    if (result.timedOut) return { ...base, errorCategory: 'timeout' };
     try {
       const status = JSON.parse(result.stdout);
       return { ...base, authenticated: status.loggedIn ?? 'unknown', authMode: status.authMethod || status.apiKeySource || 'unknown', billingSource: /oauth|claude.?ai/i.test(status.authMethod || '') ? 'subscription' : /api.?key/i.test(status.authMethod || '') ? 'api' : 'unknown', subscriptionType: status.subscriptionType || null };

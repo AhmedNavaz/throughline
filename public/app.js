@@ -21,7 +21,7 @@
     removeDialog: $("remove-workspace-dialog"), removeName: $("remove-workspace-name"), removeConfirm: $("confirm-remove-workspace"), removeCancel: $("cancel-remove-workspace"), removeError: $("remove-workspace-error"),
   };
   const state = {
-    accounts: {}, accountsChecking: {}, accountsCheckedAt: 0, accountRefresh: null, connectionAction: null, model: "", effort: null, workspaceFilter: "", streamConnected: null, retrySubmission: null, status: null, conversation: null, provider: "codex", mode: "edit",
+    accounts: {}, accountsChecking: {}, accountChecks: {}, accountCheck: 0, accountsCheckedAt: 0, accountRefresh: null, connectionAction: null, model: "", effort: null, workspaceFilter: "", streamConnected: null, retrySubmission: null, status: null, conversation: null, provider: "codex", mode: "edit",
     pending: null, loading: false, selectionVersion: 0, refreshPromise: null, refreshAgain: false,
     settingsRevision: 0, settingsPending: 0, settingsPromise: Promise.resolve(),
     noticeRetry: null, eventTimer: null, messagesSignature: "", listSignature: "", ready: false,
@@ -148,25 +148,28 @@
     return {account,installed,checking,needsSignIn,needsBilling,blocked:!installed||needsSignIn||needsBilling};
   }
   async function refreshAccounts({force=false}={}) {
-    if(state.accountRefresh)return state.accountRefresh;
-    if(!force && Date.now()-state.accountsCheckedAt<60000)return;
-    const providers=['codex','claude'];
-    state.accountRefresh=(async()=>{
-      await Promise.all(providers.map(async provider=>{
-        if(state.status?.providers?.[provider]?.available===false){
-          state.accounts[provider]={installed:false,authenticated:'unknown',billingSource:'unknown',usage:'unknown'};
-          return;
-        }
-        state.accountsChecking[provider]=true;renderStatus();renderControls();
-        try {
-          const account=await api('/api/providers/'+provider+'/account',{},null);
-          state.accounts[provider]=account;
-        } catch { /* A status-probe failure is advisory; native execution still validates its connection. */ }
-        finally {state.accountsChecking[provider]=false;}
-      }));
-      state.accountsCheckedAt=Date.now();
-    })();
-    try {await state.accountRefresh;} finally {state.accountRefresh=null;render();}
+    // Routine checks share one probe and run at most once a minute; an explicit recheck always asks again.
+    if(!force&&(state.accountRefresh||Date.now()-state.accountsCheckedAt<60000))return state.accountRefresh;
+    const check=++state.accountCheck;
+    const refresh=state.accountRefresh=Promise.all(['codex','claude'].map(async provider=>{
+      if(state.status?.providers?.[provider]?.available===false){
+        state.accounts[provider]={installed:false,authenticated:'unknown',billingSource:'unknown',usage:'unknown'};state.accountChecks[provider]={checkedAt:Date.now()};
+        return;
+      }
+      // Progress replaces the status only for an explicit recheck or while nothing is known; a routine check keeps the last result on screen.
+      if(force||!state.accounts[provider]){state.accountsChecking[provider]=check;renderStatus();renderControls();}
+      let account=null,error=null;
+      try {account=await api('/api/providers/'+provider+'/account',{},null);}
+      catch(failure) {error=failure.message;/* A status-probe failure is advisory; native execution still validates its connection. */}
+      if(state.accountsChecking[provider]===check)delete state.accountsChecking[provider];
+      // A newer check owns the result. A timeout or failed check confirms nothing, so it keeps the last result and records why it may be out of date.
+      if(check===state.accountCheck){
+        if(!account||account.errorCategory==='timeout'||account.installed&&account.authenticated==='unknown'&&account.errorCategory)state.accountChecks[provider]={checkedAt:state.accountChecks[provider]?.checkedAt||null,failedAt:Date.now(),failure:account?.errorCategory==='timeout'?'timeout':'failed',error:error||account?.error||null};
+        else {state.accounts[provider]=account;state.accountChecks[provider]={checkedAt:Date.now()};if(force)window.dispatchEvent(new CustomEvent('relay-account',{detail:{provider,account}}));}
+      }
+      renderStatus();renderControls();window.dispatchEvent(new CustomEvent('relay-state'));
+    })).then(()=>{state.accountsCheckedAt=Date.now();});
+    try {await refresh;} finally {if(state.accountRefresh===refresh)state.accountRefresh=null;render();}
   }
   function renderStatus() {
     const workspace=state.status?.workspace || currentProject()?.path || '';
@@ -192,8 +195,8 @@
       else {action='Open settings';state.connectionAction=()=>$('relay-settings').click();}
     } else if(info.needsSignIn){text=name+' is not signed in.';action='Connect account';state.connectionAction=()=>$('relay-settings').click();}
     else if(info.needsBilling){text=info.account.billingSource==='api'?'This connection uses API billing. Review it before sending.':'Billing could not be confirmed. Review this connection before sending.';action='Review connection';state.connectionAction=()=>$('relay-settings').click();}
-    else if(info.checking){text='Checking '+name+' connection…';}
-    else if(info.account?.authenticated!==true){text='Sign-in status has not been verified.';action='Check connection';state.connectionAction=()=>$('relay-settings').click();}
+    // Progress for a first check or an explicit recheck shows in the header and composer state, not as a notice.
+    else if(!info.checking&&info.account?.authenticated!==true){text='Sign-in status has not been verified.';action='Check connection';state.connectionAction=()=>$('relay-settings').click();}
     if(text){notice.hidden=false;$('connection-notice-text').textContent=text;$('connection-action').textContent=action;$('connection-action').hidden=!action;}
   }
 

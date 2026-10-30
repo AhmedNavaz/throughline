@@ -7,6 +7,7 @@ import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { accountStatus } from '../providers.mjs';
+import { Broker } from '../broker.mjs';
 
 function fixture(t, { stage = '', output = '{"loggedIn":true,"authMethod":"oauth"}', code = 0, authCode = 0, wait = 3000, keep = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'throughline-probes-'));
@@ -69,17 +70,32 @@ test('account probe preserves version, authentication and malformed/error result
 });
 
 for (const stage of ['version', 'auth']) {
-  test(`account ${stage} timeout kills the child and preserves the result category`, async t => {
+  test(`account ${stage} timeout kills the child and reports a timeout, not a missing CLI`, async t => {
     const f = fixture(t, { stage, wait: 15000 });
     const pending = accountStatus('claude', { bin: f.bin });
     await waitFor(f.root + '/started');
     const pid = Number(fs.readFileSync(f.root + '/started', 'utf8'));
     const result = await pending;
     assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
-    if (stage === 'version') assert.equal(result.errorCategory, 'installation');
-    else { assert.equal(result.installed, true); assert.equal(result.authenticated, 'unknown'); }
+    assert.equal(result.installed, true); assert.equal(result.authenticated, 'unknown'); assert.equal(result.errorCategory, 'timeout');
   });
 }
+test('status checks never report a slow CLI as missing or make the conversation wait for it', async t => {
+  const broker = bin => { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'throughline-status-')), value = new Broker({ workspace: root, dataDir: path.join(root, 'data'), bins: { claude: bin, codex: bin } }); t.after(async () => { await value.close(); fs.rmSync(root, { recursive: true, force: true }); }); return value; };
+  const slow = fixture(t, { stage: 'version', wait: 15000 }), steady = fixture(t, { stage: 'version', wait: 15000 });
+  fs.writeFileSync(steady.root + '/release', '');
+  const known = broker(steady.bin);
+  assert.equal((await known.status()).providers.claude.version, 'fake 1.0');
+  fs.rmSync(steady.root + '/release'); known.providerStatusCheckedAt = 0;
+  const first = broker(slow.bin).status(), started = Date.now(), cached = await known.status();
+  assert(Date.now() - started < 1000, 'A later check answers from the last result while the CLI is checked again.');
+  assert.equal(cached.providers.claude.available, true);
+  const fresh = await first;
+  assert.equal(fresh.providers.claude.available, true, 'An installed CLI that answers slowly stays usable.'); assert.equal(fresh.providers.claude.errorCategory, 'timeout');
+  await known.providerStatusPending;
+  const kept = (await known.status()).providers.claude;
+  assert.equal(kept.available, true); assert.equal(kept.version, 'fake 1.0', 'A timed-out recheck keeps the last known result.'); assert.equal(kept.errorCategory, undefined);
+});
 test('Claude auth nonzero output keeps the existing parse behavior', async t => {
   const f = fixture(t, { authCode: 1, output: '{"loggedIn":false,"authMethod":"api_key"}' });
   const result = await accountStatus('claude', { bin: f.bin });

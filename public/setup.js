@@ -13,6 +13,7 @@
   const titleCase = text => String(text).replace(/[_-]/g,' ').replace(/\b\w/g, letter => letter.toUpperCase());
   const computer = desktop?.platform === 'darwin' ? 'this Mac' : 'this computer';
   let connectionSignature = '';
+  const connectionState = () => { const state = api.getState(); return JSON.stringify([state.accounts, state.accountsChecking, state.accountChecks]); };
   let preferences, launch = null, screen = 'welcome', reviewing = false, shownStep = -1, advancedOpen = false;
   let step = 0, busy = false, revision = 0, catalog = {}, draft = {provider:'codex',model:null,effort:null,mode:'edit',billing:'subscription'}, theme = 'graphite', projectName = '', projectPaths = '', created = '';
   function progress() {
@@ -103,15 +104,15 @@
     if (entering) heading.focus();
   }
   function agents(host) {
-    connectionSignature = JSON.stringify(api.getState().accounts);
+    connectionSignature = connectionState();
     host.append(node('p',`Throughline works with Claude Code and Codex on ${computer}, signed in with your own accounts. Choose which one starts the conversation; you can switch at any time without losing the thread.`,'setup-description'));
     const cards = node('div',undefined,'setup-agent-grid'); host.append(cards);
     for (const provider of ['claude','codex']) {
-      const account = api.getState().accounts?.[provider], selected = draft.provider === provider, plan = account?.planType || account?.subscriptionType;
+      const account = api.getState().accounts?.[provider], check = api.getState().accountChecks?.[provider], selected = draft.provider === provider, plan = account?.planType || account?.subscriptionType;
       const card = node('section',undefined,'setup-agent'); card.dataset.provider = provider; card.dataset.selected = String(selected);
       const select = button('',()=>{draft.provider=provider;draft.model=null;draft.effort=null;render();},'setup-agent-select'); select.setAttribute('aria-pressed',String(selected));
       select.append(node('i',undefined,'agent-icon '+provider),node('strong',providerName(provider)),node('span',selected ? 'Starts the conversation' : 'Start with this agent','setup-selection'));
-      const [state,label] = !account ? ['checking','Checking…'] : !account.installed ? ['missing','Not installed'] : account.authenticated === true ? ['ready','Connected' + (plan ? ' · ' + titleCase(plan) : '')] : account.authenticated === false ? ['signin','Sign-in needed'] : ['unknown','Not verified'];
+      const [state,label] = api.getState().accountsChecking?.[provider] || !account && !check ? ['checking','Checking…'] : !account ? ['unknown',check.failure === 'timeout' ? 'Check timed out' : 'Not verified'] : !account.installed ? ['missing','Not installed'] : account.authenticated === true ? ['ready','Connected' + (plan ? ' · ' + titleCase(plan) : '')] : account.authenticated === false ? ['signin','Sign-in needed'] : ['unknown','Not verified'];
       const status = node('span',label,'setup-account-state'); status.dataset.state = state; status.dataset.connected = String(account?.authenticated === true);
       card.append(select,status,node('p',account?.billingSource === 'subscription' ? 'Uses your subscription' : account?.billingSource === 'api' ? 'Detected API billing' : 'Billing not reported yet','setup-billing'));
       if (account?.installed && account.authenticated !== true) card.append(button('Connect ' + providerName(provider),async()=>{
@@ -123,7 +124,7 @@
       cards.append(card);
     }
     const tools = node('div',undefined,'setup-connection-tools'); host.append(tools);
-    tools.append(button('Refresh',async()=>{await api.refreshAccounts({force:true});render();}),node('span','You can also connect later in Settings.','setup-footnote'));
+    tools.append(button('Refresh',async()=>{const checking=api.refreshAccounts({force:true});render();await checking;render();}),node('span','You can also connect later in Settings.','setup-footnote'));
     const billing = field('Preferred billing connection','select',draft.billing); option(billing.input,'My existing subscription','subscription'); option(billing.input,'My existing API connection','api'); billing.input.value = draft.billing; billing.input.addEventListener('change',()=>{draft.billing=billing.input.value;});
     const advanced = node('details',undefined,'setup-advanced'); advanced.append(node('summary','Billing preference'),billing.wrap,node('p','Uses the accounts already on this computer. This does not purchase or change a plan. API billing requires review before a run.','setup-footnote')); host.append(advanced);
   }
@@ -199,7 +200,7 @@
   });
   $('setup-back').addEventListener('click',()=>perform(()=>step === 0 && !reviewing ? show('welcome') : move(Math.max(0,step-1))));
   $('setup-next').addEventListener('click',()=>perform(async()=>{if(step<last)return move(step+1);if(reviewing)return complete();await save();show('done');}));
-  window.addEventListener('relay-state',()=>{if(dialog.open && screen === 'flow' && step===0 && !busy && connectionSignature!==JSON.stringify(api.getState().accounts))render();});
+  window.addEventListener('relay-state',()=>{if(dialog.open && screen === 'flow' && step===0 && !busy && connectionSignature!==connectionState())render();});
   window.addEventListener('relay-account',()=>{if(dialog.open && screen === 'flow' && step===0 && !busy)render();});
   const ready = Promise.all([api.api('/api/preferences',{},null),desktop?.getLaunchState ? desktop.getLaunchState().catch(()=>null) : null]).then(([value,state])=>{
     preferences = value; launch = state; step = Math.min(value.onboarding?.step || 0, last); draft = {...value.defaults}; theme = value.theme; progress();
