@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
+import { fork } from 'node:child_process';
+import { EventEmitter, once } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { Broker } from '../broker.mjs';
 import { ProjectRegistry } from '../projects.mjs';
@@ -159,6 +160,37 @@ if(message.id===77&&message.result){send({method:'item/completed',params:{thread
   assert.throws(() => broker.approve(runId, pending.id, true), { status: 409 });
   const messages = fs.readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse);
   assert.deepEqual(messages.find(message => message.id === 77).result, { decision: 'accept' });
+});
+
+test('a long final Codex answer reaches the broker before its worker exits', async t => {
+  const f = setup(t);
+  // The final item is far larger than a pipe buffer, so its IPC write is still pending when the turn ends.
+  fs.writeFileSync(f.bins.codex, `#!${process.execPath}\nimport readline from 'node:readline';
+if(process.argv.includes('--version')){console.log('long-answer-fixture 1');process.exit(0);}
+const send=value=>console.log(JSON.stringify(value));
+readline.createInterface({input:process.stdin}).on('line',line=>{const message=JSON.parse(line);
+if(message.method==='initialize')send({id:message.id,result:{}});
+if(message.method==='model/list')send({id:message.id,result:{data:[]}});
+if(message.method==='thread/start')send({id:message.id,result:{thread:{id:'long-thread'},model:'actual-model'}});
+if(message.method==='turn/start'){send({id:message.id,result:{turn:{id:'long-turn'}}});send({method:'item/completed',params:{threadId:'long-thread',item:{id:'answer',type:'agentMessage',text:'x'.repeat(262144)}}});send({method:'turn/completed',params:{threadId:'long-thread',turn:{status:'completed'}}});}
+});\n`);
+  const broker = f.broker(); const c = broker.get(broker.create().id);
+  const { runId } = broker.start(c, { text: 'Write a long answer', provider: 'codex', transport: 'app-server' });
+  await broker.running.done;
+  assert.equal(c.status, 'complete');
+  assert.equal(c.messages.find(m => m.runId === runId && m.role === 'assistant')?.text.length, 262144);
+});
+
+test('the CLI worker forwards all provider output to a slow reader before it exits', async t => {
+  const f = setup(t), bin = path.join(f.root, 'large-output.mjs');
+  fs.writeFileSync(bin, `#!${process.execPath}\nprocess.stdout.write('x'.repeat(1048576));\n`, { mode: 0o700 });
+  const worker = fork(fileURLToPath(new URL('../provider-worker.mjs', import.meta.url)), [], { silent: true });
+  worker.send({ type: 'start', config: { transport: 'cli', bin, args: [], workspace: f.workspace, prompt: '' } });
+  // A busy broker reads slowly, so output is still queued in the worker when the CLI exits.
+  let received = 0;
+  worker.stdout.on('data', chunk => { received += chunk.length; worker.stdout.pause(); setTimeout(() => worker.stdout.resume(), 5); });
+  await once(worker, 'close');
+  assert.equal(received, 1048576);
 });
 
 test('Claude native rate-limit metadata distinguishes warnings from quota rejection', t => {
