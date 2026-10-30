@@ -15,7 +15,7 @@ function fixture(t, { stage = '', output = '{"loggedIn":true,"authMethod":"oauth
 const root = ${JSON.stringify(root)}, stage = process.argv[2] === '--version' ? 'version' : 'auth';
 fs.appendFileSync(root + '/calls', stage + '\\n');
 if (stage === ${JSON.stringify(stage)}) {
-  fs.writeFileSync(root + '/started', String(process.pid));
+  fs.writeFileSync(root + '/started.' + process.pid, String(process.pid)); fs.renameSync(root + '/started.' + process.pid, root + '/started');
   const until = Date.now() + ${wait};
   while (!fs.existsSync(root + '/release') && Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
 }
