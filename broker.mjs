@@ -86,6 +86,8 @@ export class Broker extends EventEmitter {
         if (valid) { fs.appendFileSync(path.join(dataDir, filename), '\n'); lines.push(''); }
         else { lines.pop(); fs.writeFileSync(path.join(dataDir, filename), `${lines.join('\n')}\n`, { mode: 0o600 }); }
       }
+      // A crash or a full disk while a new conversation writes its first record leaves nothing to load.
+      if (!lines.some(Boolean)) continue;
       for (const line of lines.filter(Boolean)) this.apply(conversation, JSON.parse(line));
       if (!conversation.createdAt) throw new Error(`Invalid conversation journal: ${filename}`);
       this.conversations.set(id, conversation);
@@ -162,9 +164,13 @@ export class Broker extends EventEmitter {
 
   record(c, value) {
     const record = { ...value, seq: c.records + 1, at: new Date().toISOString() };
-    const fd = fs.openSync(path.join(this.dataDir, `${c.id}.jsonl`), 'a', 0o600);
-    try { const bytes = Buffer.from(`${JSON.stringify(record)}\n`); let offset = 0; while (offset < bytes.length) { const count = fs.writeSync(fd, bytes, offset, bytes.length - offset); if (!count) throw new Error('Journal write made no progress.'); offset += count; } fs.fsyncSync(fd); }
-    finally { fs.closeSync(fd); }
+    const filename = path.join(this.dataDir, `${c.id}.jsonl`), fd = fs.openSync(filename, 'a', 0o600);
+    try {
+      const start = fs.fstatSync(fd).size;
+      try { const bytes = Buffer.from(`${JSON.stringify(record)}\n`); let offset = 0; while (offset < bytes.length) { const count = fs.writeSync(fd, bytes, offset, bytes.length - offset); if (!count) throw new Error('Journal write made no progress.'); offset += count; } fs.fsyncSync(fd); }
+      // Remove a failed append, or the next record would be joined onto it. Windows cannot truncate through an append handle, so truncate by path.
+      catch (error) { try { fs.truncateSync(filename, start); } catch {} throw error; }
+    } finally { fs.closeSync(fd); }
     this.apply(c, record);
     this.emit('update', { conversationId: c.id });
     return record;
