@@ -201,6 +201,14 @@ test('Claude import preview is scoped, excludes private reasoning/tools, and imp
   const restored = new Broker(options); assert.equal(restored.importTranscript(restored.get(c.id), preview).duplicate, true); await restored.close();
 });
 
+test('Claude import of a long conversation keeps its newest messages', async t => {
+  const f = fixture(t), rows = Array.from({ length: 3000 }, (_, i) => ({ uuid: `m${i}`, type: i % 2 ? 'assistant' : 'user', message: { content: [{ type: 'text', text: `message #${i}` }] } }));
+  // Like the SDK, offset and limit count from the oldest message.
+  const importer = new ConversationImporter({ sdkLoader: async () => ({ getSessionInfo: async () => ({ cwd: f.workspace, summary: 'Long task' }), getSessionMessages: async (_id, { offset = 0, limit = rows.length } = {}) => rows.slice(offset, offset + limit) }) });
+  const preview = await importer.preview('claude', 'long-session', f.folders);
+  assert.equal(preview.messageCount, 1000); assert.equal(preview.clipped, true); assert.equal(preview.messages[0].text, 'message #2000'); assert.equal(preview.messages.at(-1).text, 'message #2999');
+});
+
 test('reimporting a growing conversation updates an imported partial message without duplicating it', async t => {
   const f = fixture(t), broker = new Broker({ workspace: f.workspace, dataDir: path.join(f.root, 'journal') }), c = broker.get(broker.create().id); const first = { provider: 'codex', sessionId: 'native', digest: 'one', messages: [{ sourceId: 'answer', role: 'assistant', text: 'Partial' }] };
   broker.importTranscript(c, first); const updated = broker.importTranscript(c, { ...first, digest: 'two', messages: [{ sourceId: 'answer', role: 'assistant', text: 'Completed answer' }] }); assert.equal(updated.updated, 1); assert.equal(updated.imported, 0); assert.equal(c.messages.length, 1); assert.equal(c.messages[0].text, 'Completed answer'); await broker.close();
