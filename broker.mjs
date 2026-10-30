@@ -10,7 +10,7 @@ import { prepareContext, emptyContext, validateContext } from './context.mjs';
 import { classifyError, capabilities, accountStatus } from './providers.mjs';
 import { workspaceBaseline } from './workspace-baseline.mjs';
 import { AttachmentStore } from './attachments.mjs';
-import { startedAfter } from './mutation-lock.mjs';
+import { processStart, reused } from './mutation-lock.mjs';
 
 export const PROVIDERS = ['codex', 'claude'];
 const MODES = ['edit', 'read'];
@@ -96,8 +96,8 @@ export class Broker extends EventEmitter {
         if (conversation.activeRun.pid && process.platform !== 'win32') {
           try {
             process.kill(-conversation.activeRun.pid, 0);
-            // A leader that started after the run recorded its group means the ID now names a new group.
-            if (!startedAfter(conversation.activeRun.pid, Date.parse(conversation.activeRun.pidRecordedAt))) throw Object.assign(new Error(`An assistant from the previous run may still be active (process group ${conversation.activeRun.pid}). Stop that process group before restarting Throughline.`), { status: 409 });
+            // A leader with another start time than the one the run saved means the ID now names a new group.
+            if (!reused(conversation.activeRun.pid, conversation.activeRun.pidStart)) throw Object.assign(new Error(`An assistant from the previous run may still be active (process group ${conversation.activeRun.pid}). Stop that process group before restarting Throughline.`), { status: 409 });
           } catch (error) { if (!groupGone(error)) throw error; }
         }
         for (const message of conversation.messages.filter(m => m.runId === conversation.activeRun.id && m.role === 'assistant')) {
@@ -160,7 +160,7 @@ export class Broker extends EventEmitter {
       c.activeRun = { id: record.id, provider: record.provider, startedAt: record.at };
       c.status = 'running';
     }
-    if (record.type === 'run_process' && c.activeRun) Object.assign(c.activeRun, { pid: record.pid, pidRecordedAt: record.at });
+    if (record.type === 'run_process' && c.activeRun) Object.assign(c.activeRun, { pid: record.pid, pidStart: record.pidStart });
     if (record.type === 'run_end') { c.lastRun = { ...c.activeRun, status: record.status, errorCategory: record.errorCategory || null, endedAt: record.at }; c.activeRun = null; c.status = record.status; }
   }
 
@@ -390,8 +390,9 @@ export class Broker extends EventEmitter {
           } catch (error) { run.failed = true; run.errorCategory = classifyError(error); run.stderr = error.message; this.stop(c.id); }
         });
         run.child.on('close', (code, signal) => { if (buffer.trim()) consume(buffer); complete(code, signal, run.spawnError); });
-        this.record(c, { type: 'run_process', pid: run.child.pid });
-        lease.setProcess(run.child.pid);
+        const pidStart = processStart(run.child.pid);
+        this.record(c, { type: 'run_process', pid: run.child.pid, pidStart });
+        lease.setProcess(run.child.pid, pidStart);
         run.child.send({ type: 'start', config: { bin, args: command.args, workspace: this.workspace, workspaces: this.workspaces, workspaceFolders: this.workspaceFolders, prompt: prepared.prompt, images, transport: actualTransport, provider, mode, model, effort, sessionId } });
       } catch (error) { run.errorCategory = error.category || classifyError(error); complete(null, null, error); }
     };
