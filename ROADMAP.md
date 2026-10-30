@@ -28,6 +28,14 @@ The fastest way to make Throughline better is to use it on your real projects an
 | First-run welcome and setup, and a continue-or-start-fresh choice after reinstalling | [0.5.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.5.0) |
 | Suggestions for earlier Claude Code and Codex chats that match a workspace's folders | [0.6.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.0) |
 
+## Ready for the next release
+
+These changes are merged on `main` and will be included in the next published build.
+
+| Feature | Pull request |
+| --- | --- |
+| Search the conversation with Cmd/Ctrl+F, highlights and next/previous matches | [#39](https://github.com/AhmedNavaz/throughline/pull/39) |
+
 ## Now
 
 | Feature | Status | Issue |
@@ -45,7 +53,6 @@ The fastest way to make Throughline better is to use it on your real projects an
 | Windows and Linux builds | Planned, help wanted | [#5](https://github.com/AhmedNavaz/throughline/issues/5) |
 | Commit reviewed changes from the Git panel | Planned | [#6](https://github.com/AhmedNavaz/throughline/issues/6) |
 | Integrated workspace terminal | Needs design | [#7](https://github.com/AhmedNavaz/throughline/issues/7) |
-| Search the conversation | Planned, help wanted | [#8](https://github.com/AhmedNavaz/throughline/issues/8) |
 | Deployment templates for the private-link service | Planned, help wanted | [#9](https://github.com/AhmedNavaz/throughline/issues/9) |
 | Run the project's own tests on a returned patch, with approval | Planned | [#10](https://github.com/AhmedNavaz/throughline/issues/10) |
 
