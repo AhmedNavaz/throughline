@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import { probeCli } from './cli-probe.mjs';
+import { isAgy, agyUnsupported } from './gemini.mjs';
 import { resolveBinary } from './resolve-binary.mjs';
 import { fileURLToPath } from 'node:url';
 import { prepareContext, emptyContext, validateContext } from './context.mjs';
@@ -281,7 +282,7 @@ export class Broker extends EventEmitter {
           // A CLI that is slow to answer is still installed: keep its last known status, or treat it as usable but unverified.
           if (result?.timedOut && this.providerStatus?.[provider]) return [provider, this.providerStatus[provider]];
           const usable = result?.status === 0 || Boolean(result?.timedOut);
-          return [provider, { available: usable, version: clip(result?.stdout?.trim(), 200), path: bin, installed: usable, ...(result?.timedOut && { errorCategory: 'timeout' }), authenticated: 'unknown', billingSource: 'unknown', authMode: 'unknown', usage: 'unknown', capabilities: capabilities(provider, this.configuredBins[provider] ? 'cli' : 'auto') }];
+          return [provider, { available: usable && !(provider === 'gemini' && isAgy(bin)), version: clip(result?.stdout?.trim(), 200), path: bin, installed: usable, ...(result?.timedOut && { errorCategory: 'timeout' }), authenticated: 'unknown', billingSource: 'unknown', authMode: 'unknown', usage: 'unknown', capabilities: capabilities(provider, this.configuredBins[provider] ? 'cli' : 'auto') }];
         })).then(entries => {
           this.providerStatus = Object.fromEntries(entries);
           this.providerStatusCheckedAt = Date.now();
@@ -317,6 +318,7 @@ export class Broker extends EventEmitter {
     }
     const bin = resolveBinary(provider, { override: this.configuredBins[provider] });
     if (!bin) throw Object.assign(new Error(`${provider === 'gemini' ? 'Gemini' : provider === 'codex' ? 'Codex' : 'Claude'} CLI could not be found. Install it or set AI_RELAY_${provider.toUpperCase()}_BIN to its executable path, then retry.`), { status: 503, category: 'installation' });
+    if (provider === 'gemini' && isAgy(bin)) throw Object.assign(new Error(agyUnsupported), { status: 503, category: 'installation' });
     const actualTransport = transportFor(provider, transport, this.configuredBins[provider]);
     if ((provider === 'gemini' && actualTransport !== 'acp') || (provider !== 'gemini' && actualTransport === 'acp') || (provider === 'codex' && actualTransport === 'sdk') || (provider === 'claude' && actualTransport === 'app-server')) throw Object.assign(new Error('This transport does not support the selected provider.'), { status: 400 });
     // A native session may retain tool permissions for folders since removed.

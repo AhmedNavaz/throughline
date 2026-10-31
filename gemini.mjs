@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { probeCli } from './cli-probe.mjs';
@@ -10,102 +9,13 @@ import { readWorkspaceFile, writeWorkspaceFile } from './workspace-files.mjs';
 
 const reads = ['read_file', 'list_directory', 'glob', 'grep_search', 'read_many_files'];
 const edits = ['write_file', 'replace', 'run_shell_command'];
-export const isAgy = bin => Boolean(bin && (path.basename(bin).toLowerCase().startsWith('agy') || path.basename(bin).toLowerCase().startsWith('antigravity')));
-export const geminiSetup = 'Install Google Antigravity CLI (curl -fsSL https://antigravity.google/cli/install.sh | bash) or sign in with your Google account via agy in Terminal. Alternatively, Gemini CLI 0.66.0+ is supported with an API key.';
+export const isAgy = bin => Boolean(bin && /^(?:agy|antigravity)(?:\.exe)?$/i.test(path.basename(bin)));
+export const agyUnsupported = 'Antigravity CLI does not expose interactive tool approvals to this connection. Run it in its native terminal, or install Gemini CLI 0.66.0+ and configure supported authentication for Throughline.';
+export const geminiSetup = 'Install Gemini CLI 0.66.0 or newer, then run gemini in Terminal to configure supported authentication. Throughline uses that native configuration. Google account availability, quotas and API charges depend on the provider; no free allowance is assumed.';
 
-export async function runAgy(config, { event, metadata, cancelled = () => false, spawnImpl = spawn }) {
-  const args = ['--output-format', 'stream-json', '--print-timeout', '180s'];
-  if (config.model) args.push('--model', config.model);
-  if (config.effort) args.push('--effort', config.effort);
-  for (const folder of (config.workspaces || []).filter(dir => dir !== config.workspace)) {
-    args.push('--add-dir', folder);
-  }
-  const permissions = config.mode === 'read'
-    ? { deny: ['command(*)', 'write_file(*)'] }
-    : { allow: ['write_file(*)'], deny: ['command(*)'] };
-  args.push('--mode', config.mode === 'read' ? 'plan' : 'accept-edits');
-  args.push('--settings', JSON.stringify({ permissions }));
-  args.push('-p', config.prompt);
-
-  const env = withBinaryPath(config.bin);
-  const child = spawnImpl(config.bin, args, { cwd: config.workspace, env, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
-  child.stdin.end();
-
-  let diagnostic = '', response = '', sawInit = false;
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', chunk => { diagnostic = (diagnostic + chunk).slice(-16000); });
-
-  const rl = readline.createInterface({ input: child.stdout });
-  rl.on('line', line => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    try {
-      const data = JSON.parse(trimmed);
-      if (data.event === 'init') {
-        sawInit = true;
-        metadata({
-          effectiveModel: data.init?.model || config.model || 'Provider default',
-          transport: 'agy',
-          account: { authenticated: true, authMode: 'google-account', billingSource: 'subscription' },
-        });
-        event({ type: 'relay.progress', phase: 'working' });
-      } else if (data.event === 'step_update') {
-        const update = data.step_update || {};
-        if (update.step_type === 'agent_response') {
-          if (update.text_delta) {
-            response += update.text_delta;
-            event({ type: 'relay.delta', id: 'response', text: update.text_delta });
-          }
-          if (update.usage) {
-            metadata({ usage: { used: update.usage.total_tokens, input: update.usage.input_tokens, output: update.usage.output_tokens } });
-          }
-        } else if (update.step_type === 'tool') {
-          const stepId = `tool-${update.step_index}`;
-          const toolName = update.tool_name || update.tool_info?.name || 'tool';
-          if (update.state === 'ACTIVE') {
-            event({ type: 'item.started', item: { id: stepId, type: 'mcp_tool_call', tool: toolName, result: [] } });
-          } else if (update.state === 'DONE' || update.state === 'ERROR') {
-            const out = update.tool_info?.output || update.tool_info?.error?.message || '';
-            event({ type: 'item.completed', item: { id: stepId, type: 'mcp_tool_call', tool: toolName, result: [out] } });
-          }
-        }
-      } else if (data.event === 'result') {
-        const result = data.result || {};
-        if (result.usage) {
-          metadata({ usage: { used: result.usage.total_tokens, input: result.usage.input_tokens, output: result.usage.output_tokens } });
-        }
-        if (result.status === 'ERROR') {
-          throw new Error(result.error || diagnostic.trim() || 'Antigravity run failed.');
-        }
-        if (!response && result.response) {
-          response = result.response;
-          event({ type: 'relay.delta', id: 'response', text: result.response });
-        }
-      }
-    } catch (err) {
-      if (!child.killed) child.kill('SIGTERM');
-      throw err;
-    }
-  });
-
-  const timer = setInterval(() => { if (cancelled() && !child.killed) child.kill('SIGTERM'); }, 100);
-
-  try {
-    const exitCode = await new Promise((resolve, reject) => {
-      child.on('error', reject);
-      child.on('close', (code, signal) => resolve({ code, signal }));
-    });
-    if (cancelled()) throw new Error('Antigravity run cancelled.');
-    if (exitCode.code !== 0 && !response) {
-      throw new Error(diagnostic.trim() || `Antigravity CLI exited with code ${exitCode.code ?? exitCode.signal}.`);
-    }
-    if (response) event({ type: 'item.completed', item: { id: 'response', type: 'agent_message', text: response } });
-    event({ type: 'turn.completed' });
-  } finally {
-    clearInterval(timer);
-    if (!child.killed) child.kill('SIGTERM');
-  }
-}
+// Antigravity headless mode may soft-deny tools and still exit successfully.
+// Never replace Throughline approvals with pre-approved native write permissions.
+export async function runAgy() { throw new Error(agyUnsupported); }
 
 // Isolate invocation policy without changing the user's settings or authentication.
 // Managed system policy cannot safely be replaced by this per-run configuration.

@@ -98,20 +98,6 @@ export function resolveBinary(provider, {
   const pathEntries = (env.PATH || env.Path || '').split(platform === 'win32' ? ';' : path.delimiter)
     .filter(directory => path.isAbsolute(directory));
 
-  // For Gemini, prefer Google Antigravity CLI (agy) if present on PATH or in its home directories.
-  if (provider === 'gemini') {
-    const agyNames = platform === 'win32' ? ['agy.exe', 'agy'] : ['agy'];
-    const agyDirs = [
-      ...pathEntries,
-      path.join(home, '.gemini/bin'),
-      path.join(home, '.local/bin'),
-      path.join(home, 'bin'),
-      ...(platform === 'win32' && env.LOCALAPPDATA ? [path.join(env.LOCALAPPDATA, 'agy/bin')] : []),
-    ];
-    const agy = firstExecutable(agyDirs.flatMap(directory => agyNames.map(name => path.join(directory, name))));
-    if (agy) return agy;
-  }
-
   const names = platform === 'win32' ? [`${provider}.exe`, provider] : [provider];
   const onPath = firstExecutable(pathEntries.flatMap(directory => names.map(name => path.join(directory, name))));
   if (onPath) return onPath;
@@ -145,5 +131,19 @@ export function resolveBinary(provider, {
     ])));
     if (bundled) return bundled;
   }
+  // Detect Antigravity only after supported Gemini CLI installations. The account card explains its unsupported approval protocol.
+  if (provider === 'gemini') {
+    const agyNames = platform === 'win32' ? ['agy.exe', 'agy'] : ['agy'];
+    const agyDirs = [
+      ...pathEntries,
+      path.join(home, '.gemini/bin'),
+      path.join(home, '.local/bin'),
+      path.join(home, 'bin'),
+      ...(platform === 'win32' && env.LOCALAPPDATA ? [path.join(env.LOCALAPPDATA, 'agy/bin')] : []),
+    ];
+    const agy = firstExecutable(agyDirs.flatMap(directory => agyNames.map(name => path.join(directory, name))));
+    if (agy) return agy;
+  }
+
   return provider === 'codex' ? firstExecutable(extensionExecutables(extensionRoots, platform, arch)) : null;
 }
