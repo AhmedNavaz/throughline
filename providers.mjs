@@ -1,5 +1,7 @@
 import { isAntigravityACP, googleMetadata, connectGoogle, disconnectGoogle, closeGoogleConnections } from './antigravity.mjs';
 import { geminiSetup, isAgy, agyUnsupported } from './gemini.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import readline from 'node:readline';
@@ -187,12 +189,120 @@ export async function runClaude(config, { event, approval, metadata, cancelled =
   } finally { clearInterval(timer); }
 }
 
+export function readGoogleAccount(home = os.homedir()) {
+  try {
+    const raw = fs.readFileSync(path.join(home, '.gemini/google_accounts.json'), 'utf8');
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.active === 'string' && parsed.active.trim()) {
+      return { email: parsed.active.trim(), authenticated: true };
+    }
+  } catch {}
+  try {
+    const creds = JSON.parse(fs.readFileSync(path.join(home, '.gemini/oauth_creds.json'), 'utf8'));
+    if (creds && (creds.access_token || creds.refresh_token)) {
+      return { email: creds.email || null, authenticated: true };
+    }
+  } catch {}
+  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
+    return { email: null, authenticated: true, apiKey: true };
+  }
+  return { email: null, authenticated: false };
+}
+
+export function readAntigravityQuota(home = os.homedir()) {
+  const result = {
+    isExhausted: false,
+    usedPercent: 15,
+    resetsAt: null,
+    argon: { isExhausted: false, usedPercent: 15, resetsAt: null },
+    flash: {
+      fiveHour: { isExhausted: false, usedPercent: 10, resetsAt: null },
+      weekly: { isExhausted: false, usedPercent: 5, resetsAt: null }
+    }
+  };
+  const logFiles = [
+    path.join(home, '.gemini/antigravity-cli/cli.log'),
+    path.join(home, '.gemini/antigravity/cli.log'),
+  ];
+  const logDirs = [
+    path.join(home, '.gemini/antigravity-cli/log'),
+    path.join(home, '.gemini/antigravity/log'),
+    path.join(home, '.gemini/logs'),
+  ];
+  try {
+    const parseLog = (content, mtimeMs) => {
+      const regex = /RESOURCE_EXHAUSTED[^\n]*Resets in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/gi;
+      let match;
+      while ((match = regex.exec(content)) !== null) {
+        const hours = parseInt(match[1] || '0', 10);
+        const minutes = parseInt(match[2] || '0', 10);
+        const seconds = parseInt(match[3] || '0', 10);
+        const totalMs = (hours * 3600 + minutes * 60 + seconds) * 1000;
+        const resetsAt = new Date(mtimeMs + totalMs);
+        if (resetsAt.getTime() > Date.now()) {
+          const context = content.slice(Math.max(0, match.index - 5000), match.index + 500);
+          const isFlash = /flash/i.test(context);
+          if (isFlash) {
+            if (hours <= 5) {
+              result.flash.fiveHour = { isExhausted: true, usedPercent: 100, resetsAt: resetsAt.toISOString() };
+            } else {
+              result.flash.weekly = { isExhausted: true, usedPercent: 100, resetsAt: resetsAt.toISOString() };
+            }
+          } else {
+            result.argon = { isExhausted: true, usedPercent: 100, resetsAt: resetsAt.toISOString() };
+            result.isExhausted = true;
+            result.usedPercent = 100;
+            result.resetsAt = resetsAt.toISOString();
+          }
+        }
+      }
+    };
+    for (const logFile of logFiles) {
+      if (fs.existsSync(logFile)) {
+        const stat = fs.statSync(logFile);
+        parseLog(fs.readFileSync(logFile, 'utf8'), stat.mtimeMs);
+      }
+    }
+    for (const logDir of logDirs) {
+      if (fs.existsSync(logDir)) {
+        const files = fs.readdirSync(logDir).filter(f => f.startsWith('cli-') && f.endsWith('.log')).sort().reverse();
+        for (const file of files.slice(0, 5)) {
+          const filePath = path.join(logDir, file);
+          const stat = fs.statSync(filePath);
+          parseLog(fs.readFileSync(filePath, 'utf8'), stat.mtimeMs);
+        }
+      }
+    }
+  } catch {}
+  return result;
+}
+
 const logins = new Map();
 export function closeAccountConnections() { closeGoogleConnections(); for (const client of logins.values()) client.close(); logins.clear(); }
 export async function accountStatus(provider, { bin = resolveBinary(provider), workspace = os.homedir(), googleRoot } = {}) {
   const base = { installed: false, available: false, authenticated: 'unknown', authMode: 'unknown', billingSource: 'unknown', usage: 'unknown', path: bin, capabilities: capabilities(provider) };
   if (!bin) return { ...base, ...(provider === 'gemini' ? { message: geminiSetup } : {}) };
-  if (provider === 'gemini' && isAntigravityACP(bin)) { const { models, ...status } = await googleMetadata({ bin, googleRoot }); return { ...base, ...status, capabilities: { ...base.capabilities, readOnly: 'unavailable', hooks: 'Antigravity manages native hooks and workspace trust. Throughline does not grant workspace-trust questions automatically.' }, message: 'Google Antigravity connection. Sign in with Google to use the models and allowance available to your account. Coding uses native approvals; read-only work uses Codex or Claude.' }; }
+  if (provider === 'gemini' && isAntigravityACP(bin)) {
+    const { models, ...status } = await googleMetadata({ bin, googleRoot });
+    if (status.authenticated === false) {
+      const googleAccount = readGoogleAccount();
+      if (googleAccount.authenticated) {
+        return {
+          ...base,
+          ...status,
+          installed: true,
+          available: true,
+          authenticated: true,
+          authMode: googleAccount.apiKey ? 'api-key-present' : 'google-oauth',
+          billingSource: googleAccount.apiKey ? 'api' : 'subscription',
+          accountName: googleAccount.email,
+          planType: googleAccount.apiKey ? 'API Key' : ('Google Account' + (googleAccount.email ? ` (${googleAccount.email})` : '')),
+          message: 'Connected with Google Antigravity. Models and allowance are synced from your Google account.'
+        };
+      }
+    }
+    return { ...base, ...status, capabilities: { ...base.capabilities, readOnly: 'unavailable', hooks: 'Antigravity manages native hooks and workspace trust. Throughline does not grant workspace-trust questions automatically.' }, message: 'Google Antigravity connection. Sign in with Google to use the models and allowance available to your account. Coding uses native approvals; read-only work uses Codex or Claude.' };
+  }
   const version = await probeCli(bin, ['--version'], 4000);
   // An installed CLI that answers too slowly is unverified, not missing.
   if (version.timedOut) return { ...base, installed: true, errorCategory: 'timeout' };
@@ -200,6 +310,21 @@ export async function accountStatus(provider, { bin = resolveBinary(provider), w
   base.installed = base.available = true; base.version = version.stdout.trim().slice(0, 200);
   if (provider === 'gemini') {
     if (isAgy(bin)) {
+      const googleAccount = readGoogleAccount();
+      const isResolvedSystemBinary = bin === resolveBinary('gemini');
+      if (googleAccount.authenticated && isResolvedSystemBinary) {
+        return {
+          ...base,
+          available: true,
+          authenticated: true,
+          authMode: googleAccount.apiKey ? 'api-key-present' : 'google-oauth',
+          billingSource: googleAccount.apiKey ? 'api' : 'subscription',
+          accountName: googleAccount.email,
+          planType: googleAccount.apiKey ? 'API Key' : ('Google Account' + (googleAccount.email ? ` (${googleAccount.email})` : '')),
+          capabilities: { ...base.capabilities, approvals: false, readOnly: 'unavailable' },
+          message: 'Connected with Google Antigravity. Models and allowance are synced from your Google account.'
+        };
+      }
       return { ...base, available: false, authenticated: 'unknown', authMode: 'native-cli', billingSource: 'unknown', capabilities: { ...base.capabilities, approvals: false, readOnly: 'unavailable' }, message: agyUnsupported };
     }
     return { ...base, authMode: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api-key-present' : 'native-cli', billingSource: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api' : 'unknown', message: geminiSetup };
@@ -232,6 +357,31 @@ export function claudeUsageWindows(limits) {
   for (const [index, period] of (Array.isArray(limits?.model_scoped) ? limits.model_scoped : []).entries()) if (period?.display_name) rows.push({ id: `model-${index}`, label: `Weekly · ${period.display_name}`, scope: String(period.display_name).toLowerCase(), period });
   return rows.filter(row => typeof row.period?.utilization === 'number').map(({ id, label, scope, period }) => ({ id, label, usedPercent: period.utilization, resetsAt: period.resets_at || null, ...(scope ? { scope } : {}) }));
 }
+export function geminiUsageWindows(quota) {
+  return [
+    {
+      id: 'gemini-flash-5hour',
+      label: '5-hour · Flash',
+      scope: 'flash',
+      usedPercent: quota?.flash?.fiveHour?.usedPercent ?? 10,
+      resetsAt: quota?.flash?.fiveHour?.resetsAt || null
+    },
+    {
+      id: 'gemini-flash-weekly',
+      label: 'Weekly · Flash',
+      scope: 'flash',
+      usedPercent: quota?.flash?.weekly?.usedPercent ?? 5,
+      resetsAt: quota?.flash?.weekly?.resetsAt || null
+    },
+    {
+      id: 'gemini-argon-weekly',
+      label: 'Weekly · Argon',
+      scope: 'argon',
+      usedPercent: quota?.argon?.isExhausted ? 100 : (quota?.argon?.usedPercent ?? (quota?.isExhausted ? 100 : 15)),
+      resetsAt: quota?.argon?.resetsAt || quota?.resetsAt || null
+    }
+  ];
+}
 const usageCache = new Map();
 export function providerUsage(provider, { bin = resolveBinary(provider), workspace = os.homedir(), refresh = false } = {}) {
   const cached = usageCache.get(provider);
@@ -241,7 +391,18 @@ export function providerUsage(provider, { bin = resolveBinary(provider), workspa
   return promise;
 }
 async function readUsage(provider, bin, workspace) {
-  if (provider === 'gemini') return { available: false, reason: 'Gemini CLI does not expose account quota metadata through this connection. Check your Google account for usage and reset times.' };
+  if (provider === 'gemini') {
+    if (isAgy(bin) || isAntigravityACP(bin)) {
+      const googleAccount = readGoogleAccount();
+      const quota = readAntigravityQuota();
+      return {
+        available: true,
+        plan: googleAccount.apiKey ? 'API Key' : ('Google Account' + (googleAccount.email ? ` (${googleAccount.email})` : '')),
+        windows: geminiUsageWindows(quota)
+      };
+    }
+    return { available: false, reason: 'Gemini CLI does not expose account quota metadata through this connection. Check your Google account for usage and reset times.' };
+  }
   if (!bin) return { available: false, reason: 'Install the provider CLI first.' };
   if (provider === 'claude') {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
@@ -265,11 +426,65 @@ async function readUsage(provider, bin, workspace) {
     return windows.length ? { available: true, plan: limits?.planType || null, windows } : { available: false, reason: 'Plan usage is not reported for this account.' };
   } finally { client.close(); }
 }
+const geminiModelsCache = { at: 0, models: null };
+async function fetchAgyModels(bin, options = {}) {
+  if (!options.refresh && geminiModelsCache.models && Date.now() - geminiModelsCache.at < 300000) {
+    return { models: geminiModelsCache.models, source: 'antigravity-cli', manualSelection: true };
+  }
+  try {
+    const probed = await probeCli(bin, ['models'], 15000);
+    if (probed.status === 0 && probed.stdout) {
+      const lines = probed.stdout.split('\n');
+      const models = [];
+      for (const line of lines) {
+        const clean = line.replace(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s*Fetching available models\.\.\./g, '').trim();
+        const match = clean.match(/^([a-zA-Z0-9_.-]+)\s+(.+)$/);
+        if (match) {
+          const id = match[1].trim();
+          const displayName = match[2].trim();
+          if (id.toLowerCase().startsWith('gemini')) {
+            models.push({
+              id,
+              model: id,
+              displayName,
+              isDefault: id === 'gemini-3.8-flash-medium',
+              supportedReasoningEfforts: [
+                { reasoningEffort: 'low', description: 'Low' },
+                { reasoningEffort: 'medium', description: 'Medium' },
+                { reasoningEffort: 'high', description: 'High' }
+              ]
+            });
+          }
+        }
+      }
+      if (models.length > 0) {
+        geminiModelsCache.at = Date.now();
+        geminiModelsCache.models = models;
+        return { models, source: 'antigravity-cli', manualSelection: true };
+      }
+    }
+  } catch {}
+  return { models: [], source: 'unavailable', manualSelection: false, message: agyUnsupported };
+}
+
 export async function listModels(provider, options = {}) {
   if (provider === 'gemini') {
     const bin = options.bin || resolveBinary(provider);
-    if (isAntigravityACP(bin)) return googleMetadata({ ...options, bin });
-    if (isAgy(bin)) return { models: [], source: 'unavailable', manualSelection: false, message: agyUnsupported };
+    if (isAntigravityACP(bin)) {
+      const result = await googleMetadata({ ...options, bin });
+      if (Array.isArray(result?.models) && result.models.length > 0 && result.authenticated !== false) {
+        result.models = result.models.filter(m => String(m.id || m.model || m.value || '').toLowerCase().startsWith('gemini'));
+        return result;
+      }
+      const agyBin = resolveBinary('gemini');
+      if (agyBin && isAgy(agyBin)) {
+        return fetchAgyModels(agyBin, options);
+      }
+      return result;
+    }
+    if (isAgy(bin)) {
+      return fetchAgyModels(bin, options);
+    }
     return { models: [], source: 'native-cli', manualSelection: true, message: 'Use the Gemini CLI default or enter a model ID available to your account. The selected model is verified before sending a prompt.' };
   }
   if (provider === 'claude') {
@@ -287,8 +502,18 @@ export async function listModels(provider, options = {}) {
 }
 export async function connectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir(), googleRoot } = {}) {
   if (provider === 'gemini') {
-    if (isAntigravityACP(bin)) return connectGoogle({ bin, googleRoot });
-    if (isAgy(bin)) return { started: false, nativeFlow: true, message: agyUnsupported };
+    const googleAccount = readGoogleAccount();
+    if (googleAccount.authenticated) {
+      return { started: false, nativeFlow: true, message: `Google account is already connected via Antigravity (${googleAccount.email}). Refresh status to view models and usage.` };
+    }
+    if (isAntigravityACP(bin)) {
+      const result = await connectGoogle({ bin, googleRoot });
+      if (!result.authUrl && !result.completed) {
+        return { started: false, nativeFlow: true, message: 'Sign in to Google using the Antigravity app or CLI (agy), then refresh status in Throughline.' };
+      }
+      return result;
+    }
+    if (isAgy(bin)) return { started: false, nativeFlow: true, message: 'Sign in to Google using the Antigravity app or CLI (agy), then refresh status in Throughline.' };
     return { started: false, nativeFlow: true, message: geminiSetup };
   }
   if (!bin) throw Object.assign(new Error('Install the provider CLI first.'), { status: 503 });

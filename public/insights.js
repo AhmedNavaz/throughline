@@ -206,7 +206,7 @@
   const usageIsOpen = () => usagePopover.matches(':popover-open');
   const remaining = row => Math.max(0, Math.min(100, Math.round(100 - row.usedPercent)));
   const usageLevel = percent => percent <= 10 ? 'critical' : percent <= 25 ? 'low' : 'ok';
-  const shortLabel = label => label === 'Weekly' ? 'wk' : label.replace(/^(\d+)-hour$/, '$1h').replace(/^Weekly · /, '');
+  const shortLabel = label => label === 'Weekly' ? 'wk' : label.replace(/^(\d+)-hour · /, '$1h ').replace(/^(\d+)-hour$/, '$1h').replace(/^Weekly · /, '');
   function resetLabel(value) {
     const at = new Date(value || ''); if (Number.isNaN(at.getTime())) return '';
     return 'resets ' + at.toLocaleString(undefined, at.toDateString() === new Date().toDateString() ? { hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
@@ -214,7 +214,8 @@
   const describeWindow = row => `${row.label}: ${remaining(row)}% left${resetLabel(row.resetsAt) ? ', ' + resetLabel(row.resetsAt) : ''}`;
   function usageWindows(provider) {
     const state = api.getState(), result = usage[provider]; if (!result?.available) return [];
-    const model = String((provider === state.provider ? state.model : state.conversation?.models?.[provider]) || '').toLowerCase();
+    let model = String((provider === state.provider ? state.model : state.conversation?.models?.[provider]) || '').toLowerCase();
+    if (provider === 'gemini' && (!model || model === 'default')) model = 'flash';
     return result.windows.filter(row => !row.scope || (model && model.includes(row.scope)));
   }
   function renderUsage() {
@@ -319,7 +320,7 @@
     if (runningProject && runningProject === state.projectId && !running) { if (!$('git-panel').hidden) loadGit(); for (const provider of ['codex', 'claude', 'gemini']) loadUsage(provider, true); }
     runningProject = running;
     renderUsage();
-    if (state.ready && state.status?.providers?.[state.provider]?.available && state.accounts?.[state.provider]?.authenticated === true && !catalog[state.provider] && !attemptedModels[state.provider] && !loadingModels[state.provider]) loadModels();
+    if (state.ready && (state.status?.providers?.[state.provider]?.available || state.accounts?.[state.provider]?.available || state.accounts?.[state.provider]?.installed) && state.accounts?.[state.provider]?.authenticated === true && !catalog[state.provider] && !attemptedModels[state.provider] && !loadingModels[state.provider]) loadModels();
     $('open-git').disabled = !state.projectId;
     if (lastProject !== state.projectId) {
       lastProject = state.projectId; $('custom-model-editor').hidden = true; gitData = null; gitRequest++; gitBusy = false; $('git-repository').replaceChildren(); $('git-summary').replaceChildren(); $('git-updated').textContent = '';

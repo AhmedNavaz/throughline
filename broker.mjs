@@ -293,7 +293,8 @@ export class Broker extends EventEmitter {
           // A CLI that is slow to answer is still installed: keep its last known status, or treat it as usable but unverified.
           if (result?.timedOut && this.providerStatus?.[provider]) return [provider, this.providerStatus[provider]];
           const usable = result?.status === 0 || Boolean(result?.timedOut);
-          return [provider, { available: usable && !(provider === 'gemini' && isAgy(bin)), version: clip(result?.stdout?.trim(), 200), path: bin, installed: usable, ...(result?.timedOut && { errorCategory: 'timeout' }), authenticated: 'unknown', billingSource: 'unknown', authMode: 'unknown', usage: 'unknown', capabilities: capabilities(provider, this.configuredBins[provider] ? 'cli' : 'auto') }];
+          const agyBlocked = provider === 'gemini' && isAgy(bin) && Boolean(this.configuredBins[provider]);
+          return [provider, { available: usable && !agyBlocked, version: clip(result?.stdout?.trim(), 200), path: bin, installed: usable, ...(result?.timedOut && { errorCategory: 'timeout' }), authenticated: 'unknown', billingSource: 'unknown', authMode: 'unknown', usage: 'unknown', capabilities: capabilities(provider, this.configuredBins[provider] ? 'cli' : 'auto') }];
         })).then(entries => {
           this.providerStatus = Object.fromEntries(entries);
           this.providerStatusCheckedAt = Date.now();

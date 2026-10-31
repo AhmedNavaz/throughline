@@ -2,6 +2,20 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.11.2] - 2026-11-01
+
+### Added
+
+- **Multi-window Gemini quota tracking**: Separate rolling 5-hour and weekly allowances for Gemini 3.8 Flash, alongside dedicated weekly quota tracking and reset countdowns for Gemini 4 Argon.
+- **Minimal model selector**: Streamlined glassmorphic model picker with dark blurred backdrop, fast segmented agent tabs, and instant model selection.
+- **Background model preloading**: Agent catalogs and local Ollama models preload automatically in the background on startup and workspace switch, eliminating manual refresh actions.
+
+### Fixed
+
+- Google Antigravity (`agy`) CLI is given automatic priority for Gemini connections over deprecated Gemini CLI installations.
+- Antigravity model listings now filter exclusively for native Gemini models.
+- When Gemini 4 Argon reaches its weekly limit, the interface dynamically defaults to the active Gemini 3.8 Flash tier rather than reporting complete account exhaustion.
+
 ## [0.11.1] - 2026-11-01
 
 ### Fixed
@@ -188,6 +202,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.11.2]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.2
 [0.11.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.1
 [0.11.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.0
 [0.10.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.1

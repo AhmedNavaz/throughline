@@ -141,7 +141,7 @@ if(m.method==='session/prompt'){if(m.params.prompt[0].text.includes('HANG-FIXTUR
   broker.start(c, { text: 'HANG-FIXTURE', requestId: 'gemini-stop' }); const stopped = broker.running.done;
   await new Promise(resolve => setTimeout(resolve, 500)); broker.stop(c.id); await stopped; assert.equal(c.status, 'interrupted');
   broker.start(c, { text: 'Retry after stopping', requestId: 'gemini-retry' }); await broker.running.done; assert.equal(c.status, 'complete');
-  assert.equal((await listModels('gemini')).manualSelection, true); assert.equal((await providerUsage('gemini')).available, false);
+  assert.equal((await listModels('gemini', { bin: cli })).manualSelection, true); assert.equal((await providerUsage('gemini', { bin: cli })).available, false);
   const account = await accountStatus('gemini', { bin: cli, workspace }); assert.equal(account.installed, true); assert.equal(account.authenticated, 'unknown');
 });
 

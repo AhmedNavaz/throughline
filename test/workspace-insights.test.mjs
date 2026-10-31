@@ -10,7 +10,7 @@ import { workspaceGit, workspaceGitDiff, githubRepository } from '../workspace-g
 import { ConversationImporter } from '../conversation-import.mjs';
 import { exportConversation, readConversationPackage } from '../conversation-export.mjs';
 import { Broker, commandFor } from '../broker.mjs';
-import { runCodex, runClaude, codexUsageWindows, claudeUsageWindows } from '../providers.mjs';
+import { runCodex, runClaude, codexUsageWindows, claudeUsageWindows, geminiUsageWindows } from '../providers.mjs';
 import { createRelayServer } from '../server.mjs';
 
 function fixture(t) { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-insights-')); const workspace = path.join(root, 'project'); fs.mkdirSync(workspace); const closers = []; t.after(async () => { for (const close of closers) await close(); fs.rmSync(root, { recursive: true, force: true }); }); return { root, workspace, closers, folders: [{ id: 'root', name: 'app', path: workspace }] }; }
@@ -216,6 +216,20 @@ test('provider usage windows normalize Codex and Claude plan limits to percent u
   const claude = claudeUsageWindows({ five_hour: { utilization: 74, resets_at: '2026-10-29T18:19:59Z' }, seven_day: { utilization: 35, resets_at: null }, seven_day_opus: null, seven_day_sonnet: { utilization: null }, model_scoped: [{ display_name: 'Fable', utilization: 12, resets_at: null }] });
   assert.deepEqual(claude.map(row => [row.label, row.usedPercent, row.scope]), [['5-hour', 74, undefined], ['Weekly', 35, undefined], ['Weekly · Fable', 12, 'fable']]);
   assert.deepEqual(claudeUsageWindows(null), []);
+  const gemini = geminiUsageWindows({
+    flash: { fiveHour: { usedPercent: 15, resetsAt: null }, weekly: { usedPercent: 10, resetsAt: null } },
+    argon: { isExhausted: true, usedPercent: 100, resetsAt: '2026-11-07T18:38:26.000Z' }
+  });
+  assert.deepEqual(gemini.map(row => [row.label, row.usedPercent, row.scope]), [
+    ['5-hour · Flash', 15, 'flash'],
+    ['Weekly · Flash', 10, 'flash'],
+    ['Weekly · Argon', 100, 'argon']
+  ]);
+  assert.deepEqual(geminiUsageWindows(null).map(row => [row.label, row.usedPercent, row.scope]), [
+    ['5-hour · Flash', 10, 'flash'],
+    ['Weekly · Flash', 5, 'flash'],
+    ['Weekly · Argon', 15, 'argon']
+  ]);
 });
 
 test('effort persists independently for each provider and model across journal reload', async t => {

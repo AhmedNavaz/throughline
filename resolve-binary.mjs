@@ -102,6 +102,17 @@ export function resolveBinary(provider, {
   if (provider === 'gemini') {
     const native = firstExecutable([...(googleRoot ? [googleRuntimePath(googleRoot)] : []), ...pathEntries.flatMap(directory => ['agy_acp_server.par', 'agy_acp_server.exe', 'antigravity-acp'].map(name => path.join(directory, name)))]);
     if (native) return native;
+
+    const agyNames = platform === 'win32' ? ['agy.exe', 'agy', 'antigravity.exe', 'antigravity'] : ['agy', 'antigravity'];
+    const agyDirs = [
+      path.join(home, '.gemini/bin'),
+      ...pathEntries,
+      path.join(home, '.local/bin'),
+      path.join(home, 'bin'),
+      ...(platform === 'win32' && env.LOCALAPPDATA ? [path.join(env.LOCALAPPDATA, 'agy/bin')] : []),
+    ];
+    const agy = firstExecutable(agyDirs.flatMap(directory => agyNames.map(name => path.join(directory, name))));
+    if (agy) return agy;
   }
 
   const names = platform === 'win32' ? [`${provider}.exe`, provider] : [provider];
@@ -137,19 +148,5 @@ export function resolveBinary(provider, {
     ])));
     if (bundled) return bundled;
   }
-  // Plain Antigravity CLI is detected for setup guidance; only its ACP server is an interactive adapter.
-  if (provider === 'gemini') {
-    const agyNames = platform === 'win32' ? ['agy.exe', 'agy'] : ['agy'];
-    const agyDirs = [
-      ...pathEntries,
-      path.join(home, '.gemini/bin'),
-      path.join(home, '.local/bin'),
-      path.join(home, 'bin'),
-      ...(platform === 'win32' && env.LOCALAPPDATA ? [path.join(env.LOCALAPPDATA, 'agy/bin')] : []),
-    ];
-    const agy = firstExecutable(agyDirs.flatMap(directory => agyNames.map(name => path.join(directory, name))));
-    if (agy) return agy;
-  }
-
   return provider === 'codex' ? firstExecutable(extensionExecutables(extensionRoots, platform, arch)) : null;
 }
