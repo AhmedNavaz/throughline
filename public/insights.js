@@ -43,22 +43,36 @@
   function modelControls() {
     const state = api.getState(), provider = state.provider, rows = catalog[provider] || [];
     const isLocal = Boolean(state.local);
+    const activeProvider = isLocal ? 'local' : provider;
+    const pickerLabel = $('model-picker-label') || document.querySelector('.model-picker');
+    if (pickerLabel) {
+      pickerLabel.setAttribute('data-provider', activeProvider);
+    }
     if (isLocal) {
       const signature = JSON.stringify(['local', state.model, localModels]);
       if (signature !== modelSignature) {
         modelSignature = signature;
         $('model-select').replaceChildren();
+        const localGroup = el('optgroup');
+        localGroup.label = 'Local Models (Ollama)';
         if (localModels.length) {
           for (const m of localModels) {
             const option = el('option', `${m.id}${m.parameterSize ? ' (' + m.parameterSize + ')' : ''}`);
             option.value = m.id;
-            $('model-select').append(option);
+            localGroup.append(option);
           }
         } else {
           const option = el('option', 'No local models in Ollama');
           option.value = '';
-          $('model-select').append(option);
+          localGroup.append(option);
         }
+        $('model-select').append(localGroup);
+        const switchGroup = el('optgroup');
+        switchGroup.label = 'Switch Agent';
+        const optCodex = el('option', '🤖 Codex'); optCodex.value = 'agent:codex'; switchGroup.append(optCodex);
+        const optClaude = el('option', '⚡ Claude'); optClaude.value = 'agent:claude'; switchGroup.append(optClaude);
+        const optGemini = el('option', '✨ Gemini'); optGemini.value = 'agent:gemini'; switchGroup.append(optGemini);
+        $('model-select').append(switchGroup);
         $('model-select').value = (state.model || '').replace(/^local:/, '') || localModels[0]?.id || '';
         $('effort-select').replaceChildren(el('option', 'Offline (Ollama)'));
         $('effort-select').dataset.supported = 'false';
@@ -77,7 +91,7 @@
       $('model-select').replaceChildren();
       const cloudGroup = el('optgroup');
       cloudGroup.label = `${name(provider)} Models`;
-      const base = el('option', 'Provider default'); base.value = ''; cloudGroup.append(base);
+      const base = el('option', `${name(provider)} (Default)`); base.value = ''; cloudGroup.append(base);
       for (const row of rows.filter(row => row.value !== 'default')) { const option = el('option', row.displayName || row.name || row.id || row.value); option.value = row.id || row.model || row.value; cloudGroup.append(option); }
       if (state.model && !rows.some(row => (row.id || row.model || row.value) === state.model) && !state.model.startsWith('local:')) { const option = el('option', state.model); option.value = state.model; cloudGroup.append(option); }
       const custom = el('option', 'Enter a model ID…'); custom.value = '__custom__'; cloudGroup.append(custom);
@@ -92,6 +106,20 @@
         }
         $('model-select').append(localGroup);
       }
+      const switchGroup = el('optgroup');
+      switchGroup.label = 'Switch Agent';
+      for (const p of ['codex', 'claude', 'gemini']) {
+        if (p !== provider) {
+          const icon = p === 'codex' ? '🤖' : p === 'claude' ? '⚡' : '✨';
+          const opt = el('option', `${icon} ${name(p)}`);
+          opt.value = `agent:${p}`;
+          switchGroup.append(opt);
+        }
+      }
+      const optLocal = el('option', '💻 Local (Ollama)');
+      optLocal.value = 'agent:local';
+      switchGroup.append(optLocal);
+      $('model-select').append(switchGroup);
       $('model-select').value = state.model || '';
       const effortDefault = el('option', selected?.defaultReasoningEffort ? `Default (${selected.defaultReasoningEffort})` : 'Provider default'); effortDefault.value = '';
       $('effort-select').replaceChildren(effortDefault);
@@ -133,6 +161,15 @@
   $('refresh-models').addEventListener('click', () => loadModels(true));
   $('model-select').addEventListener('change', async () => {
     const state = api.getState(), model = $('model-select').value;
+    if (model.startsWith('agent:')) {
+      const target = model.slice(6);
+      if (target === 'local') {
+        $('select-local')?.click();
+      } else {
+        $(`select-${target}`)?.click();
+      }
+      return;
+    }
     if (model.startsWith('local:')) {
       state.local = true;
       state.model = model.slice(6);

@@ -355,8 +355,8 @@ summary::-webkit-details-marker { display: none; }
 .composer textarea { display: block; width: 100%; min-height: 64px; max-height: 200px; padding: 12px 14px 4px; border: 0; outline: 0; resize: none; background: transparent; color: var(--text); font-size: 14px; line-height: 1.55; }
 .composer textarea::placeholder { color: var(--faint); }
 .composer textarea:focus-visible { outline: none; }
-.composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px 8px; flex-wrap: wrap; }
-.composer-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px 8px; flex-wrap: nowrap; }
+.composer-controls { display: flex; align-items: center; flex-wrap: nowrap; gap: 6px; min-width: 0; flex: 1; }
 .provider-selector { display: inline-flex; gap: 2px; padding: 2px; border-radius: 6px; background: var(--chip-bg); border: 1px solid var(--border); }
 .provider-button { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 500; transition: all .12s ease; }
 .provider-button:hover:enabled { color: var(--text); background: var(--hover); }
@@ -369,7 +369,7 @@ summary::-webkit-details-marker { display: none; }
 #select-claude.selected .agent-icon { color: var(--claude); }
 #select-gemini.selected .agent-icon { color: var(--gemini); }
 #select-local.selected .agent-icon { color: var(--local); }
-.composer-picker-group { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--chip-bg); }
+.composer-picker-group { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--chip-bg); min-width: 0; }
 .picker { position: relative; display: inline-flex; align-items: center; min-width: 0; color: var(--muted); }
 .picker:hover { color: var(--text); }
 .picker::before, .picker::after { content: ""; position: absolute; top: 50%; background: currentColor; pointer-events: none; transform: translateY(-50%); }
@@ -385,8 +385,18 @@ summary::-webkit-details-marker { display: none; }
 .picker select optgroup { font-weight: 600; color: var(--muted); background: var(--surface-raised); }
 .picker select option { font-weight: normal; color: var(--text); background: var(--bg); }
 .model-picker { --picker-icon: var(--icon-model); }
+.model-picker[data-provider="codex"] { --picker-icon: var(--icon-codex); }
+.model-picker[data-provider="claude"] { --picker-icon: var(--icon-claude); }
+.model-picker[data-provider="gemini"] { --picker-icon: var(--icon-gemini); }
+.model-picker[data-provider="local"] { --picker-icon: var(--icon-local); }
+.model-picker[data-provider="codex"]::before { background: var(--codex); }
+.model-picker[data-provider="claude"]::before { background: var(--claude); }
+.model-picker[data-provider="gemini"]::before { background: var(--gemini); }
+.model-picker[data-provider="local"]::before { background: var(--local); }
 .effort-picker { --picker-icon: var(--icon-effort); }
+.effort-picker[data-supported="false"] { display: none !important; }
 .mode-control { --picker-icon: var(--icon-access); }
+.mode-control select { max-width: 110px; }
 .refresh-button { width: 24px; height: 24px; margin-left: -2px; }
 .refresh-button .icon { width: 14px; height: 14px; }
 .composer-actions { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
@@ -651,8 +661,8 @@ button.commit-hash:hover { text-decoration: underline; }
   .message-user .message-text, .activity-group, .message-error, .message-system { margin-left: 0; }
   .starter-prompts { grid-template-columns: 1fr; }
   .provider-button { padding: 0 7px; }
-  .composer-toolbar { align-items: flex-end; }
-  .picker select { max-width: 130px; }
+  .composer-toolbar { align-items: center; flex-wrap: nowrap; }
+  .picker select { max-width: 140px; }
   .git-panel { top: 44px; width: min(360px, 100vw); }
   .status-bar .provider-state, .usage-label, .usage-chip { display: none; }
   .diff-dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); }
