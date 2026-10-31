@@ -97,7 +97,7 @@
   });
   input.addEventListener('input', () => find());
   input.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.preventDefault(); close(); }
+    if (event.key === 'Escape' && !event.isComposing) { event.preventDefault(); close(); }
     else if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); move(event.shiftKey ? -1 : 1); }
   });
   $('conversation-search-previous').addEventListener('click', () => { move(-1); input.focus(); });

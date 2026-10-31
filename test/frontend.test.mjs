@@ -643,6 +643,28 @@ test('Find in the conversation reveals a collapsed activity match, follows re-re
   assert.equal(escape.defaultPrevented,true);assert.equal(ui.$('conversation-search').hidden,true);assert.equal(ui.highlights.size,0);assert.equal(ui.document.activeElement,ui.$('message-input'));
 });
 
+test('Enter and Escape that finish or cancel an IME composition are left to the input method',async()=>{
+  const ui=await browser({moreProjects:true,searchUI:true,filesUI:true});
+  const key=(target,key,isComposing)=>{const event=new UIEvent('keydown',{key,isComposing});target.dispatchEvent(event);return event;};
+  // The workspace filter opens its first match on Enter and clears on Escape.
+  await ui.switchProject('project-two');ui.$('workspace-search').value='Example';ui.fire('workspace-search','input');
+  assert.equal(key(ui.$('workspace-search'),'Enter',true).defaultPrevented,false);await flush();assert.equal(ui.state().projectId,'project-two');
+  assert.equal(key(ui.$('workspace-search'),'Escape',true).defaultPrevented,false);assert.equal(ui.$('workspace-search').value,'Example');
+  key(ui.$('workspace-search'),'Enter',false);await flush();assert.equal(ui.state().projectId,'project-one');
+  key(ui.$('workspace-search'),'Escape',false);assert.equal(ui.$('workspace-search').value,'');
+  // Escape closes the new workspace form, which has a name to type.
+  ui.$('create-workspace').click();assert.equal(ui.$('project-panel').hidden,false);
+  key(ui.document,'Escape',true);assert.equal(ui.$('project-panel').hidden,false);
+  key(ui.document,'Escape',false);assert.equal(ui.$('project-panel').hidden,true);
+  // Escape closes Find in the conversation and the file preview.
+  ui.document.dispatchEvent(new UIEvent('keydown',{key:'f',ctrlKey:true}));assert.equal(ui.$('conversation-search').hidden,false);
+  assert.equal(key(ui.$('conversation-search-input'),'Escape',true).defaultPrevented,false);assert.equal(ui.$('conversation-search').hidden,false);
+  key(ui.$('conversation-search-input'),'Escape',false);assert.equal(ui.$('conversation-search').hidden,true);
+  ui.$('file-preview').hidden=false;
+  key(ui.window,'Escape',true);assert.equal(ui.$('file-preview').hidden,false);
+  key(ui.window,'Escape',false);assert.equal(ui.$('file-preview').hidden,true);
+});
+
 test('Find in the conversation starts from the match in view, or the closest one above it',async()=>{
   const ui=await browser({searchUI:true});ui.canonical.get('project-one').messages.push({id:'u1',role:'user',text:'retry one'},{id:'u2',role:'user',text:'retry two'},{id:'u3',role:'user',text:'retry three'});await ui.window.relayUI.refresh();
   const place=tops=>ui.document.querySelectorAll('.message-text').forEach((node,index)=>{node.bounds={top:tops[index],bottom:tops[index]+20,height:20};});ui.$('messages-scroll').bounds={top:100,bottom:600,height:500};

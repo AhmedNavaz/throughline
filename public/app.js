@@ -842,6 +842,8 @@
   $("workspace-search")?.addEventListener("input", () => { state.workspaceFilter = $("workspace-search").value; renderWorkspaceList(); });
   $("workspace-search")?.addEventListener("keydown", (event) => {
     // Enter opens the first match and Escape clears the filter, so the field doubles as a quick switcher.
+    // While an input method is composing, those keys finish or cancel the composition instead.
+    if (event.isComposing) return;
     if (event.key === "Enter") { const match = filteredProjects()[0]; if (match) { event.preventDefault(); selectProject(match.id); ui.input.focus(); } }
     if (event.key === "Escape" && $("workspace-search").value) { event.preventDefault(); $("workspace-search").value = ""; state.workspaceFilter = ""; renderWorkspaceList(); }
   });
@@ -874,7 +876,7 @@
     ui.workspaceToggle.closest(".sidebar").classList.toggle("workspaces-open", open);
   });
   document.addEventListener("click", (event) => { if (!event.target.closest(".sidebar")) closeWorkspaceMenu(); });
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeWorkspaceMenu(); if (!ui.projectPanel.hidden) toggleProjectForm(false); if (!ui.folderPanel.hidden) toggleFolderForm(false); } });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !event.isComposing) { closeWorkspaceMenu(); if (!ui.projectPanel.hidden) toggleProjectForm(false); if (!ui.folderPanel.hidden) toggleFolderForm(false); } });
   ui.form.addEventListener("submit", (event) => { event.preventDefault(); run(); });
   ui.input.addEventListener("input", () => { resizeInput(); saveDraft(); renderControls(); });
   ui.input.addEventListener("keydown", (event) => {
