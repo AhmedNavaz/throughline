@@ -10,7 +10,7 @@ import { closeAccountConnections } from './providers.mjs';
 import { createWorkspaceRoutes } from './workspace-routes.mjs';
 import { createConversationRoutes } from './conversation-routes.mjs';
 import { atomicJSON } from './patches.mjs';
-import { preferencePatch, publicPreferences } from './preferences.mjs';
+import { appearance, appearances, preferencePatch, publicPreferences } from './preferences.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const assets = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/desktop-controls.js': ['desktop-controls.js', 'text/javascript; charset=utf-8'], '/setup.js': ['setup.js', 'text/javascript; charset=utf-8'], '/polish.css': ['polish.css', 'text/css; charset=utf-8'], '/files.js': ['files.js', 'text/javascript; charset=utf-8'], '/files.css': ['files.css', 'text/css; charset=utf-8'], '/onboarding.css': ['onboarding.css', 'text/css; charset=utf-8'],
@@ -40,14 +40,15 @@ async function body(req, limit = 3 * 1024 * 1024) {
   } catch { throw Object.assign(new Error('Invalid JSON request.'), { status: 400 }); }
 }
 
-export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDir, bins, lock = true, sharingURL = process.env.AI_RELAY_SHARING_URL, accessToken, importer } = {}) {
+export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDir, bins, lock = true, sharingURL = process.env.AI_RELAY_SHARING_URL, accessToken, importer, onAppearance = () => {} } = {}) {
   const registry = new ProjectRegistry({ dataRoot: dataRoot || dataDir || path.join(root, '.data'), bins, lock });
   for (const folder of [...(workspace ? [workspace] : []), ...workspaces]) registry.add({ path: folder });
   const collaboration = new CollaborationService({ registry, dataRoot: registry.dataRoot });
   const settingsFile=path.join(registry.dataRoot,'settings.json');
   let config=fs.existsSync(settingsFile)?JSON.parse(fs.readFileSync(settingsFile,'utf8')):{};
   registry.conversationDefaults = () => config.defaults;
-  const saveSettings = patch => { config = { ...(fs.existsSync(settingsFile) ? JSON.parse(fs.readFileSync(settingsFile, 'utf8')) : config), ...patch }; atomicJSON(settingsFile, config); };
+  // The desktop app hears each saved appearance, so its window follows whichever request saved it.
+  const saveSettings = patch => { config = { ...(fs.existsSync(settingsFile) ? JSON.parse(fs.readFileSync(settingsFile, 'utf8')) : config), ...patch }; atomicJSON(settingsFile, config); if (patch.appearance !== undefined) onAppearance(appearance(config)); };
   let sharing=(sharingURL||config.sharingURL)?new SharingClient({baseUrl:sharingURL||config.sharingURL,storePath:path.join(registry.dataRoot,'sharing-client.json'),createKey:process.env.AI_RELAY_SHARING_CREATE_KEY}):null;
   const configureSharing=input=>{const baseUrl=validateSharingURL(input.baseUrl);sharing=new SharingClient({baseUrl,storePath:path.join(registry.dataRoot,'sharing-client.json'),createKey:process.env.AI_RELAY_SHARING_CREATE_KEY});saveSettings({sharingURL:baseUrl});return {baseUrl};};
   const workspaceRoutes = createWorkspaceRoutes({ registry, body, json });
@@ -115,10 +116,10 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
         return json(res, 200, publicPreferences(config, registry.list().length > 0));
       }
       if (url.pathname === '/api/appearance') {
-        if (req.method === 'GET') return json(res, 200, { theme: ['graphite', 'light'].includes(config.appearance) ? config.appearance : null });
+        if (req.method === 'GET') return json(res, 200, { theme: appearance(config) });
         if (req.method !== 'POST') return json(res, 405, { error: 'Use GET or POST for appearance.' });
         const input = await body(req);
-        if (!['graphite', 'light'].includes(input.theme)) return json(res, 400, { error: 'Choose Graphite or Light appearance.' });
+        if (!appearances.includes(input.theme)) return json(res, 400, { error: 'Choose System, Light or Dark appearance.' });
         saveSettings({ appearance: input.theme });
         return json(res, 200, { theme: input.theme });
       }
@@ -190,6 +191,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
     await new Promise(resolve => { server.close(resolve); if (force) server.closeAllConnections(); });
   })();
   return { server, registry, collaboration, sharing, close,
+    getAppearancePreference: () => appearance(config),
     getKeepAwakePreference: () => config.keepAwake === true,
     setKeepAwakePreference: enabled => { if (typeof enabled !== 'boolean') throw new Error('Keep awake must be enabled or disabled.'); saveSettings({ keepAwake: enabled }); },
     get broker() { const projects = registry.list(); return projects.length === 1 ? registry.broker(projects[0].id) : null; } };

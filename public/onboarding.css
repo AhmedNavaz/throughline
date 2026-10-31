@@ -127,7 +127,7 @@
 .setup-field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
 
 /* Preferences */
-.setup-theme-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.setup-theme-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .setup-theme { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 10px 14px; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--surface-raised); color: var(--text); text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
 .setup-theme[aria-pressed="true"] { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
 .setup-theme strong { margin: 8px 4px 0; color: var(--text-strong); font-size: 13px; font-weight: 600; }
@@ -142,12 +142,16 @@
 .theme-preview-canvas i { height: 4px; border-radius: 2px; background: #3c3c3c; }
 .theme-preview-canvas i + i { width: 62%; }
 .theme-preview-canvas small { margin-top: auto; padding: 6px 8px; border: 1px solid #3c3c3c; border-radius: 6px; color: #8b8b8b; }
-.setup-theme[data-theme="light"] .theme-preview { border-color: #d4d4d4; background: #ffffff; color: #3b3b3b; }
-.setup-theme[data-theme="light"] .theme-preview > i { background: #f3f3f3; border-color: #e5e5e5; }
-.setup-theme[data-theme="light"] .theme-preview :is(i b, .theme-preview-canvas i) { background: #e1e1e1; }
-.setup-theme[data-theme="light"] .theme-preview > i b:first-child { background: #005fb8; }
-.setup-theme[data-theme="light"] .theme-preview-canvas em { color: #267e43; }
-.setup-theme[data-theme="light"] .theme-preview-canvas small { border-color: #d4d4d4; color: #8b8b8b; }
+.theme-preview.light { border-color: #d4d4d4; background: #ffffff; color: #3b3b3b; }
+.theme-preview.light > i { background: #f3f3f3; border-color: #e5e5e5; }
+.theme-preview.light :is(i b, .theme-preview-canvas i) { background: #e1e1e1; }
+.theme-preview.light > i b:first-child { background: #005fb8; }
+.theme-preview.light .theme-preview-canvas em { color: #267e43; }
+.theme-preview.light .theme-preview-canvas small { border-color: #d4d4d4; color: #8b8b8b; }
+/* System shows both palettes, split along the diagonal. */
+.theme-preview-pair { display: grid; width: 100%; }
+.theme-preview-pair > .theme-preview { grid-area: 1 / 1; }
+.theme-preview-pair > .light { clip-path: polygon(100% 0, 100% 100%, 0 100%); }
 .setup-access { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .setup-access-option { display: flex; flex-direction: column; gap: 5px; padding: 16px 18px; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--surface-raised); color: var(--text); text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
 .setup-access-option[aria-pressed="true"] { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }

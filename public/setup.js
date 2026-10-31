@@ -15,7 +15,7 @@
   let connectionSignature = '';
   const connectionState = () => { const state = api.getState(); return JSON.stringify([state.accounts, state.accountsChecking, state.accountChecks]); };
   let preferences, launch = null, screen = 'welcome', reviewing = false, shownStep = -1, advancedOpen = false;
-  let step = 0, busy = false, revision = 0, catalog = {}, draft = {provider:'codex',model:null,effort:null,mode:'edit',billing:'subscription'}, theme = 'graphite', projectName = '', projectPaths = '', created = '';
+  let step = 0, busy = false, revision = 0, catalog = {}, draft = {provider:'codex',model:null,effort:null,mode:'edit',billing:'subscription'}, projectName = '', projectPaths = '', created = '';
   function progress() {
     const completed = preferences?.onboarding?.completedAt;
     // The sidebar launcher is for unfinished setup only; Settings › Setup guide reopens it later.
@@ -31,8 +31,8 @@
   }
   function controls() { $('setup-next').disabled = busy; $('setup-back').disabled = busy || (reviewing && step === 0); $('close-setup').disabled = busy; dialog.setAttribute('aria-busy',String(busy)); }
   async function save({completed = false, dismissed = false} = {}) {
-    preferences = await api.post('/api/preferences',{defaults:draft,theme,onboarding:{step,completed,dismissed}},null);
-    window.relayTheme?.apply(theme); progress();
+    preferences = await api.post('/api/preferences',{defaults:draft,onboarding:{step,completed,dismissed}},null);
+    progress();
   }
   async function move(next) { const before=step; step = next; try { await save(); } catch(e) { step=before; throw e; } render(); }
   function hideLaunch() { const splash = $('launch-screen'); if (!splash || splash.classList.contains('done')) return; splash.classList.add('done'); setTimeout(() => { splash.hidden = true; }, 400); }
@@ -74,7 +74,7 @@
       const summary = node('ul',undefined,'onboarding-summary');
       const item = (done, title, text) => { const row = node('li',undefined,done ? 'done' : 'todo'); row.append(node('strong',title),node('span',text)); summary.append(row); };
       item(connected,`${providerName(draft.provider)} starts the conversation`,connected ? 'Connected with your own account.' : 'Connect it in Settings before your first message.');
-      item(true,theme === 'light' ? 'Light theme' : 'Dark theme',draft.mode === 'read' ? 'New workspaces start read only.' : 'Agents can edit files in your workspaces.');
+      item(true,{light:'Light theme',graphite:'Dark theme'}[window.relayTheme?.preference()] || 'System theme',draft.mode === 'read' ? 'New workspaces start read only.' : 'Agents can edit files in your workspaces.');
       item(count > 0,count ? (created ? `${created} is ready` : `${count} workspace${count === 1 ? ' is' : 's are'} ready`) : 'No workspace yet',count ? 'Your conversation is waiting.' : 'Choose your project folders from the sidebar.');
       const open = button('Open Throughline',()=>complete(),'primary-button onboarding-cta');
       host.append(node('p','You can change any of this later in Settings.','onboarding-tagline'),summary,open); open.focus();
@@ -131,11 +131,16 @@
   function preferencesStep(host,version) {
     host.append(node('p','Choose how Throughline looks and what agents can do by default. You can change both at any time.','setup-description'),node('h3','Appearance','setup-section-title'));
     const themes = node('div',undefined,'setup-theme-grid');
-    for (const [value,label,text] of [['graphite','Dark','Quiet graphite surfaces'],['light','Light','Bright, clear contrast']]) {
-      const choice = button('',()=>{theme=value;window.relayTheme?.apply(theme);render();},'setup-theme'); choice.dataset.theme = value; choice.setAttribute('aria-pressed',String(theme === value));
-      const preview = node('span',undefined,'theme-preview'), rail = node('i'), canvas = node('span',undefined,'theme-preview-canvas'); rail.append(node('b'),node('b'),node('b'));
-      canvas.append(node('b','acme-shop'),node('em','✓ Tests pass'),node('i'),node('i'),node('small','Ask anything about your project…')); preview.append(rail,canvas);
-      choice.append(preview,node('strong',label),node('span',text,'muted')); themes.append(choice);
+    // System shows both palettes, as it follows the computer.
+    const sample = value => {
+      if (value === 'system') { const pair = node('span',undefined,'theme-preview-pair'); pair.append(sample('graphite'),sample('light')); return pair; }
+      const preview = node('span',undefined,value === 'light' ? 'theme-preview light' : 'theme-preview'), rail = node('i'), canvas = node('span',undefined,'theme-preview-canvas'); rail.append(node('b'),node('b'),node('b'));
+      canvas.append(node('b','acme-shop'),node('em','✓ Tests pass'),node('i'),node('i'),node('small','Ask anything about your project…')); preview.append(rail,canvas); return preview;
+    };
+    // Choosing saves at once, as in the status bar and Settings, and all three show the same preference.
+    for (const [value,label,text] of [['system','System','Follows your computer'],['graphite','Dark','Quiet graphite surfaces'],['light','Light','Bright, clear contrast']]) {
+      const choice = button('',()=>window.relayTheme?.choose(value),'setup-theme'); choice.setAttribute('data-appearance',value); choice.setAttribute('aria-pressed',String(window.relayTheme?.preference() === value));
+      choice.append(sample(value),node('strong',label),node('span',text,'muted')); themes.append(choice);
     }
     host.append(themes,node('h3','What agents can do','setup-section-title'));
     const access = node('div',undefined,'setup-access');
@@ -184,7 +189,7 @@
     host.append(manual);
   }
   async function open({review = false} = {}) {
-    await ready; draft = {...preferences.defaults}; theme = preferences.theme; error();
+    await ready; draft = {...preferences.defaults}; error();
     reviewing = review; step = review ? 0 : Math.min(preferences.onboarding?.step || 0, last); hideLaunch(); show('flow');
   }
   window.relaySetup = {open};
@@ -203,7 +208,7 @@
   window.addEventListener('relay-state',()=>{if(dialog.open && screen === 'flow' && step===0 && !busy && connectionSignature!==connectionState())render();});
   window.addEventListener('relay-account',()=>{if(dialog.open && screen === 'flow' && step===0 && !busy)render();});
   const ready = Promise.all([api.api('/api/preferences',{},null),desktop?.getLaunchState ? desktop.getLaunchState().catch(()=>null) : null]).then(([value,state])=>{
-    preferences = value; launch = state; step = Math.min(value.onboarding?.step || 0, last); draft = {...value.defaults}; theme = value.theme; progress();
+    preferences = value; launch = state; step = Math.min(value.onboarding?.step || 0, last); draft = {...value.defaults}; progress();
     if (launch?.choice) show('returning'); else if (value.firstRun) show('welcome');
-  }).catch(e=>{preferences={defaults:draft,theme,onboarding:{step:0}};api.showNotice('Setup preferences could not be loaded. '+e.message);}).finally(()=>{hideLaunch();window.dispatchEvent(new CustomEvent('relay-setup-ready'));});
+  }).catch(e=>{preferences={defaults:draft,onboarding:{step:0}};api.showNotice('Setup preferences could not be loaded. '+e.message);}).finally(()=>{hideLaunch();window.dispatchEvent(new CustomEvent('relay-setup-ready'));});
 })();
