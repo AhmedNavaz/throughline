@@ -417,6 +417,22 @@ test('quota, active execution and pending approval use distinct human-readable s
   assert.equal(ui.$('conversation-state').textContent,'Approval required');
 });
 
+test('a failed Approve or Deny is shown on the page, and a request that is no longer pending disappears',async()=>{
+  const ui=await browser({workbench:true}),conversation=ui.canonical.get('project-one'),answers=[];
+  const cards=()=>ui.$('pending-approvals')?.querySelectorAll('article')||[],choice=text=>cards()[0].querySelectorAll('button').find(button=>button.textContent===text);
+  conversation.status='running';conversation.activeRun={provider:'codex'};conversation.pendingApprovals=[{id:'approval-one',runId:'run-one',provider:'codex',kind:'command',command:'git status'}];await ui.window.relayUI.refresh();
+  // The run has already moved on, so the server no longer holds this request.
+  ui.setIntercept((request,next)=>{if(!request.path.endsWith('/approval'))return next();answers.push(request.body);conversation.pendingApprovals=[];return response({error:'This approval is no longer pending.'},409);});
+  choice('Approve').click();await flush();
+  assert.deepEqual(answers,[{runId:'run-one',approvalId:'approval-one',allow:true}]);assert.equal(ui.$('notice').hidden,false);assert.equal(ui.$('notice-text').textContent,'This approval is no longer pending.');assert.equal(cards().length,0,'The stale request disappears.');
+  // A failure while the request is still pending keeps the card, and its buttons work again.
+  conversation.pendingApprovals=[{id:'approval-two',runId:'run-one',provider:'codex',kind:'command',command:'npm test'}];await ui.window.relayUI.refresh();
+  ui.setIntercept((request,next)=>{if(!request.path.endsWith('/approval'))return next();answers.push(request.body);return response({error:'Local server error.'},500);});
+  choice('Deny').click();choice('Deny').click();await flush();
+  assert.equal(answers.length,2,'A second click while the answer is being sent does nothing.');assert.deepEqual(answers[1],{runId:'run-one',approvalId:'approval-two',allow:false});
+  assert.equal(ui.$('notice-text').textContent,'Local server error.');assert.equal(cards().length,1);assert.equal(choice('Deny').disabled,false);assert.equal(ui.$('workbench-error').hidden,true);
+});
+
 test('shipped markup has one conversation header and retains distinct primary controls',()=>{
   const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
   const tags=[...html.matchAll(/<([\w-]+)\b[^>]*\bid="([^"]+)"[^>]*>/g)];
