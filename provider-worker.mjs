@@ -1,6 +1,7 @@
 import { runGemini } from './gemini.mjs';
 import { spawn } from 'node:child_process';
 import { runCodex, runClaude, classifyError } from './providers.mjs';
+import { withBinaryPath } from './resolve-binary.mjs';
 let running = false;
 let cancelled = false;
 let finished = false;
@@ -17,7 +18,7 @@ process.on('message', async message => {
   const config = message.config;
   try {
     if (config.transport === 'cli') {
-      const child = spawn(config.bin, config.args, { cwd: config.workspace, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(config.bin, config.args, { cwd: config.workspace, env: withBinaryPath(config.bin), shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
       child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);
       child.on('error', error => { send({ type: 'failure', message: error.message, category: classifyError(error) }); process.exitCode = 1; });
       // Piped output can still be queued, and disconnecting exits the worker, so wait until it is written.

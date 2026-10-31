@@ -63,6 +63,15 @@ test('standard home install locations and CODEX_INSTALL_DIR are discovered witho
   assert.equal(resolveBinary('claude', f.options), claude);
 });
 
+test('Antigravity agy binary under ~/.gemini/bin is preferred for Gemini', t => {
+  const f = setup(t);
+  const legacyGemini = f.executable(path.join(f.home, '.local', 'bin', 'gemini'));
+  const agy = f.executable(path.join(f.home, '.gemini', 'bin', 'agy'));
+  assert.equal(resolveBinary('gemini', f.options), agy);
+  fs.unlinkSync(agy);
+  assert.equal(resolveBinary('gemini', f.options), legacyGemini);
+});
+
 test('Windows CLI discovery splits PATH entries and ignores non-runnable .cmd shims', t => {
   const f = setup(t);
   const codex = f.executable(path.join(f.root, 'windows path', 'codex.exe'));

@@ -1,10 +1,12 @@
-import { geminiSetup } from './gemini.mjs';
+import { geminiSetup, isAgy } from './gemini.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import readline from 'node:readline';
 import os from 'node:os';
 import { probeCli } from './cli-probe.mjs';
-import { resolveBinary } from './resolve-binary.mjs';
+import { resolveBinary, withBinaryPath } from './resolve-binary.mjs';
 import { localEndpoint, verifyLocalModel } from './local-models.mjs';
 
 export function classifyError(error) {
@@ -38,9 +40,9 @@ export class CodexClient extends EventEmitter {
     this.pending = new Map(); this.counter = 0; this.closed = false;
     const args = ['-c', 'features.hooks=false', '-c', 'notify=[]'];
     if (local) for (const [key, value] of Object.entries(localCodexConfig(local))) args.push('-c', key + '=' + toml(value));
-    const env = { ...process.env };
+    const env = withBinaryPath(bin, { ...process.env });
     if (local) for (const key of Object.keys(env)) if (/^(?:OPENAI|CODEX_API|OLLAMA|ANTHROPIC)_/.test(key)) delete env[key];
-    this.child = spawnImpl(bin, [...args, 'app-server'], { cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: false, ...(local ? { env } : {}) });
+    this.child = spawnImpl(bin, [...args, 'app-server'], { cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: false, env });
     let diagnostic = '';
     this.child.stderr.on('data', chunk => { diagnostic = (diagnostic + chunk).slice(-16000); });
     const lines = readline.createInterface({ input: this.child.stdout });
@@ -194,7 +196,27 @@ export async function accountStatus(provider, { bin = resolveBinary(provider), w
   if (version.timedOut) return { ...base, installed: true, errorCategory: 'timeout' };
   if (version.status !== 0) return { ...base, errorCategory: 'installation' };
   base.installed = base.available = true; base.version = version.stdout.trim().slice(0, 200);
-  if (provider === 'gemini') return { ...base, authMode: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api-key-present' : 'native-cli', billingSource: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api' : 'unknown', message: geminiSetup };
+  if (provider === 'gemini') {
+    if (isAgy(bin)) {
+      let activeAccount = null;
+      try {
+        const accountsFile = path.join(os.homedir(), '.gemini/google_accounts.json');
+        const parsed = JSON.parse(fs.readFileSync(accountsFile, 'utf8'));
+        if (parsed.active) activeAccount = parsed.active;
+      } catch {}
+      const authenticated = Boolean(activeAccount);
+      return {
+        ...base,
+        authenticated,
+        authMode: authenticated ? 'google-account' : 'unknown',
+        billingSource: authenticated ? 'subscription' : 'unknown',
+        planType: 'Google Account',
+        account: activeAccount,
+        message: authenticated ? `Connected to Google Antigravity (${activeAccount}).` : 'Run agy in Terminal to sign in with your Google account.',
+      };
+    }
+    return { ...base, authMode: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api-key-present' : 'native-cli', billingSource: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api' : 'unknown', message: geminiSetup };
+  }
   if (provider === 'claude') {
     const result = await probeCli(bin, ['auth', 'status', '--json'], 5000);
     if (result.timedOut) return { ...base, errorCategory: 'timeout' };
@@ -256,8 +278,39 @@ async function readUsage(provider, bin, workspace) {
     return windows.length ? { available: true, plan: limits?.planType || null, windows } : { available: false, reason: 'Plan usage is not reported for this account.' };
   } finally { client.close(); }
 }
+const knownGeminiModels = [
+  { id: 'gemini-4-argon-medium', value: 'gemini-4-argon-medium', displayName: 'Gemini 4 Argon (Medium)', model: 'gemini-4-argon-medium' },
+  { id: 'gemini-4-argon-high', value: 'gemini-4-argon-high', displayName: 'Gemini 4 Argon (High)', model: 'gemini-4-argon-high' },
+  { id: 'gemini-4-argon-low', value: 'gemini-4-argon-low', displayName: 'Gemini 4 Argon (Low)', model: 'gemini-4-argon-low' },
+  { id: 'gemini-3.8-flash-high', value: 'gemini-3.8-flash-high', displayName: 'Gemini 3.8 Flash (High)', model: 'gemini-3.8-flash-high' },
+  { id: 'gemini-3.8-flash-medium', value: 'gemini-3.8-flash-medium', displayName: 'Gemini 3.8 Flash (Medium)', model: 'gemini-3.8-flash-medium' },
+  { id: 'gemini-3.8-flash-low', value: 'gemini-3.8-flash-low', displayName: 'Gemini 3.8 Flash (Low)', model: 'gemini-3.8-flash-low' },
+];
+
 export async function listModels(provider, options = {}) {
-  if (provider === 'gemini') return { models: [], source: 'native-cli', manualSelection: true, message: 'Use the Gemini CLI default or enter a model ID available to your account. The selected model is verified before sending a prompt.' };
+  if (provider === 'gemini') {
+    const bin = options.bin || resolveBinary(provider);
+    if (isAgy(bin)) {
+      const probe = await probeCli(bin, ['models'], 20000);
+      if (probe.status === 0 && probe.stdout) {
+        const models = probe.stdout
+          .split('\n')
+          .map(line => {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('⠋') || trimmed.startsWith('Fetching')) return null;
+            const parts = trimmed.split(/\t+|\s{2,}/);
+            const id = parts[0]?.trim();
+            const displayName = parts[1]?.trim() || id;
+            return id ? { id, value: id, displayName, model: id } : null;
+          })
+          .filter(Boolean)
+          .filter(m => /^gemini-/i.test(m.id));
+        if (models.length) return { models, source: 'provider', manualSelection: true };
+      }
+      return { models: knownGeminiModels, source: 'provider', manualSelection: true };
+    }
+    return { models: [], source: 'native-cli', manualSelection: true, message: 'Use the Gemini CLI default or enter a model ID available to your account. The selected model is verified before sending a prompt.' };
+  }
   if (provider === 'claude') {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
     const controller = new AbortController();
@@ -272,7 +325,10 @@ export async function listModels(provider, options = {}) {
   finally { client.close(); }
 }
 export async function connectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir() } = {}) {
-  if (provider === 'gemini') return { started: false, nativeFlow: true, message: geminiSetup };
+  if (provider === 'gemini') {
+    if (isAgy(bin)) return { started: false, nativeFlow: true, message: 'Google Antigravity uses your Google account. Run agy in Terminal to sign in, then refresh status in Settings.' };
+    return { started: false, nativeFlow: true, message: geminiSetup };
+  }
   if (!bin) throw Object.assign(new Error('Install the provider CLI first.'), { status: 503 });
   if (provider === 'claude') {
     const child = spawn(bin, ['auth', 'login'], { stdio: ['ignore', 'pipe', 'pipe'], cwd: workspace, shell: false });
@@ -293,7 +349,7 @@ export async function connectAccount(provider, { bin = resolveBinary(provider), 
   } catch (error) { client.close(); throw error; }
 }
 export async function disconnectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir() } = {}) {
-  if (provider === 'gemini') throw Object.assign(new Error('Manage Gemini authentication in the native Gemini CLI. Throughline stores no Gemini credentials.'), { status: 400 });
+  if (provider === 'gemini') throw Object.assign(new Error('Manage Google and Gemini authentication in the native Antigravity or Gemini CLI. Throughline stores no credentials.'), { status: 400 });
   if (!bin) throw Object.assign(new Error('Install the provider CLI first.'), { status: 503 });
   if (provider === 'claude') { const result = spawnSync(bin, ['auth', 'logout'], { cwd: workspace, encoding: 'utf8', timeout: 5000, shell: false }); if (result.status !== 0) throw new Error(result.stderr || 'Claude logout failed.'); return { disconnected: true }; }
   const client = new CodexClient({ bin, cwd: workspace }); try { await client.initialize(); await client.request('account/logout'); return { disconnected: true }; } finally { client.close(); }

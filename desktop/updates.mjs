@@ -20,19 +20,34 @@ function compare(left, right) {
 }
 
 // The installed changelog is the source of truth. Unreleased and newer entries never appear.
-// Return bounded plain text rather than rendering changelog HTML or remote content in the app.
+// Summarize each item to a brief user-facing sentence without GitHub issue/PR references or HTML.
+function summarizeItem(line, stripRefs = false) {
+  let text = line
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1');
+  if (stripRefs) {
+    text = text
+      .replace(/\s*\((?:[^()]*#\d+[^()]*|thanks\s+@[^()]+)\)/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const boundary = text.search(/[.!?]\s+(?=[A-Z0-9"“‘(<])/);
+    if (boundary !== -1) text = text.slice(0, boundary + 1);
+  }
+  return text.slice(0, 320);
+}
+
 export function releaseNotes(changelog, current, since = null) {
   const releases = []; let release, section;
-  const plain = text => text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/`([^`]+)`/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1');
   for (const line of changelog.slice(0, 256 * 1024).split(/\r?\n/)) {
     if (line.startsWith('## ')) {
       const heading = line.match(/^## \[([^\]]+)\](?: - (\d{4}-\d{2}-\d{2}))?/);
       release = heading && versionPattern.test(heading[1]) ? { version: heading[1], date: heading[2] || null, sections: [] } : null;
       section = null; if (release) releases.push(release);
     } else if (release && line.startsWith('### ')) {
-      section = { title: plain(line.slice(4)).slice(0, 80), items: [] };
+      section = { title: summarizeItem(line.slice(4)).slice(0, 80), items: [] };
       if (release.sections.length < 8) release.sections.push(section);
-    } else if (section && /^- /.test(line) && section.items.length < 20) section.items.push(plain(line.slice(2)).slice(0, 2000));
+    } else if (section && /^- /.test(line) && section.items.length < 20) section.items.push(summarizeItem(line.slice(2), true));
   }
   if (!releases.some(item => compare(item.version, current) === 0)) return [];
   return releases.filter(item => compare(item.version, current) <= 0 && (since ? compare(item.version, since) > 0 : compare(item.version, current) === 0))

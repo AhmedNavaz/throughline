@@ -17,6 +17,34 @@ function firstExecutable(candidates) {
   return candidates.find(filename => path.isAbsolute(filename) && executable(filename)) || null;
 }
 
+function compareVersions(a, b) {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const difference = (b[i] || 0) - (a[i] || 0);
+    if (difference) return difference;
+  }
+  return 0;
+}
+
+function nvmBinDirs(home, env) {
+  const root = path.join(env.NVM_DIR ? expandHome(env.NVM_DIR, home) : path.join(home, '.nvm'), 'versions/node');
+  let entries;
+  try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return []; }
+  return entries
+    .filter(entry => (entry.isDirectory() || entry.isSymbolicLink()) && /^v\d+(?:\.\d+)*$/.test(entry.name))
+    .map(entry => ({ version: entry.name.slice(1).split('.').map(Number), dir: path.join(root, entry.name, 'bin') }))
+    .sort((a, b) => compareVersions(a.version, b.version))
+    .map(entry => entry.dir);
+}
+
+// Keep the selected binary's directory on PATH so #!/usr/bin/env node CLIs work when the desktop app starts from Finder.
+export function withBinaryPath(bin, env = process.env, platform = process.platform) {
+  if (typeof bin !== 'string' || !path.isAbsolute(bin)) return env;
+  const key = platform === 'win32' && !('PATH' in env) && 'Path' in env ? 'Path' : 'PATH';
+  const delimiter = platform === 'win32' ? ';' : path.delimiter;
+  const dir = path.dirname(bin), entries = (env[key] || '').split(delimiter).filter(Boolean);
+  return entries.includes(dir) ? env : { ...env, [key]: [dir, ...entries].join(delimiter) };
+}
+
 function extensionExecutables(roots, platform, arch) {
   const target = {
     'darwin-arm64': 'macos-aarch64', 'darwin-x64': 'macos-x86_64',
@@ -57,25 +85,56 @@ export function resolveBinary(provider, {
   systemBinDirs = ['/opt/homebrew/bin', '/usr/local/bin'],
 } = {}) {
   if (!['codex', 'claude', 'gemini'].includes(provider)) throw new Error('Unknown assistant executable.');
-  const names = platform === 'win32' ? [`${provider}.exe`, provider] : [provider];
-  const pathEntries = (env.PATH || env.Path || '').split(platform === 'win32' ? ';' : path.delimiter)
-    .filter(directory => path.isAbsolute(directory));
-  const onPath = firstExecutable(pathEntries.flatMap(directory => names.map(name => path.join(directory, name))));
   const explicit = override || env[variable(provider)];
   if (explicit) {
     const expanded = expandHome(explicit, home);
     if (path.isAbsolute(expanded) || expanded.includes('/') || expanded.includes('\\')) return expanded;
     // An explicitly selected command is never silently replaced by another tool.
+    const pathEntries = (env.PATH || env.Path || '').split(platform === 'win32' ? ';' : path.delimiter)
+      .filter(directory => path.isAbsolute(directory));
     return firstExecutable(pathEntries.map(directory => path.join(directory, expanded))) || expanded;
   }
+
+  const pathEntries = (env.PATH || env.Path || '').split(platform === 'win32' ? ';' : path.delimiter)
+    .filter(directory => path.isAbsolute(directory));
+
+  // For Gemini, prefer Google Antigravity CLI (agy) if present on PATH or in its home directories.
+  if (provider === 'gemini') {
+    const agyNames = platform === 'win32' ? ['agy.exe', 'agy'] : ['agy'];
+    const agyDirs = [
+      ...pathEntries,
+      path.join(home, '.gemini/bin'),
+      path.join(home, '.local/bin'),
+      path.join(home, 'bin'),
+      ...(platform === 'win32' && env.LOCALAPPDATA ? [path.join(env.LOCALAPPDATA, 'agy/bin')] : []),
+    ];
+    const agy = firstExecutable(agyDirs.flatMap(directory => agyNames.map(name => path.join(directory, name))));
+    if (agy) return agy;
+  }
+
+  const names = platform === 'win32' ? [`${provider}.exe`, provider] : [provider];
+  const onPath = firstExecutable(pathEntries.flatMap(directory => names.map(name => path.join(directory, name))));
   if (onPath) return onPath;
 
   const directories = [
+    ...(provider === 'gemini' ? [path.join(home, '.gemini/bin')] : []),
     ...(provider === 'codex' && env.CODEX_INSTALL_DIR ? [expandHome(env.CODEX_INSTALL_DIR, home)] : []),
     path.join(home, '.local/bin'), path.join(home, 'bin'), path.join(home, '.npm-global/bin'),
+    env.VOLTA_HOME ? path.join(expandHome(env.VOLTA_HOME, home), 'bin') : path.join(home, '.volta/bin'),
+    env.PNPM_HOME ? expandHome(env.PNPM_HOME, home) : platform === 'darwin' ? path.join(home, 'Library/pnpm') : path.join(home, '.local/share/pnpm'),
+    env.BUN_INSTALL ? path.join(expandHome(env.BUN_INSTALL, home), 'bin') : path.join(home, '.bun/bin'),
+    path.join(home, '.local/share/mise/shims'), path.join(home, '.asdf/shims'),
+    path.join(home, '.local/share/fnm/aliases/default/bin'), path.join(home, 'Library/Application Support/fnm/aliases/default/bin'),
+    ...nvmBinDirs(home, env),
     ...systemBinDirs,
   ];
-  if (platform === 'win32' && env.LOCALAPPDATA) directories.unshift(path.join(env.LOCALAPPDATA, 'Programs/OpenAI/Codex/bin'));
+  if (platform === 'win32') {
+    const winDirs = [path.join(home, '.gemini/bin')];
+    if (env.LOCALAPPDATA) {
+      winDirs.push(path.join(env.LOCALAPPDATA, 'Programs/OpenAI/Codex/bin'), path.join(env.LOCALAPPDATA, 'Volta/bin'), path.join(env.LOCALAPPDATA, 'pnpm'), path.join(env.LOCALAPPDATA, 'agy/bin'));
+    }
+    directories.unshift(...winDirs);
+  }
   const standard = firstExecutable(directories.flatMap(directory => names.map(name => path.join(directory, name))));
   if (standard) return standard;
   if (provider === 'codex' && platform === 'darwin') {

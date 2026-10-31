@@ -2,17 +2,32 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.10.1] - 2026-10-31
+
+### Added
+
+- **Google Antigravity (`agy`) for Gemini**: Gemini now connects through the official Google Antigravity CLI (`agy`) with your Google account, featuring real-time streaming, safe workspace edit permissions, and model selection filtered exclusively for Gemini models.
+- **Agent installation guidance**: When an assistant is not detected, Settings and the connection banner display the install command and a direct link to the setup guide.
+
+### Changed
+
+- **What’s New** in the app now shows short, plain-language highlights from the user's perspective without GitHub issue or pull request numbers. Select **Full release notes** at any time to read the complete technical story on GitHub.
+
+### Fixed
+
+- Throughline now finds Gemini CLI / Antigravity, Claude Code and Codex installed with Volta, nvm, pnpm, Bun, mise, asdf or fnm when opened from Applications on macOS. Child CLI runs also keep that runtime directory on `PATH` so Node-based shims start reliably.
+
 ## [0.10.0] - 2026-10-31
 
 ### Added
 
-- **Gemini CLI**: run Gemini CLI (`0.66.0+`) over the Agent Client Protocol alongside Claude Code and Codex in the same permanent project conversation, using your existing Gemini CLI configuration. Includes read-only and edit access modes with isolated per-run policies, in-app approvals for edits and shell commands, verified custom model selection, quota and interruption handoffs, and conversation export ([#4](https://github.com/AhmedNavaz/throughline/issues/4)).
-- **Continue locally**: choose a downloaded, tool-capable Ollama model and continue a task using the saved project brief and recent conversation, with Codex's native workspace tools and approvals. Local runs have separate model/billing attribution, preserve cloud settings and sessions, and never fall back to a cloud model. The first version supports text handoffs and requires Codex CLI plus a running Ollama server ([#4](https://github.com/AhmedNavaz/throughline/issues/4)).
-- An in-app **What’s New** panel with bundled release notes, including releases skipped since the last acknowledged version. Dismiss it once per update and reopen it from **Help › What’s New**, including while offline.
+- **Gemini**: use Gemini CLI alongside Claude Code and Codex in the same project conversation, signed in with your own Google account. Runs over the Agent Client Protocol (`0.66.0+`) with read-only and edit access modes, isolated per-run policies, in-app approvals for edits and shell commands, verified custom model selection, quota and interruption handoffs, and conversation export ([#4](https://github.com/AhmedNavaz/throughline/issues/4)).
+- **Continue locally**: hand off a task to a downloaded Ollama coding model with your saved project context and workspace approvals. Uses Codex's native workspace tools with separate model and billing attribution, preserves cloud settings and sessions, and never falls back to a cloud model ([#4](https://github.com/AhmedNavaz/throughline/issues/4)).
+- **What’s New** shows recent highlights right after an update and from **Help › What’s New**, including while offline. Dismiss it once per update or open the full release notes for every technical detail.
 
 ### Fixed
 
-- Updating or reinstalling the desktop app opens saved workspaces directly instead of asking users to continue or start fresh. Version tracking replaces app-bundle identity checks, and new profiles still receive first-run setup.
+- Updating or reinstalling the desktop app opens your saved workspaces directly instead of asking to continue or start fresh. Version tracking replaces app-bundle identity checks, and new profiles still receive first-run setup.
 
 ## [0.9.1] - 2026-10-31
 
@@ -144,6 +159,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.10.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.1
 [0.10.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.0
 [0.9.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.9.1
 [0.9.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.9.0

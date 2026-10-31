@@ -171,6 +171,12 @@
     })).then(()=>{state.accountsCheckedAt=Date.now();});
     try {await refresh;} finally {if(state.accountRefresh===refresh)state.accountRefresh=null;render();}
   }
+  const installGuides = {
+    claude: "https://code.claude.com/docs/en/overview",
+    codex: "https://github.com/openai/codex",
+    gemini: "https://antigravity.google",
+  };
+  const openExternal = (url) => window.relayDesktop ? window.relayDesktop.openExternal(url) : window.open(url, "_blank", "noopener,noreferrer");
   function renderStatus() {
     const workspace=state.status?.workspace || currentProject()?.path || '';
     ui.workspace.textContent=currentProject()?.name || 'No workspace selected';
@@ -180,17 +186,21 @@
       const text=info.checking?'Checking…':info.installed?(info.needsSignIn?'Sign in required':info.account?.authenticated===true?(info.account.billingSource==='api'?'API account':'Connected'):'Not verified'):state.status||info.account?'Not installed':'Not checked';
       $(`${provider}-status-text`).textContent=text;
       $(`${provider}-status-dot`).className='status-dot '+(info.installed&&!info.needsSignIn?'available':info.needsSignIn?'attention':'unavailable');
+      const pill=$(`${provider}-status`);
+      if(pill)pill.title=!info.installed&&(state.status||info.account)?`${label(provider)} is not installed — click for install instructions`:`${label(provider)} connection`;
     }
   }
   function renderConnectionNotice() {
-    const notice=$('connection-notice');if(!notice)return;
+    const notice=$('connection-notice'),install=$('connection-install');if(!notice)return;
     const info=connection(state.provider),other=['codex','claude','gemini'].find(provider=>provider!==state.provider&&available(provider)) || 'codex',name=label(state.provider);
     const fresh=!state.conversation?.messages?.length,none=!['codex','claude','gemini'].some(available);
-    notice.hidden=true;state.connectionAction=null;
+    notice.hidden=true;state.connectionAction=null;state.installUrl=null;if(install)install.hidden=true;
     if(!state.ready||isRunning()||(fresh&&none))return;
     let text='',action='';
     if(!info.installed){
       text=name+' is not installed.';
+      state.installUrl=installGuides[state.provider]||null;
+      if(install&&state.installUrl){install.hidden=false;install.textContent='How to install '+name+' ↗';}
       if(available(other)){action='Use '+label(other);state.connectionAction=()=>changeSettings(other,state.mode);}
       else {action='Open settings';state.connectionAction=()=>$('relay-settings').click();}
     } else if(info.needsSignIn){text=name+' is not signed in.';action='Connect account';state.connectionAction=()=>$('relay-settings').click();}
@@ -928,7 +938,9 @@
     resizeInput(); saveDraft(); renderControls(); ui.input.focus();
   }));
   $('connect-assistant')?.addEventListener('click',()=>$('relay-settings').click());
+  $('connection-install')?.addEventListener('click',()=>{if(state.installUrl)openExternal(state.installUrl);});
   $('connection-action')?.addEventListener('click',()=>state.connectionAction?.());
+  for(const provider of ['codex','claude','gemini'])$(`${provider}-status`)?.addEventListener('click',event=>{if(!event.target?.closest?.('.usage-meter'))$('relay-settings')?.click();});
   window.addEventListener('relay-account',()=>{renderStatus();renderControls();});
   window.addEventListener('relay-billing',()=>{renderStatus();renderControls();});
   window.addEventListener("beforeunload", saveDraft);
