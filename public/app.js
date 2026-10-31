@@ -174,7 +174,7 @@
   const installGuides = {
     claude: "https://code.claude.com/docs/en/overview",
     codex: "https://github.com/openai/codex",
-    gemini: "https://geminicli.com/docs/get-started/",
+    gemini: "https://antigravity.google/docs/install",
   };
   const openExternal = (url) => window.relayDesktop ? window.relayDesktop.openExternal(url) : window.open(url, "_blank", "noopener,noreferrer");
   function renderStatus() {

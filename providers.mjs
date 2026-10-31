@@ -1,3 +1,4 @@
+import { isAntigravityACP, googleMetadata, connectGoogle, disconnectGoogle, closeGoogleConnections } from './antigravity.mjs';
 import { geminiSetup, isAgy, agyUnsupported } from './gemini.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
@@ -187,10 +188,11 @@ export async function runClaude(config, { event, approval, metadata, cancelled =
 }
 
 const logins = new Map();
-export function closeAccountConnections() { for (const client of logins.values()) client.close(); logins.clear(); }
-export async function accountStatus(provider, { bin = resolveBinary(provider), workspace = os.homedir() } = {}) {
+export function closeAccountConnections() { closeGoogleConnections(); for (const client of logins.values()) client.close(); logins.clear(); }
+export async function accountStatus(provider, { bin = resolveBinary(provider), workspace = os.homedir(), googleRoot } = {}) {
   const base = { installed: false, available: false, authenticated: 'unknown', authMode: 'unknown', billingSource: 'unknown', usage: 'unknown', path: bin, capabilities: capabilities(provider) };
-  if (!bin) return base;
+  if (!bin) return { ...base, ...(provider === 'gemini' ? { message: geminiSetup } : {}) };
+  if (provider === 'gemini' && isAntigravityACP(bin)) { const { models, ...status } = await googleMetadata({ bin, googleRoot }); return { ...base, ...status, capabilities: { ...base.capabilities, readOnly: 'unavailable', hooks: 'Antigravity manages native hooks and workspace trust. Throughline does not grant workspace-trust questions automatically.' }, message: 'Google Antigravity connection. Sign in with Google to use the models and allowance available to your account. Coding uses native approvals; read-only work uses Codex or Claude.' }; }
   const version = await probeCli(bin, ['--version'], 4000);
   // An installed CLI that answers too slowly is unverified, not missing.
   if (version.timedOut) return { ...base, installed: true, errorCategory: 'timeout' };
@@ -266,6 +268,7 @@ async function readUsage(provider, bin, workspace) {
 export async function listModels(provider, options = {}) {
   if (provider === 'gemini') {
     const bin = options.bin || resolveBinary(provider);
+    if (isAntigravityACP(bin)) return googleMetadata({ ...options, bin });
     if (isAgy(bin)) return { models: [], source: 'unavailable', manualSelection: false, message: agyUnsupported };
     return { models: [], source: 'native-cli', manualSelection: true, message: 'Use the Gemini CLI default or enter a model ID available to your account. The selected model is verified before sending a prompt.' };
   }
@@ -282,8 +285,9 @@ export async function listModels(provider, options = {}) {
   try { await client.initialize(); const result = await client.request('model/list', { limit: 100, includeHidden: false }); return { models: result.data, source: 'provider', nextCursor: result.nextCursor }; }
   finally { client.close(); }
 }
-export async function connectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir() } = {}) {
+export async function connectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir(), googleRoot } = {}) {
   if (provider === 'gemini') {
+    if (isAntigravityACP(bin)) return connectGoogle({ bin, googleRoot });
     if (isAgy(bin)) return { started: false, nativeFlow: true, message: agyUnsupported };
     return { started: false, nativeFlow: true, message: geminiSetup };
   }
@@ -306,7 +310,8 @@ export async function connectAccount(provider, { bin = resolveBinary(provider), 
     return login;
   } catch (error) { client.close(); throw error; }
 }
-export async function disconnectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir() } = {}) {
+export async function disconnectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir(), googleRoot } = {}) {
+  if (provider === 'gemini' && isAntigravityACP(bin)) return disconnectGoogle({ bin, googleRoot });
   if (provider === 'gemini') throw Object.assign(new Error('Manage Google and Gemini authentication in the native Antigravity or Gemini CLI. Throughline stores no credentials.'), { status: 400 });
   if (!bin) throw Object.assign(new Error('Install the provider CLI first.'), { status: 503 });
   if (provider === 'claude') { const result = spawnSync(bin, ['auth', 'logout'], { cwd: workspace, encoding: 'utf8', timeout: 5000, shell: false }); if (result.status !== 0) throw new Error(result.stderr || 'Claude logout failed.'); return { disconnected: true }; }

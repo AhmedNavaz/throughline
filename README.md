@@ -8,7 +8,7 @@
 
 <p align="center"><img src="docs/screenshot.png" alt="Throughline: a project conversation shared by Claude and Codex, with the file browser, Git activity and plan usage" width="900"></p>
 
-Throughline is an open-source desktop control plane for agentic development. It brings Claude Code, Codex, Gemini CLI and downloaded Ollama coding models into a unified workspace for multi-agent orchestration, persistent project context, and human-in-the-loop collaboration.
+Throughline is an open-source desktop control plane for agentic development. It brings Claude Code, Codex, Gemini through Google Antigravity and downloaded Ollama coding models into a unified workspace for multi-agent orchestration, persistent project context, and human-in-the-loop collaboration.
 
 Each project becomes a continuous working thread: its folders, conversation, saved context, and agent activity stay together as the work evolves. Carry work between agents, consolidate fragmented chat histories, inspect execution and code changes, and exchange reviewable patches with collaborators. Throughline runs through your installed agent CLIs and existing accounts, with you directing the workflow.
 
@@ -17,7 +17,7 @@ Each project becomes a continuous working thread: its folders, conversation, sav
 **Multi-agent orchestration and continuity**
 
 - One permanent conversation per project, shared by all its folders, such as frontend, backend and website.
-- Switch between Claude Code, Codex and Gemini CLI mid-task, for example when one hits its usage limit. The next agent picks up the shared context.
+- Switch between Claude Code, Codex and Gemini mid-task, for example when one hits its usage limit. The next agent picks up the shared context.
 - **Continue locally** with a downloaded Ollama coding model when cloud allowances run out. The same project thread carries over, using Codex's workspace tools and approvals with separate local-model attribution. See [setup and limits](docs/guide.md#local-models).
 - Choose cloud agents and downloaded local models in one searchable picker, then use the same composer.
 - Choose the model, reasoning effort and access (read only or can edit files) for every message.
@@ -43,7 +43,7 @@ Each project becomes a continuous working thread: its folders, conversation, sav
 **A local workspace, powered by your accounts**
 
 - System appearance alongside explicit Dark and Light themes, keyboard shortcuts, Markdown replies with highlighted code and copy buttons, and a short setup guide.
-- Runs the official Claude Code, Codex and Gemini CLIs you already have, on your own accounts and subscriptions. It ships no API keys and adds no service of its own.
+- Runs official Claude Code, Codex and Google Antigravity integrations on your own accounts. Gemini connects through Antigravity ACP with Google sign-in; Gemini CLI remains an advanced API-key/enterprise option. It ships no API keys and adds no model service of its own.
 
 ## Install
 
@@ -51,7 +51,7 @@ Each project becomes a continuous working thread: its folders, conversation, sav
 curl -fsSL https://raw.githubusercontent.com/AhmedNavaz/throughline/main/install.sh | sh
 ```
 
-This installs the latest release for your Mac (Apple Silicon or Intel) after checking its published checksum. You also need at least one supported agent installed and signed in: [Claude Code](https://code.claude.com/docs/en/overview), [Codex CLI](https://github.com/openai/codex) or [Gemini CLI](https://geminicli.com/docs/get-started/) (`0.66.0+`).
+This installs the latest release for your Mac (Apple Silicon or Intel) after checking its published checksum. You also need at least one supported agent installed and signed in: [Claude Code](https://code.claude.com/docs/en/overview), [Codex CLI](https://github.com/openai/codex) or connect **Gemini with Google Antigravity** from Settings: **Install Google connection**, then **Connect account**. The download comes from Google and its checksum is verified before installation.
 
 <details>
 <summary>Other ways to install</summary>

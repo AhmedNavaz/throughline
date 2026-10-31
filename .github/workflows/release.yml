@@ -129,7 +129,7 @@ jobs:
             echo "| Apple Silicon (M1 and later) | \`Throughline-$version-mac-apple-silicon.zip\` |"
             echo "| Intel | \`Throughline-$version-mac-intel.zip\` |"
             echo
-            echo "Unzip, move **Throughline** to Applications and open it. Use your own configured Claude Code, Codex CLI or Gemini CLI (0.66.0+) connection. Local continuation needs Codex CLI, Ollama and a downloaded tool-capable model. See the setup guide in the repository for authentication and billing details."
+            echo "Unzip, move **Throughline** to Applications and open it. Use your own configured Claude Code or Codex CLI connection, or connect Gemini through Google Antigravity in Settings (Install Google connection, then Connect account). Local continuation needs Codex CLI, Ollama and a downloaded tool-capable model. See the setup guide in the repository for authentication and billing details."
             echo
             echo "The app is not notarized by Apple yet, so the first time you open a browser download macOS says it cannot verify the developer. Open **System Settings › Privacy & Security** and click **Open Anyway**. You only need to do this once. If macOS instead says the app is damaged, run \`xattr -cr /Applications/Throughline.app\` and open it again."
             echo

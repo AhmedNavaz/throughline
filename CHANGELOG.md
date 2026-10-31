@@ -9,13 +9,14 @@ Notable changes to Throughline. The format follows [Keep a Changelog](https://ke
 - **Background code review** checks an approved snapshot of selected files in a separate read-only worker, with live results in a side panel while you send the next prompt; later edits mark findings outdated.
 - **A grouped, searchable agent and model picker** lists cloud agents and downloaded Ollama models together, with local selections scoped to each workspace and used by the normal Send button.
 - **Ask a Friend previews** are prepared from the current task and recent conversation, with optional changed source files and explicit export or private-link sharing; detailed controls remain in the advanced editor.
+- **Google Antigravity connection** adds a checksum-verified official runtime download, personal Google sign-in, account-provided models and thinking levels, and one-time ACP tool approvals.
 - Local composer runs support text and code attachments, while unsupported images remain saved until removed or sent to a cloud agent.
 
 ### Fixed
 
 - Review and Ask a Friend shortcuts require the existing file selection, exact preview, billing confirmation and sharing approval steps before running an agent or publishing material.
 - Local handoffs require an explicit downloaded model choice and preserve cloud preferences, composer drafts and unsent attachments across workspace switches and retries.
-- Antigravity headless runs are blocked because their protocol cannot provide Throughline tool approvals; Gemini CLI 0.66.0+ remains supported through ACP.
+- Personal Google setup now uses Antigravity ACP instead of directing consumer accounts to Gemini CLI. Plain Antigravity headless runs stay blocked; read-only work uses Codex or Claude. Gemini CLI 0.66.0+ remains an advanced API-key/enterprise option.
 - Google account status and billing are no longer inferred from cached account names, and failed model discovery never invents available models.
 
 ### Changed
