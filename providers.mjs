@@ -1,6 +1,5 @@
-import { geminiSetup, isAgy } from './gemini.mjs';
-import fs from 'node:fs';
-import path from 'node:path';
+import { isAntigravityACP, googleMetadata, connectGoogle, disconnectGoogle, closeGoogleConnections } from './antigravity.mjs';
+import { geminiSetup, isAgy, agyUnsupported } from './gemini.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import readline from 'node:readline';
@@ -35,10 +34,11 @@ export function localCodexConfig(local) {
 }
 const toml = value => typeof value === 'object' && value !== null ? '{' + Object.entries(value).map(([key, entry]) => JSON.stringify(key) + '=' + toml(entry)).join(',') + '}' : JSON.stringify(value);
 export class CodexClient extends EventEmitter {
-  constructor({ bin, cwd = os.homedir(), spawnImpl = spawn, local } = {}) {
+  constructor({ bin, cwd = os.homedir(), spawnImpl = spawn, local, reviewSnapshot } = {}) {
     super();
     this.pending = new Map(); this.counter = 0; this.closed = false;
     const args = ['-c', 'features.hooks=false', '-c', 'notify=[]'];
+    if (reviewSnapshot) args.push('-c', 'mcp_servers={}', '-c', 'web_search="disabled"');
     if (local) for (const [key, value] of Object.entries(localCodexConfig(local))) args.push('-c', key + '=' + toml(value));
     const env = withBinaryPath(bin, { ...process.env });
     if (local) for (const key of Object.keys(env)) if (/^(?:OPENAI|CODEX_API|OLLAMA|ANTHROPIC)_/.test(key)) delete env[key];
@@ -85,8 +85,9 @@ export class CodexClient extends EventEmitter {
 }
 
 export async function runCodex(config, { event, approval, metadata, cancelled = () => false, clientFactory = options => new CodexClient(options), verifyLocal = verifyLocalModel }) {
+  if (config.reviewSnapshot && (config.mode !== 'read' || config.sessionId)) throw new Error('Snapshot reviews require read-only access and a fresh native session.');
   if (config.local) config.local = { ...config.local, ...await verifyLocal(config.local.model, config.local.digest, { endpoint: config.local.endpoint }) };
-  const client = clientFactory({ bin: config.bin, cwd: config.workspace, ...(config.local ? { local: config.local } : {}) });
+  const client = clientFactory({ bin: config.bin, cwd: config.workspace, ...(config.local ? { local: config.local } : {}), ...(config.reviewSnapshot ? { reviewSnapshot: true } : {}) });
   let threadId, turnId, resolveEnd, rejectEnd;
   const ended = new Promise((resolve, reject) => { resolveEnd = resolve; rejectEnd = reject; });
   // Initialization failures may happen before awaiting the terminal promise.
@@ -135,7 +136,7 @@ export async function runCodex(config, { event, approval, metadata, cancelled = 
       } catch { /* Older clients may not expose defaults; do not invent one. */ }
     }
     const roots = [...new Set([config.workspace, ...(config.workspaces || [])])];
-    const options = { cwd: config.workspace, approvalPolicy: config.mode === 'read' ? 'never' : 'on-request', approvalsReviewer: 'user', sandbox: config.mode === 'read' ? 'read-only' : 'workspace-write', config: { 'sandbox_workspace_write.writable_roots': config.mode === 'read' ? [] : roots, ...(selectedEffort ? { model_reasoning_effort: selectedEffort } : {}), ...(config.local ? localCodexConfig(config.local) : {}) }, ...(selectedModel ? { model: selectedModel } : {}), ...(config.local ? { modelProvider: 'throughline_ollama', ephemeral: true } : {}) };
+    const options = { cwd: config.workspace, approvalPolicy: config.mode === 'read' ? 'never' : 'on-request', approvalsReviewer: 'user', sandbox: config.mode === 'read' ? 'read-only' : 'workspace-write', config: { 'sandbox_workspace_write.writable_roots': config.mode === 'read' ? [] : roots, ...(selectedEffort ? { model_reasoning_effort: selectedEffort } : {}), ...(config.local ? localCodexConfig(config.local) : {}), ...(config.reviewSnapshot ? { mcp_servers: {}, web_search: 'disabled' } : {}) }, ...(selectedModel ? { model: selectedModel } : {}), ...(config.local ? { modelProvider: 'throughline_ollama' } : {}), ...(config.local || config.reviewSnapshot ? { ephemeral: true } : {}) };
     if (config.local && (!selectedModel || config.sessionId)) throw new Error('Local runs require an explicit model and a fresh session.');
     const started = await client.request(config.sessionId ? 'thread/resume' : 'thread/start', { ...options, ...(config.sessionId ? { threadId: config.sessionId } : {}) });
     if (config.local && (started.thread.modelProvider !== 'throughline_ollama' || started.model && started.model !== selectedModel || started.thread.model && started.thread.model !== selectedModel)) throw new Error('The native client did not confirm the selected local provider and model. No task was sent.');
@@ -187,10 +188,11 @@ export async function runClaude(config, { event, approval, metadata, cancelled =
 }
 
 const logins = new Map();
-export function closeAccountConnections() { for (const client of logins.values()) client.close(); logins.clear(); }
-export async function accountStatus(provider, { bin = resolveBinary(provider), workspace = os.homedir() } = {}) {
+export function closeAccountConnections() { closeGoogleConnections(); for (const client of logins.values()) client.close(); logins.clear(); }
+export async function accountStatus(provider, { bin = resolveBinary(provider), workspace = os.homedir(), googleRoot } = {}) {
   const base = { installed: false, available: false, authenticated: 'unknown', authMode: 'unknown', billingSource: 'unknown', usage: 'unknown', path: bin, capabilities: capabilities(provider) };
-  if (!bin) return base;
+  if (!bin) return { ...base, ...(provider === 'gemini' ? { message: geminiSetup } : {}) };
+  if (provider === 'gemini' && isAntigravityACP(bin)) { const { models, ...status } = await googleMetadata({ bin, googleRoot }); return { ...base, ...status, capabilities: { ...base.capabilities, readOnly: 'unavailable', hooks: 'Antigravity manages native hooks and workspace trust. Throughline does not grant workspace-trust questions automatically.' }, message: 'Google Antigravity connection. Sign in with Google to use the models and allowance available to your account. Coding uses native approvals; read-only work uses Codex or Claude.' }; }
   const version = await probeCli(bin, ['--version'], 4000);
   // An installed CLI that answers too slowly is unverified, not missing.
   if (version.timedOut) return { ...base, installed: true, errorCategory: 'timeout' };
@@ -198,22 +200,7 @@ export async function accountStatus(provider, { bin = resolveBinary(provider), w
   base.installed = base.available = true; base.version = version.stdout.trim().slice(0, 200);
   if (provider === 'gemini') {
     if (isAgy(bin)) {
-      let activeAccount = null;
-      try {
-        const accountsFile = path.join(os.homedir(), '.gemini/google_accounts.json');
-        const parsed = JSON.parse(fs.readFileSync(accountsFile, 'utf8'));
-        if (parsed.active) activeAccount = parsed.active;
-      } catch {}
-      const authenticated = Boolean(activeAccount);
-      return {
-        ...base,
-        authenticated,
-        authMode: authenticated ? 'google-account' : 'unknown',
-        billingSource: authenticated ? 'subscription' : 'unknown',
-        planType: 'Google Account',
-        account: activeAccount,
-        message: authenticated ? `Connected to Google Antigravity (${activeAccount}).` : 'Run agy in Terminal to sign in with your Google account.',
-      };
+      return { ...base, available: false, authenticated: 'unknown', authMode: 'native-cli', billingSource: 'unknown', capabilities: { ...base.capabilities, approvals: false, readOnly: 'unavailable' }, message: agyUnsupported };
     }
     return { ...base, authMode: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api-key-present' : 'native-cli', billingSource: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api' : 'unknown', message: geminiSetup };
   }
@@ -278,37 +265,11 @@ async function readUsage(provider, bin, workspace) {
     return windows.length ? { available: true, plan: limits?.planType || null, windows } : { available: false, reason: 'Plan usage is not reported for this account.' };
   } finally { client.close(); }
 }
-const knownGeminiModels = [
-  { id: 'gemini-4-argon-medium', value: 'gemini-4-argon-medium', displayName: 'Gemini 4 Argon (Medium)', model: 'gemini-4-argon-medium' },
-  { id: 'gemini-4-argon-high', value: 'gemini-4-argon-high', displayName: 'Gemini 4 Argon (High)', model: 'gemini-4-argon-high' },
-  { id: 'gemini-4-argon-low', value: 'gemini-4-argon-low', displayName: 'Gemini 4 Argon (Low)', model: 'gemini-4-argon-low' },
-  { id: 'gemini-3.8-flash-high', value: 'gemini-3.8-flash-high', displayName: 'Gemini 3.8 Flash (High)', model: 'gemini-3.8-flash-high' },
-  { id: 'gemini-3.8-flash-medium', value: 'gemini-3.8-flash-medium', displayName: 'Gemini 3.8 Flash (Medium)', model: 'gemini-3.8-flash-medium' },
-  { id: 'gemini-3.8-flash-low', value: 'gemini-3.8-flash-low', displayName: 'Gemini 3.8 Flash (Low)', model: 'gemini-3.8-flash-low' },
-];
-
 export async function listModels(provider, options = {}) {
   if (provider === 'gemini') {
     const bin = options.bin || resolveBinary(provider);
-    if (isAgy(bin)) {
-      const probe = await probeCli(bin, ['models'], 20000);
-      if (probe.status === 0 && probe.stdout) {
-        const models = probe.stdout
-          .split('\n')
-          .map(line => {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith('⠋') || trimmed.startsWith('Fetching')) return null;
-            const parts = trimmed.split(/\t+|\s{2,}/);
-            const id = parts[0]?.trim();
-            const displayName = parts[1]?.trim() || id;
-            return id ? { id, value: id, displayName, model: id } : null;
-          })
-          .filter(Boolean)
-          .filter(m => /^gemini-/i.test(m.id));
-        if (models.length) return { models, source: 'provider', manualSelection: true };
-      }
-      return { models: knownGeminiModels, source: 'provider', manualSelection: true };
-    }
+    if (isAntigravityACP(bin)) return googleMetadata({ ...options, bin });
+    if (isAgy(bin)) return { models: [], source: 'unavailable', manualSelection: false, message: agyUnsupported };
     return { models: [], source: 'native-cli', manualSelection: true, message: 'Use the Gemini CLI default or enter a model ID available to your account. The selected model is verified before sending a prompt.' };
   }
   if (provider === 'claude') {
@@ -324,9 +285,10 @@ export async function listModels(provider, options = {}) {
   try { await client.initialize(); const result = await client.request('model/list', { limit: 100, includeHidden: false }); return { models: result.data, source: 'provider', nextCursor: result.nextCursor }; }
   finally { client.close(); }
 }
-export async function connectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir() } = {}) {
+export async function connectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir(), googleRoot } = {}) {
   if (provider === 'gemini') {
-    if (isAgy(bin)) return { started: false, nativeFlow: true, message: 'Google Antigravity uses your Google account. Run agy in Terminal to sign in, then refresh status in Settings.' };
+    if (isAntigravityACP(bin)) return connectGoogle({ bin, googleRoot });
+    if (isAgy(bin)) return { started: false, nativeFlow: true, message: agyUnsupported };
     return { started: false, nativeFlow: true, message: geminiSetup };
   }
   if (!bin) throw Object.assign(new Error('Install the provider CLI first.'), { status: 503 });
@@ -348,7 +310,8 @@ export async function connectAccount(provider, { bin = resolveBinary(provider), 
     return login;
   } catch (error) { client.close(); throw error; }
 }
-export async function disconnectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir() } = {}) {
+export async function disconnectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir(), googleRoot } = {}) {
+  if (provider === 'gemini' && isAntigravityACP(bin)) return disconnectGoogle({ bin, googleRoot });
   if (provider === 'gemini') throw Object.assign(new Error('Manage Google and Gemini authentication in the native Antigravity or Gemini CLI. Throughline stores no credentials.'), { status: 400 });
   if (!bin) throw Object.assign(new Error('Install the provider CLI first.'), { status: 503 });
   if (provider === 'claude') { const result = spawnSync(bin, ['auth', 'logout'], { cwd: workspace, encoding: 'utf8', timeout: 5000, shell: false }); if (result.status !== 0) throw new Error(result.stderr || 'Claude logout failed.'); return { disconnected: true }; }

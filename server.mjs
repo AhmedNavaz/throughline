@@ -16,6 +16,7 @@ import { appearance, appearances, preferencePatch, publicPreferences } from './p
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const assets = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/desktop-controls.js': ['desktop-controls.js', 'text/javascript; charset=utf-8'], '/setup.js': ['setup.js', 'text/javascript; charset=utf-8'], '/polish.css': ['polish.css', 'text/css; charset=utf-8'], '/files.js': ['files.js', 'text/javascript; charset=utf-8'], '/files.css': ['files.css', 'text/css; charset=utf-8'], '/onboarding.css': ['onboarding.css', 'text/css; charset=utf-8'],
+  '/model-picker.js': ['model-picker.js', 'text/javascript; charset=utf-8'], '/model-picker.css': ['model-picker.css', 'text/css; charset=utf-8'],
   '/updates.js': ['updates.js', 'text/javascript; charset=utf-8'], '/updates.css': ['updates.css', 'text/css; charset=utf-8'],
   '/local-models.js': ['local-models.js', 'text/javascript; charset=utf-8'], '/local-models.css': ['local-models.css', 'text/css; charset=utf-8'],
   '/agent-review.js': ['agent-review.js', 'text/javascript; charset=utf-8'], '/agent-review.css': ['agent-review.css', 'text/css; charset=utf-8'],
@@ -202,6 +203,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
   const close = ({ force = false } = {}) => closePromise ||= (async () => {
     closing = true;
     closeAccountConnections();
+    await reviewRoutes.close();
     await registry.close();
     clearInterval(heartbeat);
     for (const res of listeners) res.end();

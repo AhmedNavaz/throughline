@@ -145,46 +145,24 @@ if(m.method==='session/prompt'){if(m.params.prompt[0].text.includes('HANG-FIXTUR
   const account = await accountStatus('gemini', { bin: cli, workspace }); assert.equal(account.installed, true); assert.equal(account.authenticated, 'unknown');
 });
 
-test('Antigravity agy binary provides Google account status, filters to Gemini models only, and enforces safe permissions', async t => {
-  const root = folder(t), agyMock = path.join(root, 'agy'), invocations = path.join(root, 'invocations.jsonl');
-  fs.writeFileSync(agyMock, `#!${process.execPath}
+test('Antigravity cannot infer authentication or billing and cannot start a run without an approval protocol', async t => {
+  const root = folder(t), bin = path.join(root, 'agy'), captures = path.join(root, 'commands.jsonl');
+  fs.writeFileSync(bin, `#!${process.execPath}
 import fs from 'node:fs';
-const args = process.argv.slice(2);
-fs.appendFileSync(${JSON.stringify(invocations)}, JSON.stringify({ args }) + '\\n');
-if (args.includes('--version')) { console.log('1.4.12'); process.exit(0); }
-if (args.includes('models')) {
-  console.log('gemini-4-argon-high\\tGemini 4 Argon (High)\\nclaude-opus-5-5-high\\tClaude Opus 5.5 (High)\\ngpt-oss-120b-medium\\tGPT-OSS 120B (Medium)\\ngemini-3.8-flash-low\\tGemini 3.8 Flash (Low)');
-  process.exit(0);
-}
-if (args.includes('--output-format') && args.includes('stream-json')) {
-  console.log(JSON.stringify({ event: 'init', init: { model: 'gemini-4-argon-high' } }));
-  console.log(JSON.stringify({ event: 'step_update', step_update: { state: 'ACTIVE', step_type: 'tool', tool_name: 'read_file', tool_info: { name: 'read_file', parameters: { Path: 'src/app.js' } } } }));
-  console.log(JSON.stringify({ event: 'step_update', step_update: { state: 'DONE', step_type: 'tool', tool_name: 'read_file', tool_info: { output: 'code' } } }));
-  console.log(JSON.stringify({ event: 'step_update', step_update: { state: 'ACTIVE', step_type: 'agent_response', text_delta: 'Agy completed ' } }));
-  console.log(JSON.stringify({ event: 'step_update', step_update: { state: 'DONE', step_type: 'agent_response', text_delta: 'the task.' } }));
-  console.log(JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'Agy completed the task.', usage: { total_tokens: 4200, input_tokens: 4000, output_tokens: 200 } } }));
-  process.exit(0);
-}
+fs.appendFileSync(${JSON.stringify(captures)},JSON.stringify(process.argv.slice(2))+'\\n');
+if(process.argv.includes('--version')){console.log('1.4.12');process.exit(0);}
+process.exit(1);
 `, { mode: 0o700 });
-
-  const models = await listModels('gemini', { bin: agyMock });
-  assert.equal(models.source, 'provider');
-  assert.deepEqual(models.models.map(m => m.id), ['gemini-4-argon-high', 'gemini-3.8-flash-low'], 'Only Gemini models are shown; Claude and GPT-OSS models are filtered out');
-
-  const events = [], metadata = [];
-  await runGemini({ bin: agyMock, workspace: root, mode: 'read', prompt: 'Summarize', model: 'gemini-4-argon-high' }, {
-    event: e => events.push(e),
-    metadata: m => metadata.push(m),
-  });
-  assert.equal(events.at(-1).type, 'turn.completed');
-  assert.equal(events.find(e => e.type === 'item.completed' && e.item?.type === 'agent_message')?.item?.text, 'Agy completed the task.');
-  assert.equal(metadata[0].effectiveModel, 'gemini-4-argon-high');
-  assert.equal(metadata[0].transport, 'agy');
-
-  const runs = fs.readFileSync(invocations, 'utf8').trim().split('\n').map(JSON.parse);
-  const runArgs = runs.find(r => r.args.includes('-p')).args;
-  assert(runArgs.includes('--mode'));
-  assert(runArgs.includes('plan'));
-  const settingsArg = JSON.parse(runArgs[runArgs.indexOf('--settings') + 1]);
-  assert.deepEqual(settingsArg.permissions.deny, ['command(*)', 'write_file(*)']);
+  const account = await accountStatus('gemini', { bin, workspace: root });
+  assert.equal(account.installed, true); assert.equal(account.authenticated, 'unknown'); assert.equal(account.billingSource, 'unknown'); assert.equal(account.capabilities.approvals, false);
+  assert(!account.account); assert.match(account.message, /interactive tool approvals/);
+  const models = await listModels('gemini', { bin }); assert.equal(models.source, 'unavailable'); assert.deepEqual(models.models, []);
+  const before = fs.readFileSync(captures, 'utf8');
+  for (const mode of ['read', 'edit']) await assert.rejects(runGemini({ bin, workspace: root, mode, prompt: 'Must not run' }, { event() {}, metadata() {} }), /interactive tool approvals/);
+  assert.equal(fs.readFileSync(captures, 'utf8'), before, 'Unsupported adapters fail before invoking a task.');
+  const broker = new Broker({ workspace: root, dataDir: path.join(root, 'history'), bins: { gemini: bin, codex: bin, claude: bin } }); t.after(() => broker.close());
+  const c = broker.get(broker.create().id), status = await broker.status();
+  assert.equal(status.providers.gemini.installed, true); assert.equal(status.providers.gemini.available, false);
+  assert.throws(() => broker.start(c, { text: 'Must not be accepted', provider: 'gemini' }), /interactive tool approvals/);
+  assert.equal(c.messages.length, 0); assert.equal(broker.running, null);
 });

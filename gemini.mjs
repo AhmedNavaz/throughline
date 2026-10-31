@@ -1,111 +1,22 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import readline from 'node:readline';
 import { spawn } from 'node:child_process';
-import { EventEmitter } from 'node:events';
+import { GeminiClient } from './acp-client.mjs';
+import { isAntigravityACP, antigravityInvocation, configureAntigravitySession, antigravityAccount, verifyAntigravity } from './antigravity.mjs';
 import { probeCli } from './cli-probe.mjs';
 import { withBinaryPath } from './resolve-binary.mjs';
 import { readWorkspaceFile, writeWorkspaceFile } from './workspace-files.mjs';
 
 const reads = ['read_file', 'list_directory', 'glob', 'grep_search', 'read_many_files'];
 const edits = ['write_file', 'replace', 'run_shell_command'];
-export const isAgy = bin => Boolean(bin && (path.basename(bin).toLowerCase().startsWith('agy') || path.basename(bin).toLowerCase().startsWith('antigravity')));
-export const geminiSetup = 'Install Google Antigravity CLI (curl -fsSL https://antigravity.google/cli/install.sh | bash) or sign in with your Google account via agy in Terminal. Alternatively, Gemini CLI 0.66.0+ is supported with an API key.';
+export const isAgy = bin => Boolean(bin && /^(?:agy|antigravity)(?:\.exe)?$/i.test(path.basename(bin)));
+export const agyUnsupported = 'Antigravity CLI does not expose interactive tool approvals to this connection. Use Google Antigravity ACP from Settings for Google sign-in, or the native terminal.';
+export const geminiSetup = 'Connect Gemini with Google Antigravity in Settings: install the official connection, then sign in with Google. Available models and usage limits come from your Google account. Gemini CLI remains an advanced option for API-key and enterprise connections.';
 
-export async function runAgy(config, { event, metadata, cancelled = () => false, spawnImpl = spawn }) {
-  const args = ['--output-format', 'stream-json', '--print-timeout', '180s'];
-  if (config.model) args.push('--model', config.model);
-  if (config.effort) args.push('--effort', config.effort);
-  for (const folder of (config.workspaces || []).filter(dir => dir !== config.workspace)) {
-    args.push('--add-dir', folder);
-  }
-  const permissions = config.mode === 'read'
-    ? { deny: ['command(*)', 'write_file(*)'] }
-    : { allow: ['write_file(*)'], deny: ['command(*)'] };
-  args.push('--mode', config.mode === 'read' ? 'plan' : 'accept-edits');
-  args.push('--settings', JSON.stringify({ permissions }));
-  args.push('-p', config.prompt);
-
-  const env = withBinaryPath(config.bin);
-  const child = spawnImpl(config.bin, args, { cwd: config.workspace, env, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
-  child.stdin.end();
-
-  let diagnostic = '', response = '', sawInit = false;
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', chunk => { diagnostic = (diagnostic + chunk).slice(-16000); });
-
-  const rl = readline.createInterface({ input: child.stdout });
-  rl.on('line', line => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    try {
-      const data = JSON.parse(trimmed);
-      if (data.event === 'init') {
-        sawInit = true;
-        metadata({
-          effectiveModel: data.init?.model || config.model || 'Provider default',
-          transport: 'agy',
-          account: { authenticated: true, authMode: 'google-account', billingSource: 'subscription' },
-        });
-        event({ type: 'relay.progress', phase: 'working' });
-      } else if (data.event === 'step_update') {
-        const update = data.step_update || {};
-        if (update.step_type === 'agent_response') {
-          if (update.text_delta) {
-            response += update.text_delta;
-            event({ type: 'relay.delta', id: 'response', text: update.text_delta });
-          }
-          if (update.usage) {
-            metadata({ usage: { used: update.usage.total_tokens, input: update.usage.input_tokens, output: update.usage.output_tokens } });
-          }
-        } else if (update.step_type === 'tool') {
-          const stepId = `tool-${update.step_index}`;
-          const toolName = update.tool_name || update.tool_info?.name || 'tool';
-          if (update.state === 'ACTIVE') {
-            event({ type: 'item.started', item: { id: stepId, type: 'mcp_tool_call', tool: toolName, result: [] } });
-          } else if (update.state === 'DONE' || update.state === 'ERROR') {
-            const out = update.tool_info?.output || update.tool_info?.error?.message || '';
-            event({ type: 'item.completed', item: { id: stepId, type: 'mcp_tool_call', tool: toolName, result: [out] } });
-          }
-        }
-      } else if (data.event === 'result') {
-        const result = data.result || {};
-        if (result.usage) {
-          metadata({ usage: { used: result.usage.total_tokens, input: result.usage.input_tokens, output: result.usage.output_tokens } });
-        }
-        if (result.status === 'ERROR') {
-          throw new Error(result.error || diagnostic.trim() || 'Antigravity run failed.');
-        }
-        if (!response && result.response) {
-          response = result.response;
-          event({ type: 'relay.delta', id: 'response', text: result.response });
-        }
-      }
-    } catch (err) {
-      if (!child.killed) child.kill('SIGTERM');
-      throw err;
-    }
-  });
-
-  const timer = setInterval(() => { if (cancelled() && !child.killed) child.kill('SIGTERM'); }, 100);
-
-  try {
-    const exitCode = await new Promise((resolve, reject) => {
-      child.on('error', reject);
-      child.on('close', (code, signal) => resolve({ code, signal }));
-    });
-    if (cancelled()) throw new Error('Antigravity run cancelled.');
-    if (exitCode.code !== 0 && !response) {
-      throw new Error(diagnostic.trim() || `Antigravity CLI exited with code ${exitCode.code ?? exitCode.signal}.`);
-    }
-    if (response) event({ type: 'item.completed', item: { id: 'response', type: 'agent_message', text: response } });
-    event({ type: 'turn.completed' });
-  } finally {
-    clearInterval(timer);
-    if (!child.killed) child.kill('SIGTERM');
-  }
-}
+// Antigravity headless mode may soft-deny tools and still exit successfully.
+// Never replace Throughline approvals with pre-approved native write permissions.
+export async function runAgy() { throw new Error(agyUnsupported); }
 
 // Isolate invocation policy without changing the user's settings or authentication.
 // Managed system policy cannot safely be replaced by this per-run configuration.
@@ -130,53 +41,7 @@ export function geminiInvocation(config, { env = process.env, platform = process
   } catch (error) { cleanup(); throw error; }
 }
 
-// ACP is newline-delimited JSON-RPC. Bound frames before parsing, and fail all
-// outstanding requests on malformed output, timeout, exit or cancellation.
-export class GeminiClient extends EventEmitter {
-  constructor({ bin, cwd, args, env, spawnImpl = spawn }) {
-    super(); this.pending = new Map(); this.counter = 0; this.closed = false;
-    this.child = spawnImpl(bin, args, { cwd, env, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
-    let buffer = '', diagnostic = '';
-    this.child.stderr.on('data', chunk => { diagnostic = (diagnostic + chunk).slice(-8000); });
-    this.child.stdout.setEncoding('utf8');
-    this.child.stdout.on('data', chunk => {
-      buffer += chunk;
-      if (buffer.length > 8 * 1024 * 1024) { this.fail(new Error('Oversized Gemini protocol event.')); return; }
-      let newline;
-      while ((newline = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
-        if (!line.trim()) continue;
-        try {
-          const message = JSON.parse(line);
-          if (!message || message.jsonrpc !== '2.0') throw new Error('Expected JSON-RPC 2.0.');
-          if (message.id !== undefined && !message.method) {
-            const request = this.pending.get(message.id); if (!request) continue;
-            clearTimeout(request.timer); this.pending.delete(message.id);
-            if (message.error) request.reject(new Error(message.error.message || 'Gemini protocol error.'));
-            else request.resolve(message.result);
-          } else this.emit('message', message);
-        } catch (error) { this.fail(new Error('Invalid Gemini protocol: ' + error.message)); return; }
-      }
-    });
-    this.child.stdin.on('error', () => {});
-    this.child.on('error', error => this.fail(error));
-    this.child.on('close', (code, signal) => this.fail(new Error(diagnostic || `Gemini ACP closed (${code ?? signal}).`)));
-  }
-  send(message) { if (!this.closed) this.child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n'); }
-  request(method, params = {}, timeout = 30000) {
-    if (this.closed) return Promise.reject(new Error('Gemini ACP is closed.'));
-    const id = ++this.counter;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('Gemini protocol timed out: ' + method)); this.close(); }, timeout);
-      this.pending.set(id, { resolve, reject, timer }); this.send({ id, method, params });
-    });
-  }
-  fail(error) {
-    for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(error); }
-    this.pending.clear(); this.close();
-  }
-  close() { if (!this.closed) { this.closed = true; this.child.stdin.end(); this.child.kill('SIGTERM'); } }
-}
+export { GeminiClient } from './acp-client.mjs';
 
 export function geminiFile(config, filename) {
   if (typeof filename !== 'string' || !path.isAbsolute(filename)) throw new Error('Gemini requested an invalid absolute file path.');
@@ -190,14 +55,15 @@ export function geminiFile(config, filename) {
 
 export async function runGemini(config, { event, approval, metadata, cancelled = () => false, probe = probeCli, invocation = geminiInvocation, clientFactory = options => new GeminiClient(options), spawnImpl = spawn }) {
   if (isAgy(config.bin)) return runAgy(config, { event, metadata, cancelled, spawnImpl });
-  if (config.effort) throw new Error('Gemini reasoning effort is controlled by its native model; clear the effort selection.');
-  const version = await probe(config.bin, ['--version'], 5000), match = version.stdout?.trim().match(/^(\d+)\.(\d+)\.(\d+)/);
-  if (version.status !== 0 || !match || +match[1] === 0 && +match[2] < 66) throw new Error('Gemini CLI 0.66.0 or newer is required. ' + geminiSetup);
-  const options = invocation(config);
+  const antigravity = isAntigravityACP(config.bin);
+  if (!antigravity && config.effort) throw new Error('Gemini reasoning effort is controlled by its native model; clear the effort selection.');
+  const version = antigravity ? null : await probe(config.bin, ['--version'], 5000), match = version?.stdout?.trim().match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!antigravity && (version.status !== 0 || !match || +match[1] === 0 && +match[2] < 66)) throw new Error('Gemini CLI 0.66.0 or newer is required. ' + geminiSetup);
+  const options = antigravity ? antigravityInvocation(config) : invocation(config);
   let client;
   try { client = clientFactory({ bin: config.bin, cwd: config.workspace, ...options }); }
   catch (error) { options.cleanup(); throw error; }
-  let sessionId, response = '', denied = false;
+  let sessionId, response = '', denied = false, deniedReason = '';
   const tools = new Map();
   const timer = setInterval(() => { if (cancelled()) { if (sessionId) client.send({ method: 'session/cancel', params: { sessionId } }); client.close(); } }, 100);
   client.on('message', async message => {
@@ -209,7 +75,8 @@ export async function runGemini(config, { event, approval, metadata, cancelled =
         if (message.method === 'session/request_permission') {
           const once = p.options?.find(option => option.kind === 'allow_once');
           const tool = p.toolCall || {};
-          const allow = !cancelled() && config.mode !== 'read' && once && await approval({ id: String(message.id), kind: tool.kind || 'tool', title: tool.title, input: { action: tool.title }, toolCall: tool });
+          if (antigravity && /^interaction_/.test(tool.toolCallId || '')) throw new Error('Antigravity needs an interactive answer. Continue in its native client; Throughline did not choose an answer for you.');
+          const allow = !cancelled() && config.mode !== 'read' && once && await approval({ id: String(message.id), kind: tool.kind || 'tool', title: tool.title, input: tool.rawInput || { action: tool.title }, toolCall: tool });
           if (!allow || cancelled()) { denied = true; result = { outcome: { outcome: 'cancelled' } }; }
           else result = { outcome: { outcome: 'selected', optionId: once.optionId } };
         } else if (message.method === 'fs/read_text_file') {
@@ -236,25 +103,27 @@ export async function runGemini(config, { event, approval, metadata, cancelled =
       }
       if (update.sessionUpdate === 'usage_update') metadata({ usage: { used: update.used, size: update.size, cost: update.cost } });
     } catch (error) {
-      if (message.id !== undefined) { denied = true; client.send({ id: message.id, error: { code: -32000, message: error.message } }); }
+      if (message.id !== undefined) { denied = true; deniedReason = error.message; client.send({ id: message.id, error: { code: -32000, message: error.message } }); }
       else client.fail(error);
     }
   });
   try {
-    const initialized = await client.request('initialize', { protocolVersion: 1, clientInfo: { name: 'throughline', version: '0.10.1' }, clientCapabilities: { fs: { readTextFile: true, writeTextFile: config.mode !== 'read' }, terminal: false } });
+    const initialized = await client.request('initialize', { protocolVersion: 1, clientInfo: { name: 'throughline', version: '0.11.0' }, clientCapabilities: { fs: { readTextFile: true, writeTextFile: config.mode !== 'read' }, terminal: false } });
     if (initialized.protocolVersion !== 1) throw new Error('Unsupported Gemini ACP protocol version.');
+    if (antigravity) verifyAntigravity(initialized);
     if (cancelled()) throw new Error('Gemini run cancelled.');
     const session = await client.request('session/new', { cwd: config.workspace, mcpServers: [] }, 60000); sessionId = session.sessionId;
     if (typeof sessionId !== 'string' || !sessionId) throw new Error('Invalid Gemini ACP session.');
-    if (config.model && session.models?.currentModelId !== config.model) throw new Error('Gemini did not select the requested model. No prompt was sent.');
+    if (antigravity) await configureAntigravitySession(client, session, config);
+    if (!antigravity && config.model && session.models?.currentModelId !== config.model) throw new Error('Gemini did not select the requested model. No prompt was sent.');
     const images = config.images || [];
     if (images.length && !initialized.agentCapabilities?.promptCapabilities?.image) throw new Error('This Gemini CLI does not support image attachments.');
-    metadata({ effectiveModel: session.models?.currentModelId || config.model || 'Provider default', transport: 'acp', account: { authenticated: true, authMode: 'native-cli', billingSource: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api' : 'unknown' } });
+    metadata({ effectiveModel: antigravity ? session.configOptions?.find(option => option.id === 'model')?.currentValue || config.model || 'Provider default' : session.models?.currentModelId || config.model || 'Provider default', effectiveEffort: antigravity ? session.configOptions?.find(option => ['thinking_level', 'thought_level'].includes(option.id))?.currentValue || null : null, transport: 'acp', account: antigravity ? antigravityAccount(session) : { authenticated: true, authMode: 'native-cli', billingSource: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api' : 'unknown' } });
     event({ type: 'relay.progress', phase: 'working' });
     if (cancelled()) throw new Error('Gemini run cancelled.');
     const result = await client.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: config.prompt }, ...images.map(image => ({ type: 'image', mimeType: image.mime, data: image.data }))] }, 30 * 60 * 1000);
     if (result.stopReason !== 'end_turn' || cancelled()) throw new Error('Gemini turn did not complete: ' + (result.stopReason || 'unknown'));
-    if (denied) throw new Error('Gemini requested an action that was denied or unsupported. Some work may be incomplete.');
+    if (denied) throw new Error('Gemini requested an action that was denied or unsupported. Some work may be incomplete.' + (deniedReason ? ' ' + deniedReason : ''));
     if (response) event({ type: 'item.completed', item: { id: 'response', type: 'agent_message', text: response } });
     event({ type: 'turn.completed' });
   } finally { clearInterval(timer); client.close(); options.cleanup(); }

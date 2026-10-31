@@ -50,6 +50,27 @@ function client(app, token) {
   return { request, project, broker, c, files, preview };
 }
 
+test('background reviews read approved copies while the builder continues, retry idempotently and stop independently', async t => {
+  const f = fixture(t), app = await f.launch(), api = client(app);
+  f.scenario({ hang: true });
+  const snapshot = await api.preview(), input = { files: api.files, goal: 'Review the approved version', approvedDigest: snapshot.digest, requestId: 'background-review', background: true };
+  const result = await api.request('/start', input); assert.equal(result.status, 202);
+  const job = api.broker.backgroundReview; assert(job); assert.equal(api.broker.running, null); assert.equal(api.c.status, 'idle');
+  assert.notEqual(job.worker.workspace, fs.realpathSync(f.workspace)); assert.equal(fs.readFileSync(path.join(job.worker.workspace, 'app.js'), 'utf8'), 'export const value = 2;\n');
+  for (let i = 0; i < 100 && !f.captures().length; i++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert(f.captures().length);
+  fs.writeFileSync(path.join(f.workspace, 'app.js'), 'export const value = 3;\n');
+  assert.equal(fs.readFileSync(path.join(job.worker.workspace, 'app.js'), 'utf8'), 'export const value = 2;\n');
+  f.scenario({ output: 'Builder continued with its next task.' });
+  api.broker.start(api.c, { text: 'Work on the next task', provider: 'codex', requestId: 'builder-next' }); await api.broker.running.done;
+  assert.equal(api.c.status, 'complete'); assert.equal(api.c.reviews[0].status, 'running'); const lastRun = api.c.lastRun.id;
+  const duplicate = await api.request('/start', input); assert.equal(duplicate.status, 202); assert.equal(duplicate.body.reviewId, result.body.reviewId); assert.equal(duplicate.body.duplicate, true);
+  assert.equal((await api.request('/start', { ...input, goal: 'Different task' })).status, 409);
+  assert.equal((await api.request('/' + result.body.reviewId)).body.stale, true);
+  assert.equal((await api.request('/' + result.body.reviewId + '/stop', {})).status, 200); await job.done;
+  assert.equal(api.c.reviews[0].status, 'interrupted'); assert.equal(api.c.lastRun.id, lastRun); assert.equal(api.c.status, 'complete'); assert(!fs.existsSync(job.directory));
+});
+
 for (const builder of ['codex', 'claude']) test(`${builder} changes are reviewed by the other agent with fresh read-only state, saved findings and an explicit fix draft`, async t => {
   const f = fixture(t), app = await f.launch(), api = client(app);
   api.broker.settings(api.c, { provider: builder, mode: 'edit', model: 'builder-model', effort: 'high' });
