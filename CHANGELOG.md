@@ -2,6 +2,20 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.10.2] - 2026-10-31
+
+### Fixed
+
+- Review and Ask a Friend shortcuts require the existing file selection, exact preview, billing confirmation and sharing approval steps before running an agent or publishing material.
+- Local handoffs require an explicit downloaded model choice and preserve cloud preferences, composer drafts and unsent attachments across workspace switches and retries.
+- Antigravity headless runs are blocked because their protocol cannot provide Throughline tool approvals; Gemini CLI 0.66.0+ remains supported through ACP.
+- Google account status and billing are no longer inferred from cached account names, and failed model discovery never invents available models.
+
+### Changed
+
+- The compact composer separates agent, model, reasoning effort and workspace access, with a clear Local (Ollama) handoff action.
+- Completed runs offer review and collaboration next steps that respect the current workspace and stay dismissed until another run completes.
+
 ## [0.10.1] - 2026-10-31
 
 ### Added
@@ -159,6 +173,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.10.2]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.2
 [0.10.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.1
 [0.10.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.0
 [0.9.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.9.1

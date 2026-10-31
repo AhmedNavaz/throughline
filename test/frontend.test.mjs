@@ -123,7 +123,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
       if (/^\/api\/providers\/(codex|claude)\/models$/.test(request.path)) return response({models:[{id:'model-one',value:'model-one',displayName:'Model One',isDefault:true,defaultReasoningEffort:'medium',supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'high'}]},{id:'model-two',value:'model-two',displayName:'Model Two',supportedEffortLevels:['low','medium']}]});
       const selected=projects.find(project=>project.id===request.projectId);assert(selected,'Project-owned requests need an explicit valid project ID.');
 
-      if (request.path==='/api/git') return response({checkedAt:new Date().toISOString(),repositories:[{folderId:'frontend',name:'Frontend',available:true,branch:'feature/design',totalChanges:1,changes:[{path:'app.js',code:' M',staged:false}],commits:[{hash:'abc',shortHash:'abc123',author:'Fixture author',date:new Date().toISOString(),subject:'Improve workspace navigation'}]}]});
+      if (request.path==='/api/git') return response({totalChanges:1,checkedAt:new Date().toISOString(),repositories:[{folderId:'frontend',name:'Frontend',available:true,branch:'feature/design',totalChanges:1,changes:[{path:'app.js',code:' M',staged:false}],commits:[{hash:'abc',shortHash:'abc123',author:'Fixture author',date:new Date().toISOString(),subject:'Improve workspace navigation'}]}]});
       if (request.path==='/api/git/diff') return response({folderId:'frontend',path:'app.js',code:' M',diff:'diff --git a/app.js b/app.js\nindex 1..2 100644\n--- a/app.js\n+++ b/app.js\n@@ -1,2 +1,2 @@\n const value = 1;\n--- old SQL comment\n+// updated\n',truncated:false});
       if (request.path==='/api/imports/preview') return response({provider:'codex',sessionId:'external-one',title:'Existing native task',digest:'reviewed-source',messageCount:2,messages:[{sourceId:'u',role:'user',text:'Original task'},{sourceId:'a',role:'assistant',text:'Saved native answer'}]});
       if (request.path==='/api/imports') {
@@ -1262,6 +1262,36 @@ test('a lost local-start response retries the same request ID and preserves the 
   ui.$('local-start').click();await flush();assert.equal(ui.$('local-dialog').open,true);assert.match(ui.$('local-error').textContent,/cannot reach/i);
   ui.$('local-start').click();await flush();const requests=ui.requests.filter(request=>request.path==='/api/local-models/start');
   assert.equal(requests.length,2);assert.equal(requests[0].body.requestId,requests[1].body.requestId);assert.equal(ui.conversations[0].messages.filter(item=>item.connection==='local').length,1);assert.equal(ui.$('message-input').value,'Keep my draft');
+});
+
+test('the compact agent picker preserves cloud preferences and attachments when opening or cancelling a local handoff', async () => {
+  const ui = await browser({ localUI: true, filesUI: true, moreProjects: true });
+  await ui.window.relayUI.setConfiguration({ model: 'saved-cloud-model', effort: 'high' });
+  await ui.window.relayFiles.addSnapshots([{ name: 'notes.md', data: 'bm90ZXM=' }]); await flush();
+  const attachment = ui.window.relayFiles.ids()[0];
+  ui.$('message-input').value = 'Keep this task'; ui.fire('message-input', 'input');
+  ui.$('agent-select').value = 'local'; ui.fire('agent-select', 'change'); await flush();
+  assert.equal(ui.$('local-dialog').open, true); assert.equal(ui.$('local-start').disabled, true);
+  assert.equal(ui.state().model, 'saved-cloud-model'); assert.equal(ui.state().effort, 'high'); assert.equal(ui.$('agent-select').value, 'codex');
+  assert(!ui.requests.some(request => request.path === '/api/local-models/start'));
+  ui.$('local-close').click(); await flush();
+  assert.equal(ui.$('message-input').value, 'Keep this task'); assert.equal(ui.window.relayFiles.ids()[0], attachment);
+  ui.$('agent-select').value = 'claude'; ui.fire('agent-select', 'change'); await flush(); assert.equal(ui.state().provider, 'claude');
+  await ui.switchProject('project-two'); assert.equal(ui.$('local-dialog').open, false); assert.equal(ui.$('agent-select').value, 'codex');
+});
+
+test('post-run shortcuts keep review and sharing behind preview, remain dismissed and never follow a workspace switch', async () => {
+  const ui = await browser({ insights: true, reviewsUI: true, workbench: true, moreProjects: true, billingSource: 'unknown' }); reviewBrowserRoutes(ui);
+  const chat = ui.canonical.get('project-one'); chat.status = 'complete'; chat.lastRun = { id: 'completed-run', status: 'complete', provider: 'codex' };
+  await ui.window.relayUI.refresh(); await flush(); assert.equal(ui.$('next-actions').hidden, false); assert.match(ui.$('next-actions-text').textContent, /1 changed file/);
+  ui.$('next-review').click(); await flush(); assert.equal(ui.$('review-dialog').open, true); assert.equal(ui.$('start-review').disabled, true);
+  assert(!ui.requests.some(request => request.path === '/api/reviews/start'));
+  ui.$('close-review').click(); ui.$('next-friend').click(); await flush(); assert.equal(ui.$('workbench').open, true);
+  assert(!ui.requests.some(request => /\/(?:approve|publish)$/.test(request.path)), 'Opening sharing cannot approve or publish material.');
+  ui.$('workbench').close(); ui.$('dismiss-next-actions').click(); ui.window.dispatchEvent(new UIEvent('relay-state')); await flush(); assert.equal(ui.$('next-actions').hidden, true);
+  chat.lastRun = { ...chat.lastRun, id: 'new-completed-run' }; await ui.window.relayUI.refresh(); await flush(); assert.equal(ui.$('next-actions').hidden, false);
+  await ui.switchProject('project-two'); assert.equal(ui.$('next-actions').hidden, true);
+  await ui.switchProject('project-one'); chat.status = 'running'; await ui.window.relayUI.refresh(); await flush(); assert.equal(ui.$('next-actions').hidden, true);
 });
 
 test('Gemini requires explicit unverified-billing confirmation, supports custom model IDs and receives quota handoffs',async()=>{
