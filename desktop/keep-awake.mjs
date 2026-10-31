@@ -3,7 +3,7 @@
 export function createKeepAwake({ registry, blocker, enabled = false, save = () => {}, onChange = () => {}, pollMs = 5000 }) {
   let preference = enabled === true, id = null, disposed = false, scheduled = false, last = '', state;
   function sync() {
-    const runningCount = [...registry.brokers.values()].filter(entry => entry.broker.running).length;
+    const runningCount = [...registry.brokers.values()].reduce((count, entry) => count + (entry.broker.running ? 1 : 0) + (entry.broker.backgroundReview ? 1 : 0), 0);
     let error = null;
     try {
       if (preference && runningCount && !disposed) {

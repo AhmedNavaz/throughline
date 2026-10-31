@@ -38,6 +38,8 @@ The fastest way to make Throughline better is to use it on your real projects an
 | Continue locally with downloaded Ollama models, shared task context and Codex workspace tools | [0.10.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.0) |
 | In-app release notes after updates, with saved workspaces opening directly | [0.10.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.0) |
 
+| Contextual background reviews, grouped cloud/local model selection and prefilled Ask a Friend previews | [0.11.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.0) |
+
 ## Now
 
 | Feature | Status | Issue |

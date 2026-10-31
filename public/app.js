@@ -21,7 +21,7 @@
     removeDialog: $("remove-workspace-dialog"), removeName: $("remove-workspace-name"), removeConfirm: $("confirm-remove-workspace"), removeCancel: $("cancel-remove-workspace"), removeError: $("remove-workspace-error"),
   };
   const state = {
-    accounts: {}, accountsChecking: {}, accountChecks: {}, accountCheck: 0, accountsCheckedAt: 0, accountRefresh: null, connectionAction: null, model: "", effort: null, workspaceFilter: "", streamConnected: null, retrySubmission: null, status: null, conversation: null, provider: "codex", mode: "edit",
+    localSelections: {}, accounts: {}, accountsChecking: {}, accountChecks: {}, accountCheck: 0, accountsCheckedAt: 0, accountRefresh: null, connectionAction: null, model: "", effort: null, workspaceFilter: "", streamConnected: null, retrySubmission: null, status: null, conversation: null, provider: "codex", mode: "edit",
     pending: null, loading: false, selectionVersion: 0, refreshPromise: null, refreshAgain: false,
     settingsRevision: 0, settingsPending: 0, settingsPromise: Promise.resolve(),
     noticeRetry: null, eventTimer: null, messagesSignature: "", listSignature: "", ready: false,
@@ -195,7 +195,7 @@
     const info=connection(state.provider),other=['codex','claude','gemini'].find(provider=>provider!==state.provider&&available(provider)) || 'codex',name=label(state.provider);
     const fresh=!state.conversation?.messages?.length,none=!['codex','claude','gemini'].some(available);
     notice.hidden=true;state.connectionAction=null;state.installUrl=null;if(install)install.hidden=true;
-    if(!state.ready||isRunning()||(fresh&&none))return;
+    if(!state.ready||isRunning()||state.localSelections[state.projectId]||(fresh&&none))return;
     let text='',action='';
     if(!info.installed){
       text=name+' is not installed.';
@@ -464,7 +464,7 @@
     ui.input.disabled = !state.ready || state.loading || state.pending === "new";
     ui.input.placeholder = running ? "Draft your next message…" : "Describe the task or ask a question…";
     ui.send.hidden = running;
-    ui.send.disabled = !state.ready || busy || otherRunning || selectedConnection.blocked || window.relayFiles?.uploading() || (!ui.input.value.trim() && !window.relayFiles?.ids().length);
+    ui.send.disabled = !state.ready || busy || otherRunning || (!state.localSelections[state.projectId] && selectedConnection.blocked) || window.relayFiles?.uploading() || (!ui.input.value.trim() && !window.relayFiles?.ids().length);
     ui.send.firstElementChild.textContent = state.pending === "send" ? "Sending…" : "Send";
     ui.stop.hidden = !running;
     ui.stop.disabled = busy;
@@ -491,11 +491,12 @@
     ui.state.hidden=!state.projectId||!state.ready;
     const approvals=state.conversation?.pendingApprovals?.length;
     let status=running?(approvals?'Approval required':'Running'):selectedConnection.needsSignIn||!selectedConnection.installed?'Connection required':selectedConnection.needsBilling?'Review billing':selectedConnection.checking?'Checking connection':selectedConnection.account?.authenticated!==true?'Not verified':'Ready';
+    if (state.localSelections[state.projectId] && !running) status = 'Local selected';
     if (running && run?.purpose === 'review') status = 'Reviewing';
     if(incomplete && run?.provider===state.provider)status='Stopped';
     if(state.pending==='stop')status='Stopping…';else if(state.pending==='send'||state.pending==='continue')status='Sending…';
     ui.state.lastElementChild.textContent=status;
-    ui.state.dataset.status=running?(approvals?'approval':'running'):incomplete?'stopped':selectedConnection.blocked?'setup':'ready';
+    ui.state.dataset.status=running?(approvals?'approval':'running'):incomplete?'stopped':!state.localSelections[state.projectId] && selectedConnection.blocked?'setup':'ready';
     renderConnectionNotice();
     document.title = currentProject() ? currentProject().name + " · Throughline" : "Throughline · Your project workspaces";
   }
@@ -585,13 +586,14 @@
     const attachments = continuing ? [] : window.relayFiles?.ids() || [];
     const text = ui.input.value.trim() || (attachments.length ? "Please review the attached files." : "");
     if (window.relayFiles?.uploading()) return;
-    if (state.pending || state.loading || state.projectSaving || isRunning() || isOtherRunning() || !state.ready || connection(state.provider).blocked || (!continuing && !text)) return;
+    if (state.pending || state.loading || state.projectSaving || isRunning() || isOtherRunning() || !state.ready || (!state.localSelections[state.projectId] && connection(state.provider).blocked) || (!continuing && !text)) return;
     const provider = state.provider;
     const mode = state.mode;
     const originalDraft = ui.input.value;
-    const payloadKey = JSON.stringify([state.projectId,state.conversation?.id,continuing,text,provider,mode,state.model,state.effort,attachments]);
+    const localChoice = state.localSelections[state.projectId] || null;
+    const payloadKey = JSON.stringify([state.projectId,state.conversation?.id,continuing,text,provider,mode,state.model,state.effort,attachments,localChoice]);
     const requestId = state.retrySubmission?.key === payloadKey ? state.retrySubmission.id : crypto.randomUUID();
-    state.retrySubmission = {key:payloadKey,id:requestId};
+    state.retrySubmission = { ...(state.retrySubmission?.key === payloadKey ? state.retrySubmission : {}), key:payloadKey,id:requestId };
     const projectId = state.projectId;
     state.pending = continuing ? "continue" : "send";
     saveDraft();
@@ -601,8 +603,16 @@
       await state.settingsPromise;
       if (!state.conversation) await ensureCanonicalConversation();
       const id = state.conversation.id;
-      state.retrySubmission.key = JSON.stringify([state.projectId,id,continuing,text,provider,mode,state.model,state.effort,attachments]);
-      await post(endpoint(id, continuing ? "continue" : "messages"), continuing ? { provider, mode, requestId, model:state.model || undefined, effort:state.effort || null, billingConfirmed:window.relayBillingConfirmed === true } : { text, attachments, provider, mode, requestId, model:state.model || undefined, effort:state.effort || null, billingConfirmed:window.relayBillingConfirmed === true }, projectId);
+      state.retrySubmission.key = JSON.stringify([state.projectId,id,continuing,text,provider,mode,state.model,state.effort,attachments,localChoice]);
+      if (localChoice) {
+        if (!state.retrySubmission.localContext) {
+          const catalog = await api('/api/local-models', {}, projectId);
+          if (!catalog.installed) throw Error('Install Codex CLI for local workspace tools.');
+          if (!catalog.models.some(row => row.id === localChoice.model && row.digest === localChoice.digest)) throw Error('This local model changed or was removed. Choose it again from the model picker.');
+          state.retrySubmission.localContext = catalog.context;
+        }
+        await post('/api/local-models/start', { model:localChoice.model, digest:localChoice.digest, task:continuing ? 'Continue the unfinished task from the saved conversation. Inspect current files first.' : text, attachments, requestId, context:state.retrySubmission.localContext }, projectId);
+      } else await post(endpoint(id, continuing ? "continue" : "messages"), continuing ? { provider, mode, requestId, model:state.model || undefined, effort:state.effort || null, billingConfirmed:window.relayBillingConfirmed === true } : { text, attachments, provider, mode, requestId, model:state.model || undefined, effort:state.effort || null, billingConfirmed:window.relayBillingConfirmed === true }, projectId);
       state.retrySubmission = null;
       if (!continuing) window.relayFiles?.accepted(projectId, attachments);
       if (!continuing && ui.input.value === originalDraft) {
@@ -612,10 +622,10 @@
         resizeInput();
       }
       state.conversation.status = "running";
-      state.conversation.provider = provider;
+      if (!localChoice) state.conversation.provider = provider;
       state.conversation.mode = mode;
       if (state.status) state.status.runningConversationId = id;
-      announce(`${label(provider)} is working.`);
+      announce(`${localChoice ? "Local · Ollama" : label(provider)} is working.`);
       await refresh();
       render(true);
     } catch (error) {
@@ -931,9 +941,9 @@
     if (selected === "local") { ui.agent.value = state.provider; window.relayLocal?.open(); }
     else if (["codex", "claude", "gemini"].includes(selected) && available(selected)) changeSettings(selected, state.mode);
   });
-  ui.codex.addEventListener("click", () => changeSettings("codex", state.mode));
-  ui.claude.addEventListener("click", () => changeSettings("claude", state.mode));
-  ui.gemini.addEventListener("click", () => changeSettings("gemini", state.mode));
+  ui.codex.addEventListener("click", () => { delete state.localSelections[state.projectId]; changeSettings("codex", state.mode); });
+  ui.claude.addEventListener("click", () => { delete state.localSelections[state.projectId]; changeSettings("claude", state.mode); });
+  ui.gemini.addEventListener("click", () => { delete state.localSelections[state.projectId]; changeSettings("gemini", state.mode); });
   ui.mode.addEventListener("change", () => changeSettings(state.provider, ui.mode.value));
   ui.stop.addEventListener("click", stop);
   ui.continueButton.addEventListener("click", () => {const target=state.continuationProvider||state.provider;if(target!==state.provider)changeSettings(target,state.mode);run(true);});
@@ -956,6 +966,21 @@
     getState: () => state, api, post, refresh, renderControls, showNotice, selectProject, refreshAccounts, refreshProjects, announce, selectedFolderId: () => selectedFolderId(), selectFolder, highlightLines,
     commands, isRunning, filteredProjects,
     ensureConversation: ensureCanonicalConversation,
+    selectLocalModel(model) {
+      if (!state.projectId || !state.ready || state.pending || state.settingsPending || isRunning()) throw Error('Finish the current run before changing the model.');
+      if (model && (typeof model.model !== 'string' || !/^[a-f0-9]{64}$/i.test(model.digest))) throw Error('Refresh local models and choose a downloaded model.');
+      if (model) state.localSelections[state.projectId] = { model:model.model, digest:model.digest }; else delete state.localSelections[state.projectId];
+      state.retrySubmission = null; render();
+    },
+    async selectAgentModel(provider, model) {
+      if (!available(provider)) throw Error('Connect this agent in Settings first.');
+      const projectId = state.projectId, version = state.projectVersion;
+      changeSettings(provider, state.mode); await state.settingsPromise;
+      if (!sameProject(projectId,version)) return false;
+      await window.relayUI.setConfiguration({model,effort:state.conversation?.efforts?.[provider]?.[model || 'default'] ?? null});
+      if (!sameProject(projectId,version)) return false;
+      delete state.localSelections[projectId]; render(); return true;
+    },
     async setModel(model) { return window.relayUI.setConfiguration({ model, effort: null }); },
     async setConfiguration({model = state.model, effort = null}) {
       if (!state.ready || state.pending || state.settingsPending || isRunning()) throw new Error('Finish the current run before changing the model or effort.');

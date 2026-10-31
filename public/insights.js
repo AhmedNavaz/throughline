@@ -15,10 +15,12 @@
   function nextSteps() {
     const state = api.getState(), run = state.conversation?.lastRun;
     const count = gitScope === state.projectId ? gitData?.totalChanges || 0 : 0;
-    $('next-actions').hidden = !state.projectId || api.isRunning() || run?.status !== 'complete' || run?.purpose === 'review' || !count || dismissedSteps.has(nextStepsKey());
-    $('next-actions-text').textContent = `${count} changed file${count === 1 ? '' : 's'} in this workspace`;
+    const blocked = ['incomplete','interrupted'].includes(run?.status);
+    $('next-actions').hidden = !state.projectId || api.isRunning() || (!blocked && (run?.status !== 'complete' || !count)) || run?.purpose === 'review' || !run || dismissedSteps.has(nextStepsKey());
+    $('next-actions-text').textContent = blocked ? 'Need another pair of eyes on this task?' : `${count} changed file${count === 1 ? '' : 's'} · Ready for a second look`;
+    $('next-review').hidden = !count;
   }
-  $('next-review').addEventListener('click', () => window.relayReviews?.open());
+  $('next-review').addEventListener('click', () => window.relayReviews?.suggest());
   $('next-friend').addEventListener('click', () => $('ask-friend').click());
   $('dismiss-next-actions').addEventListener('click', () => { dismissedSteps.add(nextStepsKey()); nextSteps(); });
 
@@ -160,7 +162,7 @@
   function setGitPanel(open, remember = true) {
     $('git-panel').hidden = !open; $('open-git').setAttribute('aria-expanded', String(open));
     if (remember) try { localStorage.setItem('ai-relay:git-panel', open ? 'open' : 'closed'); } catch { /* Panel state is a convenience. */ }
-    if (open) loadGit();
+    if (open) { window.relayReviews?.closePanel(); loadGit(); }
   }
   $('open-git').addEventListener('click', () => setGitPanel($('git-panel').hidden));
   $('close-git').addEventListener('click', () => { setGitPanel(false); $('open-git').focus(); });

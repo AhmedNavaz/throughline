@@ -33,10 +33,11 @@ export function localCodexConfig(local) {
 }
 const toml = value => typeof value === 'object' && value !== null ? '{' + Object.entries(value).map(([key, entry]) => JSON.stringify(key) + '=' + toml(entry)).join(',') + '}' : JSON.stringify(value);
 export class CodexClient extends EventEmitter {
-  constructor({ bin, cwd = os.homedir(), spawnImpl = spawn, local } = {}) {
+  constructor({ bin, cwd = os.homedir(), spawnImpl = spawn, local, reviewSnapshot } = {}) {
     super();
     this.pending = new Map(); this.counter = 0; this.closed = false;
     const args = ['-c', 'features.hooks=false', '-c', 'notify=[]'];
+    if (reviewSnapshot) args.push('-c', 'mcp_servers={}', '-c', 'web_search="disabled"');
     if (local) for (const [key, value] of Object.entries(localCodexConfig(local))) args.push('-c', key + '=' + toml(value));
     const env = withBinaryPath(bin, { ...process.env });
     if (local) for (const key of Object.keys(env)) if (/^(?:OPENAI|CODEX_API|OLLAMA|ANTHROPIC)_/.test(key)) delete env[key];
@@ -83,8 +84,9 @@ export class CodexClient extends EventEmitter {
 }
 
 export async function runCodex(config, { event, approval, metadata, cancelled = () => false, clientFactory = options => new CodexClient(options), verifyLocal = verifyLocalModel }) {
+  if (config.reviewSnapshot && (config.mode !== 'read' || config.sessionId)) throw new Error('Snapshot reviews require read-only access and a fresh native session.');
   if (config.local) config.local = { ...config.local, ...await verifyLocal(config.local.model, config.local.digest, { endpoint: config.local.endpoint }) };
-  const client = clientFactory({ bin: config.bin, cwd: config.workspace, ...(config.local ? { local: config.local } : {}) });
+  const client = clientFactory({ bin: config.bin, cwd: config.workspace, ...(config.local ? { local: config.local } : {}), ...(config.reviewSnapshot ? { reviewSnapshot: true } : {}) });
   let threadId, turnId, resolveEnd, rejectEnd;
   const ended = new Promise((resolve, reject) => { resolveEnd = resolve; rejectEnd = reject; });
   // Initialization failures may happen before awaiting the terminal promise.
@@ -133,7 +135,7 @@ export async function runCodex(config, { event, approval, metadata, cancelled = 
       } catch { /* Older clients may not expose defaults; do not invent one. */ }
     }
     const roots = [...new Set([config.workspace, ...(config.workspaces || [])])];
-    const options = { cwd: config.workspace, approvalPolicy: config.mode === 'read' ? 'never' : 'on-request', approvalsReviewer: 'user', sandbox: config.mode === 'read' ? 'read-only' : 'workspace-write', config: { 'sandbox_workspace_write.writable_roots': config.mode === 'read' ? [] : roots, ...(selectedEffort ? { model_reasoning_effort: selectedEffort } : {}), ...(config.local ? localCodexConfig(config.local) : {}) }, ...(selectedModel ? { model: selectedModel } : {}), ...(config.local ? { modelProvider: 'throughline_ollama', ephemeral: true } : {}) };
+    const options = { cwd: config.workspace, approvalPolicy: config.mode === 'read' ? 'never' : 'on-request', approvalsReviewer: 'user', sandbox: config.mode === 'read' ? 'read-only' : 'workspace-write', config: { 'sandbox_workspace_write.writable_roots': config.mode === 'read' ? [] : roots, ...(selectedEffort ? { model_reasoning_effort: selectedEffort } : {}), ...(config.local ? localCodexConfig(config.local) : {}), ...(config.reviewSnapshot ? { mcp_servers: {}, web_search: 'disabled' } : {}) }, ...(selectedModel ? { model: selectedModel } : {}), ...(config.local ? { modelProvider: 'throughline_ollama' } : {}), ...(config.local || config.reviewSnapshot ? { ephemeral: true } : {}) };
     if (config.local && (!selectedModel || config.sessionId)) throw new Error('Local runs require an explicit model and a fresh session.');
     const started = await client.request(config.sessionId ? 'thread/resume' : 'thread/start', { ...options, ...(config.sessionId ? { threadId: config.sessionId } : {}) });
     if (config.local && (started.thread.modelProvider !== 'throughline_ollama' || started.model && started.model !== selectedModel || started.thread.model && started.thread.model !== selectedModel)) throw new Error('The native client did not confirm the selected local provider and model. No task was sent.');

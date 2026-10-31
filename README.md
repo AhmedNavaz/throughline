@@ -19,11 +19,12 @@ Each project becomes a continuous working thread: its folders, conversation, sav
 - One permanent conversation per project, shared by all its folders, such as frontend, backend and website.
 - Switch between Claude Code, Codex and Gemini CLI mid-task, for example when one hits its usage limit. The next agent picks up the shared context.
 - **Continue locally** with a downloaded Ollama coding model when cloud allowances run out. The same project thread carries over, using Codex's workspace tools and approvals with separate local-model attribution. See [setup and limits](docs/guide.md#local-models).
+- Choose cloud agents and downloaded local models in one searchable picker, then use the same composer.
 - Choose the model, reasoning effort and access (read only or can edit files) for every message.
 - Approve agent actions in the app and follow each run live: current step, tool calls, elapsed time and token counts.
 - Run agents in several workspaces at once; the sidebar shows which ones are busy.
 - Find earlier messages and code with Cmd/Ctrl+F, highlighted matches and next/previous navigation.
-- Get a second opinion with **Review**: the other agent checks selected Git changes in a fresh read-only session. Inspect findings, then prepare a fix request from the ones you choose.
+- Get a second opinion with **Review**: a background agent checks a saved snapshot of selected changes in a side panel while you continue the next task. Findings become outdated when those files change.
 
 **Execution visibility and developer controls**
 
@@ -37,7 +38,7 @@ Each project becomes a continuous working thread: its folders, conversation, sav
 
 - Import Claude Code and Codex chats from any project, merged in time order.
 - Export a conversation file for another Throughline user, with secrets and local paths removed.
-- Ask a Friend: share an approved snapshot of your code and get back a patch you review before applying.
+- **Ask a Friend** prepares a help request from your current task and recent conversation. Optionally include changed files, review the preview, then export it or create a private link; returned patches require your review.
 
 **A local workspace, powered by your accounts**
 

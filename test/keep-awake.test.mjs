@@ -13,6 +13,13 @@ function fixture(t,options={}) {
 }
 const tick=()=>new Promise(resolve=>queueMicrotask(resolve));
 
+test('background reviewers count independently from coding runs and keep the display awake until both finish', async t => {
+  const f = fixture(t, {enabled:true}), broker = {running:{},backgroundReview:{}}; f.registry.brokers.set('one',{broker});
+  f.registry.emit('update'); await tick(); assert.equal(f.controller.getState().runningCount,2);
+  broker.running = null; f.registry.emit('update'); await tick(); assert.equal(f.controller.getState().active,true);
+  delete broker.backgroundReview; f.registry.emit('update'); await tick(); assert.equal(f.controller.getState().active,false);
+});
+
 test('auto keep awake follows all workspaces, including submission events before running is assigned',async t=>{
   const f=fixture(t);assert.equal(f.controller.getState().enabled,false);
   f.controller.setEnabled(true);assert.deepEqual(f.saved,[true]);assert.equal(f.starts.length,0,'Idle display sleep is allowed.');

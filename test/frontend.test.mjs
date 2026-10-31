@@ -62,7 +62,7 @@ const response=(data,status=200)=>({ok:status>=200&&status<300,status,text:async
 async function flush(){for(let index=0;index<12;index++)await new Promise(resolve=>setImmediate(resolve));}
 function deferred(){let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};}
 
-async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,updatesUI=setup,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,reviewsUI=false,localUI=false,launch=null,theme=false,systemDark=true}={}){
+async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,updatesUI=setup,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,reviewsUI=false,localUI=false,modelPickerUI=false,launch=null,theme=false,systemDark=true}={}){
   const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[],updateAcknowledgements=[],externalLinks=[];let timerId=0,intercept=null;
   let preferences=clone(savedPreferences);
   window.innerWidth=1280;window.innerHeight=800;
@@ -157,6 +157,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   if(theme)vm.runInContext(fs.readFileSync(new URL('../public/theme.js',import.meta.url),'utf8'),context,{filename:'public/theme.js'});
   vm.runInContext(fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8'),context,{filename:'public/app.js'});if(workbench)vm.runInContext(fs.readFileSync(new URL('../public/workbench.js',import.meta.url),'utf8'),context,{filename:'public/workbench.js'});
   if(insights)vm.runInContext(fs.readFileSync(new URL('../public/insights.js',import.meta.url),'utf8'),context,{filename:'public/insights.js'});
+  if(modelPickerUI)vm.runInContext(fs.readFileSync(new URL('../public/model-picker.js',import.meta.url),'utf8'),context,{filename:'public/model-picker.js'});
   if(historyUI)vm.runInContext(fs.readFileSync(new URL('../public/conversation-history.js',import.meta.url),'utf8'),context,{filename:'public/conversation-history.js'});
   if(desktopControls)vm.runInContext(fs.readFileSync(new URL('../public/desktop-controls.js',import.meta.url),'utf8'),context,{filename:'public/desktop-controls.js'});
   if(setup)vm.runInContext(fs.readFileSync(new URL('../public/setup.js',import.meta.url),'utf8'),context,{filename:'public/setup.js'});
@@ -1096,14 +1097,15 @@ test('the menu bar follows the page: the workspace, a run, the agent, Continue, 
 });
 
 
-function reviewBrowserRoutes(ui, { status = null, stale = false } = {}) {
+function reviewBrowserRoutes(ui, { status = null, stale = false, background = false } = {}) {
   const snapshot = { digest: 'd'.repeat(64), files: [{ id: 'frontend:app.js', folderId: 'frontend', folderName: 'Frontend', path: 'app.js', code: ' M', diff: '@@ -1 +1 @@\n-old\n+new\n', lines: 2 }] };
   let report = status ? { id: 'review-one', status, builder: 'codex', provider: 'claude', goal: 'Keep the public contract', startedAt: '2026-10-31T10:00:00Z', summary: status === 'complete' ? 'One issue to consider.' : 'The review needs attention.', findings: status === 'complete' ? [{ id: '1', severity: 'medium', title: '<img onerror=alert(1)>', detail: 'The change breaks the return value.', folderId: 'frontend', path: 'app.js', line: 1 }] : [], snapshot, stale, staleReason: stale ? 'Selected files changed.' : null } : null;
   if (report) ui.canonical.get('project-one').reviews = [report];
   ui.setIntercept((request, next) => {
     if (request.path === '/api/reviews') return response({ builder: 'codex', reviewer: 'claude', goal: 'Keep the public contract', limits: { files: 12 }, reviews: report ? [report] : [], repositories: [{ name: 'Frontend', folderId: 'frontend', available: true, totalChanges: 2, changes: [{ path: 'app.js', code: ' M' }, { path: 'other.js', code: '??' }] }] });
     if (request.path === '/api/reviews/preview') return response({ snapshot });
-    if (request.path === '/api/reviews/start') { report = { id: 'review-one', status: 'running', builder: 'codex', provider: 'claude', goal: request.body.goal, startedAt: '2026-10-31T10:00:00Z', findings: [], snapshot, stale: false }; const c = ui.canonical.get('project-one'); c.reviews = [report]; c.status = 'running'; return response({ reviewId: 'review-one' }, 202); }
+    if (request.path === '/api/reviews/start') { report = { id: 'review-one', status: 'running', background, builder: 'codex', provider: 'claude', goal: request.body.goal, startedAt: '2026-10-31T10:00:00Z', findings: [], snapshot, stale: false }; const c = ui.canonical.get('project-one'); c.reviews = [report]; if (!background) c.status = 'running'; return response({ reviewId: 'review-one', background }, 202); }
+    if (request.path === '/api/reviews/review-one/stop') { report.status = 'interrupted'; return response({stopped:true}); }
     if (request.path === '/api/reviews/review-one/prepare-fix') return response({ provider: 'codex', text: 'Address the selected finding: fix the return value.' });
     if (request.path === '/api/reviews/review-one') return response(report);
     return next();
@@ -1321,4 +1323,65 @@ test('Gemini requires explicit unverified-billing confirmation, supports custom 
   Object.assign(chat,{provider:'codex',status:'incomplete',lastRun:{provider:'codex',status:'incomplete',errorCategory:'quota'}});
   await ui.window.relayUI.refresh();await flush();
   assert.match(ui.$('continue-button').textContent,/Continue with Gemini/);
+});
+
+test('the grouped picker selects a downloaded local model for normal Send without changing cloud preferences', async () => {
+  const ui = await browser({ insights:true, modelPickerUI:true, filesUI:true, moreProjects:true, authenticated:false });
+  await ui.window.relayUI.setConfiguration({ model:'saved-cloud-model', effort:'high' }); await flush();
+  ui.$('message-input').value = 'Continue with a local model'; ui.fire('message-input','input');
+  await ui.window.relayFiles.addSnapshots([{name:'notes.md',data:'bm90ZXM='}]); await flush(); const attachment = ui.window.relayFiles.ids()[0];
+  ui.$('model-picker-button').click(); await flush();
+  const local = ui.$('picker-agents').querySelectorAll('button').find(item=>item.textContent==='Local · Ollama'); local.click(); await flush();
+  const option = ui.$('picker-models').querySelectorAll('button').find(item=>item.textContent.includes('fixture-local:8b')); assert(option); option.click(); await flush();
+  assert.equal(ui.state().localSelections['project-one'].model,'fixture-local:8b'); assert.equal(ui.state().model,'saved-cloud-model'); assert.equal(ui.state().effort,'high');
+  assert.equal(ui.$('picked-agent').textContent,'Local · Ollama'); assert.equal(ui.$('send-button').disabled,false);
+  assert(!ui.requests.some(request=>request.path==='/api/local-models/start'));
+  ui.fire('composer','submit'); await flush(); const sent = ui.requests.find(request=>request.path==='/api/local-models/start'); assert(sent);
+  assert.equal(sent.body.model,'fixture-local:8b'); assert.deepEqual(sent.body.attachments,[attachment]); assert.equal(sent.body.task,'Continue with a local model');
+  assert.equal(ui.state().model,'saved-cloud-model'); assert.equal(ui.window.relayFiles.ids().length,0);
+  await ui.switchProject('project-two'); assert.equal(ui.$('picked-agent').textContent,'Codex'); await ui.switchProject('project-one'); assert.equal(ui.$('picked-agent').textContent,'Local · Ollama');
+});
+
+test('Ask a Friend prepares the current task and recent conversation, then exports only the visible approved preview', async () => {
+  const ui = await browser({ workbench:true }); const chat = ui.canonical.get('project-one');
+  chat.messages.push({id:'task',role:'user',text:'The checkout page crashes after payment.'},{id:'answer',role:'assistant',provider:'codex',text:'The error happens in the callback.'});
+  await ui.window.relayUI.refresh(); ui.$('ask-friend').click(); await flush();
+  assert.equal(ui.labelledInput('What you need help with').value,'The checkout page crashes after payment.');
+  const prepare = ui.requests.find(request=>request.path==='/api/collaboration/handoffs/prepare'); assert.deepEqual(prepare.body.messageIds,['task','answer']); assert.equal(prepare.body.mode,'context');
+  assert(ui.document.querySelector('.friend-ready-preview').textContent.includes('checkout page crashes'));
+  assert(!ui.requests.some(request=>/\/(?:approve|publish)$/.test(request.path)));
+  const input = ui.labelledInput('What you need help with'); input.value = 'Please inspect the callback'; input.dispatchEvent(new UIEvent('input'));
+  assert.equal(ui.findButton('Export request file').disabled,true); ui.findButton('Refresh preview').click(); await flush(); ui.findButton('Export request file').click(); await flush();
+  const approval = ui.requests.find(request=>request.path==='/api/collaboration/handoffs/approve'); assert.equal(approval.body.package.goal,'Please inspect the callback'); assert.equal(approval.body.approvedIntegrity,approval.body.package.integrity);
+  assert(!ui.requests.some(request=>request.path.endsWith('/publish')));
+});
+
+test('contextual review preselects changes and runs in the side panel while the next prompt can be sent', async () => {
+  const ui = await browser({ reviewsUI:true, insights:true }), fixture = reviewBrowserRoutes(ui, {background:true});
+  await ui.window.relayReviews.suggest(); await flush();
+  assert.equal(ui.$('review-dialog').open,true); assert.equal(ui.$('review-preview').hidden,false); assert.equal(ui.$('start-review').disabled,false);
+  assert(!ui.requests.some(request=>request.path==='/api/reviews/start'));
+  ui.$('start-review').click(); await flush();
+  assert.equal(ui.$('review-dialog').open,false); assert.equal(ui.$('review-panel').hidden,false); assert.equal(ui.$('review-result').parentNode,ui.$('review-panel-body'));
+  assert.equal(ui.requests.find(request=>request.path==='/api/reviews/start').body.background,true);
+  ui.$('message-input').value='Start the next task'; ui.fire('message-input','input'); assert.equal(ui.$('send-button').disabled,false);
+  ui.fire('composer','submit'); await flush(); assert(ui.requests.some(request=>request.path.endsWith('/messages'))); assert.equal(fixture.report.status,'running');
+  const stop = ui.$('review-panel-body').querySelectorAll('button').find(button=>button.textContent==='Stop review'); assert(stop); stop.click(); await flush();
+  assert(ui.requests.some(request=>request.path==='/api/reviews/review-one/stop')); assert(!ui.requests.some(request=>/conversations\/[^/]+\/stop$/.test(request.path)));
+  ui.$('close-review-panel').click(); assert.equal(ui.$('review-panel').hidden,true);
+});
+
+test('prepared sharing exposes privacy warnings and requires reviewing them before approval or export', async () => {
+  const ui = await browser({workbench:true});
+  ui.setIntercept(async (request,next) => {
+    const result = next();
+    if (request.path !== '/api/collaboration/handoffs/prepare') return result;
+    const data = await (await result).json(); data.warnings = [{code:'credential',message:'Possible private information in the selected content.'}]; return response(data);
+  });
+  ui.$('ask-friend').click(); await flush(); assert.equal(ui.findButton('Export request file').disabled,true);
+  assert(ui.document.querySelectorAll('.scan-warning').some(item=>item.textContent.includes('1 privacy warning')));
+  assert(!ui.requests.some(request=>request.path.endsWith('/approve')));
+  const consent = ui.labelledInput('I reviewed the privacy warnings in this preview.'); consent.checked=true; consent.dispatchEvent(new UIEvent('change'));
+  assert.equal(ui.findButton('Export request file').disabled,false); ui.findButton('Export request file').click(); await flush();
+  assert.equal(ui.requests.filter(request=>request.path.endsWith('/approve')).length,1); assert(!ui.requests.some(request=>request.path.endsWith('/publish')));
 });
