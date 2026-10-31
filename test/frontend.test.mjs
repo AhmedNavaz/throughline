@@ -65,7 +65,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[],dataChoices=[];let timerId=0,intercept=null;
   let preferences=clone(savedPreferences);
   window.innerWidth=1280;window.innerHeight=800;
-  const awakeChanges=[];
+  const awakeChanges=[],menuListeners=[],menuStates=[];
   const folder=(id,name,folderPath)=>({id,name,displayName:name,path:folderPath,available:true});
   const project={id:'project-one',name:'Example workspace',path:'/workspace/example/frontend',available:true,folders:[folder('frontend','Frontend','/workspace/example/frontend'),folder('backend','Backend','/workspace/example/backend')]};
   const projects=empty?[]:[project],removedProjects=new Map();if(moreProjects)projects.push({id:'project-two',name:'Other workspace',path:'/workspace/other/api',available:true,folders:[folder('api','API','/workspace/other/api')]});
@@ -142,6 +142,8 @@ async function browser({existing=true,available=true,providers={},authenticated=
   if(wide||theme)window.matchMedia=query=>query==='(prefers-color-scheme: dark)'?colorScheme:{matches:wide};
   if(desktop)window.relayDesktop={token:'desktop-test-token',pickFolder:async()=>pickedFolders.shift()||null};
   if(desktop)Object.assign(window.relayDesktop,{getKeepAwake:async()=>({enabled:false,active:false,runningCount:0}),setKeepAwake:async enabled=>{awakeChanges.push(enabled);return {enabled,active:false,runningCount:0};},onKeepAwakeChanged:callback=>{window.addEventListener('desktop-keep-awake',event=>callback(event.detail));return ()=>{};}});
+  // The menu bar's side of the bridge: commands arrive through onMenuCommand, and reported states are cloned as IPC would.
+  if(desktop)Object.assign(window.relayDesktop,{onMenuCommand:callback=>{menuListeners.push(callback);return ()=>{};},setMenuState:state=>{menuStates.push(clone(state));}});
   if(desktop&&launch)Object.assign(window.relayDesktop,{getLaunchState:async()=>clone(launch),chooseData:async choice=>{dataChoices.push(choice);return {...clone(launch),choice:false};}});
   // Custom Highlight API stand-ins: ranges record their boundaries, and the registry is a Map.
   class Range{setStart(node,offset){this.startContainer=node;this.startOffset=offset;}setEnd(node,offset){this.endContainer=node;this.endOffset=offset;}getBoundingClientRect(){return this.startContainer.parentNode.getBoundingClientRect();}}
@@ -163,7 +165,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   const switchProject=async id=>{$('project-select').value=id;fire('project-select','change');await flush();};
   const textNodes=node=>node.nodeType===3?[node]:node.childNodes.flatMap(textNodes);
   const rangeText=range=>{const nodes=textNodes($('messages')),first=nodes.indexOf(range.startContainer),last=nodes.indexOf(range.endContainer);return nodes.slice(first,last+1).map((node,index)=>node.data.slice(index===0?range.startOffset:0,first+index===last?range.endOffset:undefined)).join('');};
-  return {document,window,$,fire,findButton,highlights,rangeText,labelledInput,requests,conversations,submissions,handoffs,projects,canonical,pickedFolders,dataChoices,storage,switchProject,awakeChanges,get chatCreations(){return chatCreations;},setIntercept:fn=>{intercept=fn;},setSystemDark:value=>{colorScheme.matches=value;for(const fn of colorScheme.listeners)fn({matches:value});},state:()=>window.relayUI.getState()};
+  return {document,window,$,fire,findButton,highlights,rangeText,labelledInput,requests,conversations,submissions,handoffs,projects,canonical,pickedFolders,dataChoices,storage,switchProject,awakeChanges,menuStates,menu:(name,value)=>{for(const fn of menuListeners)fn(name,value);},get chatCreations(){return chatCreations;},setIntercept:fn=>{intercept=fn;},setSystemDark:value=>{colorScheme.matches=value;for(const fn of colorScheme.listeners)fn({matches:value});},state:()=>window.relayUI.getState()};
 }
 
 test('late same-project refresh cannot restore superseded provider/access settings',async()=>{
@@ -921,6 +923,87 @@ test('footer keep awake shows armed and native active states, handles errors and
   ui.window.dispatchEvent(new UIEvent('desktop-keep-awake',{detail:{enabled:true,active:true,runningCount:2,error:null}}));assert.equal(ui.$('keep-awake-label').textContent,'Keep awake · On');assert.match(ui.$('keep-awake').title,/2 active agents/);
   ui.window.dispatchEvent(new UIEvent('desktop-keep-awake',{detail:{enabled:true,active:false,runningCount:0,error:null}}));assert.equal(ui.$('keep-awake').dataset.state,'armed');
   ui.window.relayDesktop.setKeepAwake=async()=>{throw Error('Disk unavailable');};ui.$('keep-awake').click();await flush();assert.match(ui.$('notice-text').textContent,/Disk unavailable/);assert.equal(ui.$('keep-awake').getAttribute('aria-pressed'),'true');assert.equal(ui.$('keep-awake').disabled,false);
+});
+
+test('a shortcut and its menu item run one command with the same checks, so a key the page leaves alone is ignored by the menu too',async()=>{
+  const ui=await browser({desktop:true,desktopControls:true,moreProjects:true,insights:true});
+  const key=(key,shiftKey=false)=>{const event=new UIEvent('keydown',{key,ctrlKey:true,shiftKey});ui.document.dispatchEvent(event);return event.defaultPrevented;};
+  ui.$('message-input').focus();assert.equal(key('k'),true);assert.equal(ui.document.activeElement?.id,'workspace-search');
+  ui.$('message-input').focus();ui.menu('filter-workspaces');assert.equal(ui.document.activeElement?.id,'workspace-search');
+  assert.equal(key('l'),true);assert.equal(ui.document.activeElement?.id,'message-input');
+  ui.$('workspace-search').focus();ui.menu('focus-message');assert.equal(ui.document.activeElement?.id,'message-input');
+  assert.equal(key('G',true),true);await flush();assert.equal(ui.$('git-panel').hidden,false);ui.menu('git');assert.equal(ui.$('git-panel').hidden,true);
+  // ⌘. and Stop Run only stop a run in progress.
+  const stops=()=>ui.requests.filter(request=>request.path.endsWith('/stop')).length;ui.setIntercept((request,next)=>request.path.endsWith('/stop')?response({}):next());
+  assert.equal(key('.'),false,'With no run, the page leaves ⌘. alone.');ui.menu('stop');await flush();assert.equal(stops(),0);
+  ui.canonical.get('project-one').status='running';await ui.window.relayUI.refresh();
+  assert.equal(key('.'),true);await flush();assert.equal(stops(),1);ui.menu('stop');await flush();assert.equal(stops(),2);
+  ui.canonical.get('project-one').status='idle';await ui.window.relayUI.refresh();
+  // ⌘1–9 and the Workspace items count over the workspaces the filter shows.
+  assert.equal(key('2'),true);await flush();assert.equal(ui.state().projectId,'project-two');
+  ui.menu('workspace',1);await flush();assert.equal(ui.state().projectId,'project-one');
+  ui.$('workspace-search').value='other';ui.fire('workspace-search','input');
+  assert.equal(key('2'),false,'Only one workspace matches the filter.');ui.menu('workspace',2);await flush();assert.equal(ui.state().projectId,'project-one');
+  assert.equal(key('1'),true);await flush();assert.equal(ui.state().projectId,'project-two');
+});
+
+test('menu items that stand in for a button do what the button does, and wait while a dialog covers the page',async()=>{
+  const ui=await browser({desktop:true,desktopControls:true,workbench:true,historyUI:true,filesUI:true,theme:true,setup:true}),opened=id=>Boolean(ui.$(id).open);
+  const continues=()=>ui.requests.filter(request=>request.path.endsWith('/continue')).length,appearances=()=>ui.requests.filter(request=>request.path==='/api/appearance'&&request.method==='POST').map(request=>request.body.theme);
+  ui.menu('settings');await flush();assert.equal(opened('workbench'),true,'Settings… opens Settings, as the status bar button does.');
+  for(const command of ['new-workspace','add-folder','previous-chats','files','keep-awake','workspace-settings','remove-workspace','setup-guide'])ui.menu(command);
+  ui.menu('agent','claude');await flush();
+  assert.deepEqual([ui.$('project-panel').hidden,ui.$('folder-panel').hidden,opened('import-dialog'),ui.$('file-tree').hidden,ui.awakeChanges.length,opened('workspace-options-dialog'),opened('remove-workspace-dialog'),opened('setup-dialog'),ui.state().provider],[true,true,false,false,0,false,false,false,'codex'],'Nothing behind the open dialog changes.');
+  ui.$('workbench').close();
+  ui.menu('new-workspace');assert.equal(ui.$('project-panel').hidden,false);ui.$('close-project').click();
+  ui.menu('add-folder');assert.equal(ui.$('folder-panel').hidden,false);ui.$('close-folder').click();
+  ui.menu('previous-chats');await flush();assert.equal(opened('import-dialog'),true);ui.$('import-dialog').close();
+  ui.menu('export');await flush();assert.equal(opened('export-dialog'),false,'Export waits for a conversation to export, as its button does.');assert.equal(ui.window.relayUI.commands.export(),false,'A command reports that it did not act.');
+  ui.menu('files');assert.equal(ui.$('file-tree').hidden,true);ui.menu('files');assert.equal(ui.$('file-tree').hidden,false);
+  ui.menu('agent','claude');await flush();assert.equal(ui.$('select-claude').getAttribute('aria-pressed'),'true');ui.menu('agent','gemini');await flush();assert.equal(ui.state().provider,'claude');
+  ui.menu('continue');await flush();assert.equal(continues(),0,'Continue waits until the page offers it.');
+  ui.menu('keep-awake');await flush();assert.deepEqual(ui.awakeChanges,[true]);
+  ui.menu('appearance','light');ui.menu('appearance','sepia');await flush();assert.equal(ui.document.documentElement.getAttribute('data-theme'),'light');assert.deepEqual(appearances(),['light']);
+  ui.menu('workspace-settings');assert.equal(opened('workspace-options-dialog'),true);ui.menu('remove-workspace');assert.equal(opened('remove-workspace-dialog'),false);
+  ui.$('workspace-options-dialog').close();ui.menu('remove-workspace');assert.equal(opened('remove-workspace-dialog'),true);ui.$('cancel-remove-workspace').click();
+  ui.menu('setup-guide');await flush();assert.equal(opened('setup-dialog'),true);
+  ui.menu('no-such-command');
+});
+
+test('Find in Conversation, Find Next and Find Previous do what ⌘F, Enter and Shift+Enter do, and wait while a dialog is open',async()=>{
+  const ui=await browser({desktop:true,desktopControls:true,searchUI:true}),count=()=>ui.$('conversation-search-count').textContent;
+  ui.canonical.get('project-one').messages.push({id:'u1',role:'user',text:'Retry once'},{id:'a1',role:'assistant',provider:'codex',text:'Retry twice'},{id:'u2',role:'user',text:'Retry three times'});await ui.window.relayUI.refresh();
+  ui.menu('find');assert.equal(ui.$('conversation-search').hidden,false);assert.equal(ui.document.activeElement?.id,'conversation-search-input');
+  ui.$('conversation-search-input').value='retry';ui.fire('conversation-search-input','input');await flush();assert.equal(count(),'1 of 3');
+  ui.menu('find-next');assert.equal(count(),'2 of 3');ui.menu('find-previous');ui.menu('find-previous');assert.equal(count(),'3 of 3');
+  ui.$('conversation-search-close').click();ui.menu('find-next');assert.equal(ui.$('conversation-search').hidden,false,'Find Next opens the search again with its last text.');assert.equal(count(),'1 of 3');
+  ui.$('conversation-search-close').click();ui.$('workspace-options-dialog').showModal();
+  for(const command of ['find','find-next','find-previous'])ui.menu(command);
+  const find=new UIEvent('keydown',{key:'f',ctrlKey:true});ui.document.dispatchEvent(find);
+  assert.equal(find.defaultPrevented,false,'Over a dialog ⌘F goes on to the menu, whose item waits too.');assert.equal(ui.$('conversation-search').hidden,true);
+});
+
+test('the menu bar follows the page: the workspace, a run, the agent, Continue, Files, Git activity and the first nine workspaces',async()=>{
+  const web=await browser({desktopControls:true,insights:true,historyUI:true,filesUI:true});assert.equal(web.menuStates.length,0,'The browser has no menu bar.');
+  const none=await browser({empty:true,existing:false,desktop:true,desktopControls:true,historyUI:true});assert.deepEqual(none.menuStates.at(-1),{workspace:false,running:false,agent:'codex',codex:false,claude:false,continue:null,files:true,git:false,imports:false,export:false,workspaces:[]});
+  const ui=await browser({desktop:true,desktopControls:true,moreProjects:true,insights:true,historyUI:true,filesUI:true}),shown=()=>ui.menuStates.at(-1);
+  const workspaces=[{name:'Example workspace',current:true},{name:'Other workspace',current:false}];
+  assert.deepEqual(shown(),{workspace:true,running:false,agent:'codex',codex:true,claude:true,continue:null,files:true,git:false,imports:true,export:false,workspaces});
+  const reported=ui.menuStates.length;ui.window.dispatchEvent(new UIEvent('relay-state'));await flush();assert.equal(ui.menuStates.length,reported,'An unchanged state is not sent again.');
+  ui.$('select-claude').click();await flush();assert.equal(shown().agent,'claude');
+  ui.$('toggle-explorer').click();await flush();assert.equal(shown().files,false);
+  ui.$('open-git').click();await flush();assert.equal(shown().git,true);ui.$('close-git').click();await flush();assert.equal(shown().git,false);
+  ui.$('workspace-search').value='other';ui.fire('workspace-search','input');await flush();assert.deepEqual(shown().workspaces,[{name:'Other workspace',current:false}]);
+  ui.$('workspace-search').dispatchEvent(new UIEvent('keydown',{key:'Escape'}));await flush();assert.deepEqual(shown().workspaces,workspaces);
+  const chat=ui.canonical.get('project-one');chat.status='running';await ui.window.relayUI.refresh();await flush();
+  assert.deepEqual([shown().running,shown().codex,shown().claude,shown().imports],[true,false,false,false],'During a run the agents and imports wait, as their buttons do.');
+  // Continue names the agent the page's Continue button would use.
+  Object.assign(chat,{status:'interrupted',lastRun:{provider:'claude',errorCategory:'interrupted'}});await ui.window.relayUI.refresh();await flush();assert.deepEqual([shown().running,shown().continue],[false,'claude']);
+  chat.lastRun={provider:'claude',errorCategory:'quota'};await ui.window.relayUI.refresh();await flush();assert.equal(shown().continue,'codex','After a usage limit it continues with the other agent.');
+  const long='Long '+'name '.repeat(30);
+  for(let index=3;index<=11;index++)ui.projects.push({id:'project-'+index,name:index===3?long:'Workspace '+index,path:'/workspace/'+index,available:true,folders:[{id:'f'+index,name:'f'+index,displayName:'f'+index,path:'/workspace/'+index,available:true}]});
+  await ui.window.relayUI.refreshProjects();await flush();
+  assert.deepEqual(shown().workspaces.map(item=>item.name),['Example workspace','Other workspace',long.slice(0,120),...[4,5,6,7,8,9].map(index=>'Workspace '+index)],'The first nine are listed, each name at most 120 characters.');
 });
 
 

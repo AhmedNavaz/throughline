@@ -1,0 +1,96 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {menuTemplate,menuState} from '../desktop/menu.mjs';
+
+const page={workspace:true,running:false,agent:'codex',codex:true,claude:true,continue:null,files:true,git:false,imports:true,export:true,workspaces:[{name:'Frontend',current:true},{name:'R&D',current:false}]};
+// Builds the template with recording callbacks. Items are found by label, id or role, and must be unique.
+function menu(options={}){
+  const sent=[],opened=[],all=[];
+  const template=menuTemplate({platform:'darwin',packaged:true,version:'0.7.0',osVersion:'26.1.0',arch:'arm64',appearance:'system',keepAwake:false,state:page,send:(...command)=>sent.push(command),open:url=>opened.push(url),...options});
+  const walk=items=>{for(const item of items){all.push(item);if(Array.isArray(item.submenu))walk(item.submenu);}};walk(template);
+  const item=key=>{const found=all.filter(entry=>[entry.label,entry.id,entry.role].includes(key));assert.equal(found.length,1,`One menu item is ${key}`);return found[0];};
+  return {template,all,sent,opened,item,roles:all.map(entry=>entry.role).filter(Boolean),labels:items=>items.map(entry=>entry.type==='separator'?'-':entry.label||entry.role)};
+}
+const disabled=entry=>entry.enabled===false;
+
+test('the macOS menu bar has Throughline, File, Edit, View, Agent, Workspace, Window and Help, with the shortcuts the page uses',()=>{
+  const {template,all,item,roles,labels}=menu();
+  assert.deepEqual(labels(template),['Throughline','File','Edit','View','Agent','Workspace','windowMenu','help']);
+  assert.deepEqual(labels(item('Throughline').submenu),['about','-','Settings…','Setup Guide','-','services','-','hide','hideOthers','unhide','-','quit']);
+  assert.deepEqual(labels(item('File').submenu),['New Workspace','Add Folder to Workspace…','-','Previous Chats…','Export Conversation…','-','close']);
+  assert.deepEqual(labels(item('Edit').submenu),['undo','redo','-','cut','copy','paste','pasteAndMatchStyle','delete','selectAll','-','Find in Conversation','Find Next','Find Previous','-','Filter Workspaces','-','Speech']);
+  assert.deepEqual(labels(item('View').submenu),['Show Git Activity','Show Files','Focus Message Box','-','Appearance','-','resetZoom','zoomIn','zoomOut','-','togglefullscreen']);
+  assert.deepEqual(labels(item('Appearance').submenu),['System','Dark','Light']);
+  assert.deepEqual(labels(item('Agent').submenu),['Use Codex','Use Claude Code','-','Stop Run','Continue with…','-','Keep Awake']);
+  assert.deepEqual(labels(item('Workspace').submenu),['Frontend','R&D','-','Workspace Settings…','Remove Workspace…']);
+  assert.deepEqual(labels(item('help').submenu),['Throughline Guide','Keyboard Shortcuts','-','Report a Bug','Share Design Feedback','-','Roadmap','What’s New']);
+  // These are the page's own shortcuts plus ⌘, ⌘N and ⌘G, which the page leaves to the menu.
+  assert.deepEqual(Object.fromEntries(all.filter(entry=>entry.accelerator).map(entry=>[entry.label,entry.accelerator])),{'Settings…':'CmdOrCtrl+,','New Workspace':'CmdOrCtrl+N','Find in Conversation':'CmdOrCtrl+F','Find Next':'CmdOrCtrl+G','Filter Workspaces':'CmdOrCtrl+K','Show Git Activity':'CmdOrCtrl+Shift+G','Focus Message Box':'CmdOrCtrl+L','Stop Run':'CmdOrCtrl+.',Frontend:'CmdOrCtrl+1','R&D':'CmdOrCtrl+2'});
+  for(const role of ['reload','forceReload','toggleDevTools'])assert(!roles.includes(role),`A packaged app leaves out ${role}.`);
+  assert.deepEqual(labels(menu({packaged:false}).item('View').submenu),['Show Git Activity','Show Files','Focus Message Box','-','Appearance','-','reload','forceReload','toggleDevTools','-','resetZoom','zoomIn','zoomOut','-','togglefullscreen'],'Running from source adds Reload and Developer Tools.');
+});
+
+test('menu items enable and tick from the page, the saved appearance and Keep Awake',()=>{
+  const pageItems=['Add Folder to Workspace…','Previous Chats…','Export Conversation…','Find in Conversation','Find Next','Find Previous','Show Git Activity','Show Files','Focus Message Box','Use Codex','Use Claude Code','Stop Run','continue','Workspace Settings…','Remove Workspace…'];
+  // Until the page reports, nothing that needs a workspace is offered.
+  const starting=menu({state:null});
+  for(const label of pageItems)assert(disabled(starting.item(label)),label);
+  for(const label of ['Settings…','Setup Guide','New Workspace','Filter Workspaces','Keep Awake','System','Dark','Light','Throughline Guide','Report a Bug'])assert(!disabled(starting.item(label)),label);
+  assert.deepEqual(starting.labels(starting.item('Workspace').submenu),['Workspace Settings…','Remove Workspace…']);
+  const open=menu();
+  for(const label of pageItems.filter(label=>label!=='Stop Run'&&label!=='continue'))assert(!disabled(open.item(label)),label);
+  assert(disabled(open.item('Stop Run')),'Stop Run is offered only during a run.');
+  const running=menu({state:{...page,running:true}});
+  assert(!disabled(running.item('Stop Run')));
+  for(const label of ['Add Folder to Workspace…','Remove Workspace…'])assert(disabled(running.item(label)),`${label} waits for the run to finish.`);
+  assert.deepEqual(['Use Codex','Use Claude Code'].map(label=>disabled(menu({state:{...page,claude:false}}).item(label))),[false,true],'An agent the page cannot select is not offered.');
+  assert.equal(menu({state:{...page,imports:false,export:false}}).item('Previous Chats…').enabled,false);
+  assert.equal(menu({state:{...page,imports:false,export:false}}).item('Export Conversation…').enabled,false);
+  // The agent and appearance are radio choices; files, Git activity, Keep Awake and the open workspace are ticks.
+  assert.deepEqual(['Use Codex','Use Claude Code'].map(label=>[open.item(label).type,open.item(label).checked]),[['radio',true],['radio',false]]);
+  const claude=menu({state:{...page,agent:'claude'}});assert.deepEqual(['Use Codex','Use Claude Code'].map(label=>claude.item(label).checked),[false,true]);
+  for(const [appearance,checked] of [['system','System'],['graphite','Dark'],['light','Light']]){const shown=menu({appearance});assert.deepEqual(['System','Dark','Light'].map(label=>shown.item(label).checked),['System','Dark','Light'].map(label=>label===checked),appearance);assert.equal(shown.item(checked).type,'radio');}
+  assert.deepEqual(['Show Files','Show Git Activity'].map(label=>[open.item(label).type,open.item(label).checked]),[['checkbox',true],['checkbox',false]]);
+  const toggled=menu({state:{...page,files:false,git:true}});assert.deepEqual(['Show Files','Show Git Activity'].map(label=>toggled.item(label).checked),[false,true]);
+  assert.deepEqual([open.item('Keep Awake').type,open.item('Keep Awake').checked,menu({keepAwake:true}).item('Keep Awake').checked],['checkbox',false,true]);
+  assert.deepEqual(['Frontend','R&D'].map(label=>[open.item(label).type,open.item(label).checked]),[['checkbox',true],['checkbox',false]]);
+  // Continue names the agent the page's Continue button would use.
+  assert.deepEqual([open.item('continue').label,disabled(open.item('continue'))],['Continue with…',true]);
+  for(const [agent,label] of [['codex','Continue with Codex'],['claude','Continue with Claude Code']]){const offered=menu({state:{...page,continue:agent}}).item('continue');assert.deepEqual([offered.label,disabled(offered)],[label,false]);}
+});
+
+test('page items send their command to the window, and Help opens only fixed GitHub pages',()=>{
+  const {all,sent,opened,item}=menu();
+  const commands={'Settings…':['settings'],'Setup Guide':['setup-guide'],'New Workspace':['new-workspace'],'Add Folder to Workspace…':['add-folder'],'Previous Chats…':['previous-chats'],'Export Conversation…':['export'],'Find in Conversation':['find'],'Find Next':['find-next'],'Find Previous':['find-previous'],'Filter Workspaces':['filter-workspaces'],'Show Git Activity':['git'],'Show Files':['files'],'Focus Message Box':['focus-message'],System:['appearance','system'],Dark:['appearance','graphite'],Light:['appearance','light'],'Use Codex':['agent','codex'],'Use Claude Code':['agent','claude'],'Stop Run':['stop'],continue:['continue'],'Keep Awake':['keep-awake'],Frontend:['workspace',1],'R&D':['workspace',2],'Workspace Settings…':['workspace-settings'],'Remove Workspace…':['remove-workspace']};
+  for(const [label,command] of Object.entries(commands)){sent.length=0;item(label).click();assert.deepEqual(sent,[command],label);}
+  assert.deepEqual(opened,[]);
+  const repository='https://github.com/AhmedNavaz/throughline';
+  const pages={'Throughline Guide':`${repository}/blob/main/docs/guide.md`,'Keyboard Shortcuts':`${repository}/blob/main/docs/guide.md#keyboard-shortcuts`,'Report a Bug':`${repository}/issues/new?template=bug_report.yml&version=0.7.0&system=macOS+26.1.0%2C+Apple+Silicon`,'Share Design Feedback':`${repository}/issues/new?template=ux_feedback.yml`,Roadmap:`${repository}/blob/main/ROADMAP.md`,'What’s New':`${repository}/releases`};
+  for(const [label,url] of Object.entries(pages)){opened.length=0;item(label).click();assert.deepEqual(opened,[url],label);}
+  assert.equal(all.filter(entry=>entry.click).length,Object.keys(commands).length+Object.keys(pages).length,'Every other item is a standard role.');
+  for(const entry of all)assert(!(entry.role&&entry.click),`${entry.role} keeps its native behaviour.`);
+  const intel=[];menu({arch:'x64',osVersion:'15.7.1',open:url=>intel.push(url)}).item('Report a Bug').click();assert.match(intel[0],/&system=macOS\+15\.7\.1%2C\+Intel$/);
+});
+
+for(const platform of ['win32','linux'])test(`on ${platform} the menus have no app menu: Settings and Exit join File, Setup Guide and About join Help, and & stays literal`,()=>{
+  const {template,item,roles,labels}=menu({platform});
+  assert.deepEqual(labels(template),['File','Edit','View','Agent','Workspace','windowMenu','help']);
+  assert.deepEqual(labels(item('File').submenu),['New Workspace','Add Folder to Workspace…','-','Previous Chats…','Export Conversation…','-','Settings…','-','close','quit']);
+  assert.deepEqual(labels(item('Edit').submenu),['undo','redo','-','cut','copy','paste','delete','-','selectAll','-','Find in Conversation','Find Next','Find Previous','-','Filter Workspaces']);
+  assert.deepEqual(labels(item('help').submenu),['Throughline Guide','Keyboard Shortcuts','Setup Guide','-','Report a Bug','Share Design Feedback','-','Roadmap','What’s New','-','about']);
+  for(const role of ['services','hide','hideOthers','unhide','pasteAndMatchStyle'])assert(!roles.includes(role),role);
+  // & marks a keyboard mnemonic in Windows and Linux menus, so a workspace name doubles it to show it.
+  assert.equal(item('workspace-2').label,'R&&D');assert.equal(menu().item('workspace-2').label,'R&D');
+  const opened=[];menu({platform,osVersion:'10.0.26100',arch:'x64',open:url=>opened.push(url)}).item('Report a Bug').click();
+  assert.match(opened[0],new RegExp(`&system=${platform==='win32'?'Windows':'Linux'}\\+10\\.0\\.26100%2C\\+x64$`));
+});
+
+test('menu state from the page is used only in the expected shape',()=>{
+  assert.deepEqual(menuState(page),page);
+  const nine=Array.from({length:9},(_,index)=>({name:'Workspace '+index,current:index===0}));
+  assert.deepEqual(menuState({...page,continue:'claude',workspaces:nine}),{...page,continue:'claude',workspaces:nine});
+  const {files,...missing}=page;
+  for(const wrong of [null,undefined,'state',[],{},missing,{...page,extra:true},{...page,running:'yes'},{...page,agent:'gemini'},{...page,continue:'gemini'},{...page,continue:false},{...page,workspaces:{}},{...page,workspaces:[...nine,{name:'One more',current:false}]},{...page,workspaces:[{name:'',current:false}]},{...page,workspaces:[{name:'x'.repeat(121),current:false}]},{...page,workspaces:[{name:7,current:false}]},{...page,workspaces:[{name:'Frontend',current:1}]},{...page,workspaces:[{name:'Frontend',current:false,path:'/'}]},{...page,workspaces:[null]}])
+    assert.equal(menuState(wrong),null,JSON.stringify(wrong));
+  const copy=menuState(page);assert.notEqual(copy.workspaces,page.workspaces,'The state is copied, not kept by reference.');
+});

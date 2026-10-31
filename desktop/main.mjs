@@ -1,4 +1,4 @@
-import {app,BrowserWindow,dialog,ipcMain,nativeTheme,shell,powerSaveBlocker} from 'electron';
+import {app,BrowserWindow,Menu,dialog,ipcMain,nativeTheme,shell,powerSaveBlocker} from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
@@ -7,6 +7,7 @@ import {createRelayServer} from '../server.mjs';
 import {migrateLegacyData,preferredUserData,installIdentity,readInstall,recordInstall,savedData,setDataAside} from './storage.mjs';
 import {createKeepAwake} from './keep-awake.mjs';
 import {createAppearance} from './appearance.mjs';
+import {menuTemplate,menuState} from './menu.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const smoke=process.argv.includes('--smoke-test');
 if(process.env.AI_RELAY_DESKTOP_DATA) app.setPath('userData',path.resolve(process.env.AI_RELAY_DESKTOP_DATA));
@@ -30,10 +31,16 @@ else {
     if(install&&readInstall(installFile)!==install){if(launch.workspaces)launch.choice=true;else recordInstall(installFile,install);}
     const token=randomBytes(32).toString('hex');
     const appearance=createAppearance({nativeTheme,onBackground:color=>{if(win&&!win.isDestroyed())win.setBackgroundColor(color);}});
+    // The menu bar shows what the page last reported, the saved appearance and Keep Awake.
+    let page=null,awake=false;
+    const updateMenu=()=>Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({platform:process.platform,packaged:app.isPackaged,version:app.getVersion(),osVersion:process.getSystemVersion(),arch:process.arch,state:page,appearance:relay.getAppearancePreference(),keepAwake:awake,open:url=>shell.openExternal(url),
+      // A clicked checkbox or radio item ticks itself, so the menu is rebuilt to show the page's answer instead.
+      send:(...command)=>{if(win&&!win.isDestroyed())win.webContents.send('relay:menu-command',...command);updateMenu();}})));
+    app.setAboutPanelOptions({applicationName:'Throughline',applicationVersion:app.getVersion(),version:''});
     async function start(){
-      relay=createRelayServer({dataRoot:data,accessToken:token,onAppearance:preference=>appearance.set(preference)});
+      relay=createRelayServer({dataRoot:data,accessToken:token,onAppearance:preference=>{appearance.set(preference);updateMenu();}});
       appearance.set(relay.getAppearancePreference());
-      keepAwake=createKeepAwake({registry:relay.registry,blocker:powerSaveBlocker,enabled:relay.getKeepAwakePreference(),save:relay.setKeepAwakePreference,onChange:state=>{if(win&&!win.isDestroyed())win.webContents.send('relay:keep-awake-changed',state);}});
+      keepAwake=createKeepAwake({registry:relay.registry,blocker:powerSaveBlocker,enabled:relay.getKeepAwakePreference(),save:relay.setKeepAwakePreference,onChange:state=>{awake=state.enabled;if(win&&!win.isDestroyed())win.webContents.send('relay:keep-awake-changed',state);updateMenu();}});
       await new Promise((resolve,reject)=>{relay.server.once('error',reject);relay.server.listen(0,'127.0.0.1',resolve);});
       origin=`http://127.0.0.1:${relay.server.address().port}`;
     }
@@ -44,6 +51,7 @@ else {
     ipcMain.handle('relay:keep-awake:get',event=>{if(!trusted(event))throw Error('Untrusted renderer');return keepAwake.getState();});
     ipcMain.handle('relay:keep-awake:set',(event,enabled)=>{if(!trusted(event))throw Error('Untrusted renderer');return keepAwake.setEnabled(enabled);});
     ipcMain.handle('relay:launch',event=>{if(!trusted(event))throw Error('Untrusted renderer');return launch;});
+    ipcMain.on('relay:menu-state',(event,input)=>{if(!trusted(event))return;const next=menuState(input);if(next){page=next;updateMenu();}});
     ipcMain.handle('relay:choose-data',async(event,choice)=>{
       if(!trusted(event))throw Error('Untrusted renderer');
       if(!['continue','fresh'].includes(choice))throw Error('Choose to continue or start fresh.');
@@ -70,9 +78,15 @@ else {
       if(!nativeAwake||powerSaveBlocker.isStarted(blockerId))throw Error('Native display sleep blocker check failed.');
       const result=await win.webContents.executeJavaScript(`({title:document.title,isolated:typeof require==='undefined',bridge:typeof window.relayDesktop?.pickFolder==='function',launchBridge:typeof window.relayDesktop?.getLaunchState==='function'&&typeof window.relayDesktop?.chooseData==='function',keepAwakeBridge:typeof window.relayDesktop?.getKeepAwake==='function'&&typeof window.relayDesktop?.setKeepAwake==='function'&&typeof window.relayDesktop?.onKeepAwakeChanged==='function',usagePopover:typeof document.getElementById('usage-dialog')?.showPopover==='function',ui:!!document.getElementById('ask-friend'),configuration:typeof window.relayUI?.setConfiguration==='function',models:!!document.getElementById('model-select'),git:!!document.getElementById('open-git'),imports:!!document.getElementById('import-dialog')})`);
       result.nativeAwake=nativeAwake;
+      // The menu bar is Throughline's. The page reports its state to it, and an item's command reaches the page and comes back as a tick.
+      const settled=async done=>{for(let tries=0;!done()&&tries<250;tries++)await new Promise(resolve=>setTimeout(resolve,20));return done();};
+      const reported=await settled(()=>page!==null);
+      Menu.getApplicationMenu().getMenuItemById('appearance-light').click();
+      const ticked=await settled(()=>nativeTheme.themeSource==='light'&&Menu.getApplicationMenu().getMenuItemById('appearance-light').checked);
+      result.menu={labels:Menu.getApplicationMenu().items.map(item=>item.label),reported,ticked,theme:await win.webContents.executeJavaScript(`document.documentElement.getAttribute('data-theme')`)};
       // The setup header lies under the window-drag strip; each of its controls must still be what a click at its center reaches.
       result.setupHeader=await win.webContents.executeJavaScript(`window.relaySetup.open().then(()=>{const controls=[...document.querySelectorAll('.onboarding-header :is(button,a)')];return controls.length>0&&controls.every(control=>{const box=control.getBoundingClientRect();return control.contains(document.elementFromPoint(box.left+box.width/2,box.top+box.height/2));});})`);
-      if(!result.isolated||!result.bridge||!result.launchBridge||!result.keepAwakeBridge||!result.usagePopover||!result.ui||!result.configuration||!result.models||!result.git||!result.imports||!result.setupHeader)throw Error('Desktop smoke check failed: '+JSON.stringify(result));
+      if(!result.isolated||!result.bridge||!result.launchBridge||!result.keepAwakeBridge||!result.usagePopover||!result.ui||!result.configuration||!result.models||!result.git||!result.imports||!result.setupHeader||!['File','Edit','View','Agent','Workspace','Window','Help'].every(label=>result.menu.labels.includes(label))||!result.menu.reported||!result.menu.ticked||result.menu.theme!=='light')throw Error('Desktop smoke check failed: '+JSON.stringify(result));
       console.log('AI_RELAY_DESKTOP_SMOKE '+JSON.stringify(result));app.quit();
     }
   }).catch(error=>{console.error(error);if(!smoke)dialog.showErrorBox('Throughline could not start',error.message);app.exit(1);});

@@ -14,4 +14,10 @@ contextBridge.exposeInMainWorld('relayDesktop', Object.freeze({
     ipcRenderer.on('relay:keep-awake-changed', listener);
     return () => ipcRenderer.removeListener('relay:keep-awake-changed', listener);
   },
+  onMenuCommand: callback => {
+    const listener = (_event, name, value) => callback(name, value);
+    ipcRenderer.on('relay:menu-command', listener);
+    return () => ipcRenderer.removeListener('relay:menu-command', listener);
+  },
+  setMenuState: state => ipcRenderer.send('relay:menu-state', state),
 }));

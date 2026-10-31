@@ -4,6 +4,7 @@ Everything the [README](../README.md) leaves out: how each feature works, what i
 
 - [Workspaces, accounts and switching](#workspaces-accounts-and-switching)
 - [Models, runs, Git and usage](#models-runs-git-and-usage)
+- [Keyboard shortcuts](#keyboard-shortcuts)
 - [Files and attachments](#files-and-attachments)
 - [Import Claude Code and Codex chats](#import-claude-code-and-codex-chats)
 - [Export a conversation](#export-a-conversation)
@@ -54,7 +55,20 @@ The status bar shows the plan usage left for both agents (5-hour and weekly wind
 
 The appearance buttons in the status bar choose **System**, **Dark** or **Light**, and **Settings › Appearance** and setup offer the same choice. **System**, the default, follows your computer's light or dark setting as it changes; **Dark** and **Light** stay as chosen. In the desktop app, native menus and dialogs use the same appearance.
 
-Keyboard shortcuts (⌘ on macOS, Ctrl elsewhere): ⌘K filter workspaces (Enter opens the first match), ⌘1–9 switch workspace, ⌘L focus the composer, ⌘F find in the conversation (Enter and Shift+Enter move between matches, Escape closes), ⇧⌘G toggle Git activity, ⌘. stop the current run. Messages and code blocks have copy buttons.
+Messages and code blocks have copy buttons.
+
+## Keyboard shortcuts
+
+Shortcuts use ⌘ on macOS and Ctrl elsewhere:
+
+- ⌘K filters workspaces. Enter opens the first match and Escape clears the filter.
+- ⌘1–9 open the first nine workspaces the filter shows.
+- ⌘L focuses the message box.
+- ⌘F finds text in the conversation. Enter and Shift+Enter move between matches, and Escape closes the search.
+- ⇧⌘G shows or hides Git activity.
+- ⌘. stops the current run.
+
+The desktop app's menu bar lists these shortcuts too, and adds ⌘, for **Settings…**, ⌘N for **New Workspace** and ⌘G for **Find Next**. Each menu item does what its shortcut or button does. Items are dimmed when they don't apply, such as **Stop Run** when nothing is running, and while a dialog is open, items for the controls behind it do nothing. **Agent** ticks the selected agent and **Keep Awake**, **Workspace** ticks the open workspace, and **View** ticks **Show Files**, **Show Git Activity** and the appearance. **Help** opens this guide, the roadmap, the release notes and the bug and design feedback forms on GitHub. The bug form starts with your Throughline and macOS versions filled in.
 
 ## Files and attachments
 
