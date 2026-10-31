@@ -48,6 +48,8 @@
     catch (error) { api.showNotice(`Could not load ${name(provider)} models. ${error.message}`); }
     finally { loadingModels[provider] = false; modelControls(); }
   }
+  // After a failed save the pickers show the saved choice again, which is what the next run uses.
+  const showSaved = () => { const state = api.getState(); $('model-select').value = state.model || ''; $('effort-select').value = state.effort || ''; };
   $('model-select').addEventListener('focus', () => loadModels());
   $('refresh-models').addEventListener('click', () => loadModels(true));
   $('model-select').addEventListener('change', async () => {
@@ -55,7 +57,7 @@
     if (model === '__custom__') { $('custom-model-editor').hidden = false; $('custom-model-input').value = state.model || ''; $('custom-model-input').focus(); return; }
     $('custom-model-editor').hidden = true;
     const effort = state.conversation?.efforts?.[state.provider]?.[model || 'default'] ?? null;
-    try { await api.setConfiguration({ model, effort }); } catch (error) { api.showNotice(error.message); } finally { modelControls(); }
+    try { await api.setConfiguration({ model, effort }); } catch (error) { showSaved(); api.showNotice(error.message); } finally { modelControls(); }
   });
   $('cancel-custom-model').addEventListener('click', () => { $('custom-model-editor').hidden = true; $('model-select').value = api.getState().model || ''; });
   $('save-custom-model').addEventListener('click', async () => {
@@ -70,7 +72,7 @@
     event.preventDefault();
     if (!$('save-custom-model').disabled) $('save-custom-model').click();
   });
-  $('effort-select').addEventListener('change', async () => { try { await api.setConfiguration({ effort: $('effort-select').value || null }); } catch (error) { api.showNotice(error.message); } finally { modelControls(); } });
+  $('effort-select').addEventListener('change', async () => { try { await api.setConfiguration({ effort: $('effort-select').value || null }); } catch (error) { showSaved(); api.showNotice(error.message); } finally { modelControls(); } });
 
   function progress() {
     const state = api.getState(), c = state.conversation, running = c?.status === 'running', run = running ? c.activeRun : c?.lastRun;

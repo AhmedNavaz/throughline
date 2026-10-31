@@ -456,6 +456,20 @@ test('composer model and effort choices use provider metadata and save without s
   ui.$('model-select').value='model-one';ui.fire('model-select','change');await flush();assert.equal(ui.state().effort,'high');
 });
 
+test('a model or effort that could not be saved does not stay selected in the composer',async()=>{
+  const ui=await browser({insights:true});
+  ui.$('model-select').value='model-one';ui.fire('model-select','change');await flush();assert.equal(ui.state().model,'model-one');
+  ui.setIntercept((request,next)=>request.path.endsWith('/provider')?response({error:'The selection could not be saved.'},500):next());
+  ui.$('model-select').value='model-two';ui.fire('model-select','change');await flush();
+  assert.match(ui.$('notice-text').textContent,/could not be saved/);
+  assert.equal(ui.$('model-select').value,'model-one','The picker shows the model the next run uses.');
+  ui.$('effort-select').value='high';ui.fire('effort-select','change');await flush();
+  assert.equal(ui.$('effort-select').value,'','The effort picker shows the saved default.');
+  await ui.window.relayUI.refresh();assert.deepEqual([ui.$('model-select').value,ui.$('effort-select').value],['model-one','']);
+  ui.setIntercept(null);ui.$('effort-select').value='high';ui.fire('effort-select','change');await flush();
+  assert.deepEqual([ui.state().effort,ui.$('effort-select').value],['high','high'],'A choice that is saved stays selected.');
+});
+
 test('a custom model can be entered in the composer without starting inference',async()=>{
   const ui=await browser({insights:true});ui.$('model-select').value='__custom__';ui.fire('model-select','change');await flush();assert.equal(ui.$('custom-model-editor').hidden,false);ui.$('custom-model-input').value='custom-model-id';ui.$('save-custom-model').click();await flush();assert.equal(ui.state().model,'custom-model-id');assert.equal(ui.$('model-select').value,'custom-model-id');assert.equal(ui.$('custom-model-editor').hidden,true);assert.equal(ui.requests.filter(request=>/\/(?:messages|continue)$/.test(request.path)).length,0);
 });
