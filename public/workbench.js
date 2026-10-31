@@ -22,7 +22,7 @@
   const installGuides = {
     codex: { command: 'npm install -g @openai/codex', url: 'https://github.com/openai/codex', note: 'Install Codex CLI (or the ChatGPT / Codex macOS app) on this computer, then refresh status.' },
     claude: { command: 'curl -fsSL https://claude.ai/install.sh | bash', url: 'https://code.claude.com/docs/en/overview', note: 'Install Claude Code and run claude in Terminal to sign in, then refresh status.' },
-    gemini: { command: 'npm install -g @google/gemini-cli', url: 'https://geminicli.com/docs/get-started/', note: 'Install Gemini CLI 0.66.0+ and configure supported authentication in Terminal. Antigravity headless mode cannot supply Throughline tool approvals.' },
+    gemini: { command: '', url: 'https://antigravity.google/docs/install', note: 'Use Install Google connection below, then sign in with Google. Throughline downloads the official Antigravity ACP runtime and verifies its checksum. Google’s terms and account limits apply.' },
   };
   const bytes = count => count < 1024 ? `${count} B` : `${(count / 1024).toFixed(count < 10240 ? 1 : 0)} KB`;
   const date = value => { if (!value) return ''; const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
@@ -297,18 +297,19 @@
       if (!account.installed) {
         const guide = installGuides[provider];
         card.append(node('p', guide.note, 'muted'));
-        output(card, guide.command);
-        actions(card, button(`How to install ${providerName(provider)} ↗`, () => openExternal(guide.url), 'primary'), button('Refresh status', () => render(true)));
+        if (guide.command) output(card, guide.command);
+        const install = provider === 'gemini' ? button('Install Google connection', async () => { notice(card, 'Downloading the official Google connection…', 'info'); await api().post('/api/providers/gemini/install', {}, null); await render(true); }, 'primary') : button(`How to install ${providerName(provider)} ↗`, () => openExternal(guide.url), 'primary');
+        actions(card, install, ...(provider === 'gemini' ? [button('Google terms ↗', () => openExternal('https://antigravity.google/terms'))] : []), button('Refresh status', () => render(true)));
         diagnostics(card, account);
         continue;
       }
-      const facts = node('dl', undefined, 'connection-facts'); fact(facts, 'Billing', billingLabel(account.billingSource)); if (account.planType || account.subscriptionType) fact(facts, 'Plan', String(account.planType || account.subscriptionType).replace(/[_-]/g, ' ')); fact(facts, 'Usage', usageLabel(account.usage, state.usage?.[provider]));
+      const facts = node('dl', undefined, 'connection-facts'); fact(facts, 'Billing', account.authMode === 'google-oauth' && account.billingSource === 'subscription' ? 'Google account allowance' : billingLabel(account.billingSource)); if (account.planType || account.subscriptionType) fact(facts, 'Plan', String(account.planType || account.subscriptionType).replace(/[_-]/g, ' ')); fact(facts, 'Usage', usageLabel(account.usage, state.usage?.[provider]));
       const selected = state.conversation?.models?.[provider] || (state.provider === provider ? state.model : '') || ''; fact(facts, 'Selected model', selected || 'Provider default');
       if (state.conversation?.lastRun?.provider === provider && state.conversation.lastRun.effectiveModel) fact(facts, 'Last used', state.conversation.lastRun.effectiveModel); fact(facts, 'Last checked', date(check.checkedAt) || 'Not yet'); card.append(facts);
       if (check.failure) notice(card, `The latest check ${check.failure === 'timeout' ? 'timed out' : 'failed'} at ${date(check.failedAt)}, so this shows the result from ${date(check.checkedAt)}.`, 'info');
-      if (provider === 'gemini') card.append(node('p', account.message || 'Configure authentication in Gemini CLI. Quotas and charges depend on your Google account.', 'muted'));
+      if (provider === 'gemini') card.append(node('p', account.message || 'Connect Gemini with Google Antigravity. Models and usage limits come from your Google account.', 'muted'));
       const controls = [button('Refresh status', () => render(true)), button('Usage & reset times', () => { modal.close(); window.relayUsage?.open(provider); })];
-      if (provider === 'gemini') controls.push(button('Gemini setup guide ↗', () => openExternal(installGuides.gemini.url)));
+      if (provider === 'gemini') { if (account.source !== 'antigravity-acp') controls.unshift(button('Install Google connection', async () => { notice(card, 'Downloading the official Google connection…', 'info'); await api().post('/api/providers/gemini/install', {}, null); await render(true); }, 'primary')); controls.push(button('Antigravity setup guide ↗', () => openExternal(installGuides.gemini.url))); }
       if (account.authenticated !== true) controls.unshift(button('Connect account', async () => { const result = await api().post(`/api/providers/${provider}/connect`), url = result.authUrl || result.url; notice(card, result.message || (url ? 'Open the provider sign-in page to finish connecting, then refresh status.' : 'Complete sign-in in the provider’s browser window, then refresh status.'), 'info'); if (url) actions(card, button('Open provider sign-in', () => openExternal(url), 'primary')); }, 'primary'));
       if (account.authenticated === true) controls.push(button('Disconnect account', async () => { await api().post(`/api/providers/${provider}/disconnect`); await render(true); }, 'quiet-danger'));
       actions(card, ...controls);
@@ -320,13 +321,14 @@
     const setup = section('App preferences', 'Choose your default assistant, model, theme and starting workspace.'); actions(setup, button('Open setup checklist', () => { modal.close(); window.relaySetup?.open(); }));
     const billing = section('Usage and billing', 'Provider runs use your own connected account. Subscription allowances and API charges are managed by the provider.');
     const acceptance = check('For explicit provider runs in this app session, I accept the displayed API or unknown billing source.'); acceptance.i.checked = window.relayBillingConfirmed === true; acceptance.i.addEventListener('change', () => { window.relayBillingConfirmed = acceptance.i.checked; window.dispatchEvent(new CustomEvent('relay-billing')); }); billing.append(acceptance.l);
-    const permissions = details(content, 'Permissions and account details'); permissions.append(node('p', 'Codex read-only uses its native sandbox. Claude and Gemini read-only restrict available tools and is not an operating-system sandbox. Managed runs disable project hooks where supported; administrator policy may still apply. Tool approval requests appear in the workspace chat.')); permissions.append(node('p', 'Sign-in uses the installed provider’s own flow. Account credentials stay with the provider. There is no automatic switch to API billing.'));
+    const permissions = details(content, 'Permissions and account details'); permissions.append(node('p', 'Codex read-only uses its native sandbox. Claude and the advanced Gemini CLI connection restrict tools. Antigravity coding uses native approvals and workspace trust; choose Codex or Claude for read-only work. Managed runs disable project hooks where supported; administrator policy may still apply. Tool approval requests appear in the workspace chat.')); permissions.append(node('p', 'Sign-in uses the provider’s own flow. Account credentials stay with the provider. There is no automatic switch to API billing.'));
   }
   function approvals() {
     let host = $('pending-approvals'); if (!host) { host = node('section', undefined, 'pending-approvals'); host.id = 'pending-approvals'; $('composer-region').prepend(host); }
     const state = api().getState(), pending = state.conversation?.pendingApprovals || [], signature = describe(pending); if (host.dataset.signature === signature) return; host.dataset.signature = signature; host.replaceChildren();
     for (const item of pending) {
       const card = node('article'); card.append(node('h3', `${providerName(item.provider)} needs your permission`));
+      if (item.title) card.append(node('p', item.title));
       const command = item.command || item.input?.command; if (command) output(card, command); else if (item.input?.file_path || item.input?.path) card.append(node('p', item.input.file_path || item.input.path)); else card.append(node('p', item.kind?.includes('fileChange') ? 'Review the requested file changes before continuing.' : `Requested action: ${item.kind || 'tool use'}`));
       diagnostics(card, item, 'Review full request');
       const choices = [['Approve', true, 'primary'], ['Deny', false]].map(([text, allow, cls]) => { const choice = node('button', text, cls); choice.type = 'button'; choice.addEventListener('click', () => answer(choices, state.conversation.id, item, allow)); return choice; });

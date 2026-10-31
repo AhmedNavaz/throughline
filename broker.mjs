@@ -1,3 +1,4 @@
+import { isAntigravityACP, antigravityReadOnly } from './antigravity.mjs';
 import { fork } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -62,7 +63,7 @@ export function commandFor(provider, { mode, sessionId, bin, workspace, workspac
 }
 
 export class Broker extends EventEmitter {
-  constructor({ workspace, workspaces = [], workspaceFolders = [], dataDir, bins = {}, acquireMutation = () => ({ release() {}, setProcess() {} }) }) {
+  constructor({ workspace, workspaces = [], workspaceFolders = [], dataDir, googleRoot = path.join(dataDir, 'google'), bins = {}, acquireMutation = () => ({ release() {}, setProcess() {} }) }) {
     super();
     this.workspace = savedWorkspace(workspace);
     this.workspaces = [...new Set([this.workspace, ...workspaces.map(savedWorkspace), ...workspaceFolders.map(folder => savedWorkspace(folder.path))])];
@@ -71,11 +72,11 @@ export class Broker extends EventEmitter {
       return { id: configured?.id || createHash('sha256').update(directory).digest('hex').slice(0, 16), name: configured?.name || path.basename(directory), ...(configured?.displayName ? { displayName: configured.displayName } : {}), path: directory };
     });
     this.workspaceSignature = createHash('sha256').update(JSON.stringify({ primary: this.workspace, roots: [...this.workspaces].sort() })).digest('hex');
-    this.dataDir = dataDir;
+    this.dataDir = dataDir; this.googleRoot = googleRoot;
     this.attachments = new AttachmentStore(dataDir);
     this.configuredBins = { ...bins };
     this.acquireMutation = acquireMutation;
-    this.bins = Object.fromEntries(PROVIDERS.map(provider => [provider, resolveBinary(provider, { override: bins[provider] })]));
+    this.bins = Object.fromEntries(PROVIDERS.map(provider => [provider, resolveBinary(provider, { override: bins[provider], googleRoot: this.googleRoot })]));
     this.conversations = new Map();
     this.running = null;
     fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -285,8 +286,9 @@ export class Broker extends EventEmitter {
     if (!this.providerStatus || Date.now() - this.providerStatusCheckedAt >= 10000) {
       if (!this.providerStatusPending) {
         this.providerStatusPending = Promise.all(PROVIDERS.map(async provider => {
-          const bin = resolveBinary(provider, { override: this.configuredBins[provider] });
+          const bin = resolveBinary(provider, { override: this.configuredBins[provider], googleRoot: this.googleRoot });
           this.bins[provider] = bin;
+          if (provider === 'gemini' && isAntigravityACP(bin)) return [provider, { installed: true, available: true, path: bin, authenticated: 'unknown', billingSource: 'unknown', capabilities: { ...capabilities(provider), readOnly: 'unavailable' } }];
           const result = bin ? await probeCli(bin, ['--version'], 4000) : null;
           // A CLI that is slow to answer is still installed: keep its last known status, or treat it as usable but unverified.
           if (result?.timedOut && this.providerStatus?.[provider]) return [provider, this.providerStatus[provider]];
@@ -326,8 +328,10 @@ export class Broker extends EventEmitter {
       try { available = fs.statSync(directory).isDirectory(); } catch {}
       if (!available) throw Object.assign(new Error(`Workspace folder is unavailable: ${directory}. Reconnect it or remove it from this project before starting an assistant.`), { status: 409 });
     }
-    const bin = resolveBinary(provider, { override: this.configuredBins[provider] });
+    const bin = resolveBinary(provider, { override: this.configuredBins[provider], googleRoot: this.googleRoot });
     if (!bin) throw Object.assign(new Error(`${provider === 'gemini' ? 'Gemini' : provider === 'codex' ? 'Codex' : 'Claude'} CLI could not be found. Install it or set AI_RELAY_${provider.toUpperCase()}_BIN to its executable path, then retry.`), { status: 503, category: 'installation' });
+    if (provider === 'gemini' && isAntigravityACP(bin) && mode === 'read') throw Object.assign(new Error(antigravityReadOnly), { status: 400, category: 'permission' });
+    if (provider === 'gemini' && isAntigravityACP(bin) && this.workspaces.length > 1) throw Object.assign(new Error('This Antigravity connection currently supports one project folder. Choose a workspace with one folder.'), { status: 400 });
     if (provider === 'gemini' && isAgy(bin)) throw Object.assign(new Error(agyUnsupported), { status: 503, category: 'installation' });
     const actualTransport = transportFor(provider, transport, this.configuredBins[provider]);
     if ((provider === 'gemini' && actualTransport !== 'acp') || (provider !== 'gemini' && actualTransport === 'acp') || (provider === 'codex' && actualTransport === 'sdk') || (provider === 'claude' && actualTransport === 'app-server')) throw Object.assign(new Error('This transport does not support the selected provider.'), { status: 400 });
@@ -380,7 +384,7 @@ export class Broker extends EventEmitter {
           local = { ...local, ...await verifyLocal() };
           this.record(c, { type: 'run_metadata', metadata: { account: { authenticated: true, authMode: 'local', billingSource: 'local' } } });
         } else if (!this.configuredBins[provider]) {
-          const account = await accountStatus(provider, { bin, workspace: this.workspace });
+          const account = await accountStatus(provider, { bin, workspace: this.workspace, googleRoot: this.googleRoot });
           this.record(c, { type: 'run_metadata', metadata: { account: { authenticated: account.authenticated, authMode: account.authMode, billingSource: account.billingSource } } });
           if (account.authenticated === false) throw Object.assign(new Error('Sign in through the provider’s supported authentication flow before running.'), { category: 'authentication' });
           if (account.billingSource !== 'subscription' && !billingConfirmed) throw Object.assign(new Error(`Billing source is ${account.billingSource}. Explicitly confirm this provider run before it may consume usage.`), { category: 'permission' });
@@ -424,7 +428,7 @@ export class Broker extends EventEmitter {
         const pidStart = processStart(run.child.pid);
         this.record(c, { type: 'run_process', pid: run.child.pid, pidStart });
         lease.setProcess(run.child.pid, pidStart);
-        run.child.send({ type: 'start', config: { bin, args: command.args, workspace: this.workspace, workspaces: this.workspaces, workspaceFolders: this.workspaceFolders, prompt: prepared.prompt, images, transport: actualTransport, provider, mode, model, effort, sessionId, ...(local ? { local } : {}), ...(review ? { reviewSnapshot: true } : {}) } });
+        run.child.send({ type: 'start', config: { bin, googleRoot: this.googleRoot, args: command.args, workspace: this.workspace, workspaces: this.workspaces, workspaceFolders: this.workspaceFolders, prompt: prepared.prompt, images, transport: actualTransport, provider, mode, model, effort, sessionId, ...(local ? { local } : {}), ...(review ? { reviewSnapshot: true } : {}) } });
       } catch (error) { run.errorCategory = error.category || classifyError(error); complete(null, null, error); }
     };
     launch();

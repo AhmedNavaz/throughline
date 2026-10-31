@@ -44,7 +44,7 @@ The fastest way to make Throughline better is to use it on your real projects an
 
 | Feature | Status | Issue |
 | --- | --- | --- |
-| More agents and models, including Google's supported coding-agent integration, free cloud tiers and local models, on your own accounts | First milestones shipped in 0.10.0: Gemini CLI over ACP and explicit Ollama local-model handoffs through Codex tools; further provider adapters remain ahead of automatic routing | [#4](https://github.com/AhmedNavaz/throughline/issues/4) |
+| More agents and models, including Google's supported coding-agent integration, free cloud tiers and local models, on your own accounts | First milestones shipped in 0.10.0: Gemini CLI over ACP and explicit Ollama local-model handoffs through Codex tools; Google personal-account support now uses Antigravity ACP with native sign-in and model discovery in 0.11.0; further provider adapters remain ahead of automatic routing | [#4](https://github.com/AhmedNavaz/throughline/issues/4) |
 | Compact workspace activity with clear actions, results and expandable details | Planned, help wanted | [#45](https://github.com/AhmedNavaz/throughline/issues/45) |
 | Persistent approval indicators and desktop notifications that open the right request | Planned | [#46](https://github.com/AhmedNavaz/throughline/issues/46) |
 | Notarized macOS builds, so downloads open without a security prompt | Waiting on an Apple Developer account | [#1](https://github.com/AhmedNavaz/throughline/issues/1) |
