@@ -14,6 +14,8 @@
     <script src="/app.js" defer></script>
     <script src="/workbench.js" defer></script>
     <script src="/insights.js" defer></script>
+    <link rel="stylesheet" href="/model-picker.css" />
+    <script src="/model-picker.js" defer></script>
     <script src="/conversation-history.js" defer></script>
     <script src="/setup.js" defer></script>
     <link rel="stylesheet" href="/updates.css" />
@@ -112,19 +114,9 @@
           </section>
           <div id="other-running" class="running-notice" hidden><span>This workspace has an active run.</span><button id="view-running" type="button">Refresh status</button></div>
           <section id="review-summary" class="review-strip" aria-label="Latest code review" hidden><span id="review-summary-text"></span><button id="view-review" class="text-link" type="button">View review</button></section>
+          <section id="next-actions" class="next-actions" aria-label="After this run" hidden><span id="next-actions-text"></span><div><button id="next-review" class="text-link" type="button">Review changes…</button><button id="next-friend" class="text-link" type="button">Ask a friend…</button><button id="dismiss-next-actions" class="icon-button" type="button" aria-label="Dismiss next steps"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div></section>
           <div id="continuation" class="continuation" hidden><span id="continuation-text">The last run stopped.</span><button id="continue-button" type="button">Continue with Codex <span aria-hidden="true">→</span></button><button id="continue-locally" type="button" hidden>Continue locally →</button></div>
           <div id="connection-notice" class="connection-notice" role="status" hidden><span id="connection-notice-text"></span><div class="connection-notice-actions"><button id="connection-install" class="secondary-action" type="button" hidden>How to install ↗</button><button id="connection-action" type="button">Connect account</button></div></div>
-          <div id="vibe-contextual-bar" class="vibe-contextual-bar" hidden>
-            <div class="vibe-bar-content">
-              <span class="vibe-sparkle-icon" aria-hidden="true">⚡</span>
-              <span id="vibe-bar-title" class="vibe-bar-title">Run completed</span>
-            </div>
-            <div class="vibe-bar-actions">
-              <button id="vibe-btn-review" class="vibe-btn-primary" type="button">Review changes ↗</button>
-              <button id="vibe-btn-friend" class="vibe-btn-secondary" type="button">Ask a friend</button>
-              <button id="vibe-btn-dismiss" class="vibe-btn-close" type="button" aria-label="Dismiss">✕</button>
-            </div>
-          </div>
           <form id="composer" class="composer">
             <div id="custom-model-editor" class="custom-model-editor" hidden><label for="custom-model-input">Custom model ID</label><input id="custom-model-input" maxlength="200" placeholder="Enter a supported model identifier" /><button id="save-custom-model" type="button">Use model</button><button id="cancel-custom-model" type="button">Cancel</button></div>
             <div id="attachment-list" class="attachment-list" aria-label="Message attachments" hidden></div>
@@ -134,14 +126,14 @@
             <div class="composer-toolbar">
               <div class="composer-controls">
                 <button id="attach-files" class="attach-files" type="button" title="Attach images or text files · also paste or drop files" aria-label="Attach images or text files"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9M6 15l8-8"/></svg><span>Attach</span></button>
+                <button id="model-picker-button" class="model-picker-button" type="button" aria-haspopup="dialog" aria-controls="model-picker-popover" aria-expanded="false"><i id="picked-agent-icon" class="agent-icon codex" aria-hidden="true"></i><span><span id="picked-agent">Codex</span><span id="picked-model">Provider default</span></span><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
                 <span id="assistant-label" class="sr-only">Assistant</span>
-                <div class="provider-selector sr-only" role="group" aria-labelledby="assistant-label"><button id="select-codex" class="provider-button selected" type="button" aria-pressed="true"><i class="agent-icon codex" aria-hidden="true"></i>Codex</button><button id="select-claude" class="provider-button" type="button" aria-pressed="false"><i class="agent-icon claude" aria-hidden="true"></i>Claude</button><button id="select-gemini" class="provider-button" type="button" aria-pressed="false"><i class="agent-icon gemini" aria-hidden="true"></i>Gemini</button><button id="select-local" class="provider-button" type="button" aria-pressed="false" title="Run locally with Ollama"><i class="agent-icon local" aria-hidden="true"></i>Local</button></div>
-                <div class="composer-picker-group">
-                  <label id="model-picker-label" class="picker model-picker" title="Model"><span class="sr-only">Model</span><select id="model-select" aria-label="Model"><option value="">Provider default</option></select></label>
-                  <button id="refresh-models" class="icon-button refresh-button" type="button" title="Load models from the selected agent" aria-label="Refresh available models"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
-                  <label class="picker effort-picker" title="Reasoning effort"><span class="sr-only">Reasoning effort</span><select id="effort-select" aria-label="Reasoning effort"><option value="">Provider default</option></select></label>
-                  <label class="picker mode-control" title="Workspace access"><span class="sr-only">Access</span><select id="mode-select" aria-label="Workspace access"><option value="edit">Can edit files</option><option value="read">Read only</option></select></label>
-                </div>
+                <div class="provider-selector" hidden role="group" aria-labelledby="assistant-label"><button id="select-codex" class="provider-button selected" type="button" aria-pressed="true"><i class="agent-icon codex" aria-hidden="true"></i>Codex</button><button id="select-claude" class="provider-button" type="button" aria-pressed="false"><i class="agent-icon claude" aria-hidden="true"></i>Claude</button><button id="select-gemini" class="provider-button" type="button" aria-pressed="false"><i class="agent-icon gemini" aria-hidden="true"></i>Gemini</button></div>
+                <label class="picker agent-picker" title="Agent"><span class="sr-only">Agent</span><select id="agent-select" aria-label="Agent"><option value="codex">Codex</option><option value="claude">Claude</option><option value="gemini">Gemini</option><option value="local">Local (Ollama)…</option></select></label>
+                <label class="picker model-picker" title="Model"><span class="sr-only">Model</span><select id="model-select" aria-label="Model"><option value="">Provider default</option></select></label>
+                <button id="refresh-models" class="icon-button refresh-button" type="button" title="Load models from the selected agent" aria-label="Refresh available models"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
+                <label class="picker effort-picker" title="Reasoning effort"><span class="sr-only">Reasoning effort</span><select id="effort-select" aria-label="Reasoning effort"><option value="">Provider default</option></select></label>
+                <label class="picker mode-control" title="Workspace access"><span class="sr-only">Access</span><select id="mode-select" aria-label="Workspace access"><option value="edit">Can edit files</option><option value="read">Read only</option></select></label>
               </div>
               <div class="composer-actions">
                 <button id="usage-chip" class="usage-chip" type="button" hidden></button>
@@ -164,10 +156,7 @@
         <div id="git-content" class="git-content"></div><p id="git-updated" class="git-updated"></p>
       </aside>
 
-      <aside id="review-panel" class="review-panel" aria-label="Code review" hidden>
-        <div class="inspector-heading"><h2>Code review</h2><div class="inspector-actions"><button id="close-review-panel" class="icon-button" type="button" aria-label="Close review panel" title="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div></div>
-        <div id="review-panel-body" class="review-panel-body"></div>
-      </aside>
+      <aside id="review-panel" class="review-panel" aria-labelledby="review-panel-title" hidden><div class="inspector-heading"><h2 id="review-panel-title">Code review</h2><button id="close-review-panel" class="icon-button" type="button" aria-label="Close review panel"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><p id="review-panel-hint" class="review-panel-hint">Reviewing a saved snapshot. You can send your next prompt.</p><p id="review-panel-error" class="review-error" role="alert" hidden></p><div id="review-panel-body" class="review-panel-body"></div></aside>
 
       <footer class="status-bar" aria-label="Status">
         <div class="status-group">
@@ -247,6 +236,8 @@
       <header class="local-heading"><div><p class="local-eyebrow">KEEP THE THREAD · RUN LOCALLY</p><h2 id="local-title" tabindex="-1">Continue locally</h2><p id="local-description">Use a downloaded model with this project’s saved context and workspace tools.</p></div><button id="local-close" class="icon-button" type="button" aria-label="Close local models"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
       <div class="local-body"><p id="local-status" class="local-status" role="status"></p><label class="local-field" for="local-model">Local model<select id="local-model"></select></label><p id="local-model-detail" class="local-model-detail"></p><label class="local-field" for="local-task">Task to continue<textarea id="local-task" maxlength="16000" rows="3"></textarea></label><p id="local-context" class="local-context"></p><p class="local-requirements">Requires Codex CLI, Ollama and a downloaded model with tool support. A ChatGPT subscription is not needed for this connection. For longer coding tasks, configure Ollama with at least 64K context. Your composer draft stays saved.</p><p id="local-error" class="local-error" role="alert" hidden></p></div><footer class="local-actions"><button id="local-setup-guide" class="text-link" type="button">Setup guide ↗</button><div><button id="local-refresh" class="secondary-button" type="button">Refresh models</button><button id="local-start" class="primary-button" type="button" disabled>Continue locally</button></div></footer>
     </dialog>
+    <div id="model-picker-popover" class="model-popover" popover="auto" role="dialog" aria-label="Choose agent and model"><header><input id="picker-search" type="search" placeholder="Find a model…" aria-label="Find a model" autocomplete="off" /><button id="picker-refresh" class="icon-button" type="button" aria-label="Refresh model list"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button></header><div class="model-popover-layout"><nav id="picker-agents" aria-label="Agents"></nav><section class="model-popover-main"><h3 id="picker-title"></h3><p id="picker-note"></p><p id="picker-status" role="status"></p><div id="picker-models"></div></section></div><footer><button id="picker-custom-button" class="text-link" type="button">Enter a model ID…</button><div id="picker-custom" hidden><input id="picker-custom-id" maxlength="200" aria-label="Custom model ID" placeholder="Available model ID" /><button id="picker-custom-save" class="secondary-button" type="button">Use model</button></div></footer></div>
+
     <dialog id="updates-dialog" class="updates-dialog" aria-labelledby="updates-title" aria-describedby="updates-description">
       <header class="updates-heading"><img src="/icon.svg" width="44" height="44" alt="" /><div><p id="updates-eyebrow" class="updates-eyebrow">WHAT’S NEW</p><h2 id="updates-title">Throughline</h2><p id="updates-description"></p></div><button id="updates-close" class="icon-button" type="button" aria-label="Close what’s new"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
       <div id="updates-content" class="updates-content"></div>

@@ -131,3 +131,16 @@
   #workbench-error { grid-column: 1; grid-row: 3; }
   #workbench-content { grid-column: 1; grid-row: 4; padding: 2px 14px 20px; }
 }
+
+.friend-ready-card { border: 1px solid var(--border); border-radius: 10px; padding: 18px; background: var(--surface-raised); }
+.friend-ready-card > label:first-of-type textarea { min-height: 64px; }
+.friend-context { color: var(--muted); font-size: 12px; }
+.friend-ready-preview { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.friend-ready-preview .preview-text { margin-bottom: 10px; }
+.friend-source-list { max-height: 120px; overflow: auto; padding: 8px 12px; border-radius: 6px; background: var(--surface-input); font: 11px/1.6 var(--mono); }
+.friend-source-list p { margin: 2px 0; }
+
+#workbench .friend-ready-card textarea { min-height: 64px; max-height: 110px; }
+#workbench .friend-ready-card > .workbench-details { margin: 12px 0; }
+#workbench .friend-ready-card > .workbench-actions { position: sticky; bottom: -1px; z-index: 1; margin: 12px -4px 0; padding: 10px 4px; background: var(--surface-raised); }
+#workbench .friend-ready-card > .workbench-details .friend-ready-preview { margin-top: 0; }

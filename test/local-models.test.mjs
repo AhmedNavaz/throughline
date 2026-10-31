@@ -91,7 +91,7 @@ test('local client processes do not receive inherited model API credentials', ()
 });
 
 async function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'throughline-local-')), workspace = path.join(root, 'project'); fs.mkdirSync(workspace);
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'throughline-local-'))), workspace = path.join(root, 'project'); fs.mkdirSync(workspace);
   const captures = path.join(root, 'captures.jsonl'), scenario = path.join(root, 'scenario.json'); fs.writeFileSync(scenario, '{}');
   const cli = path.join(root, 'codex.mjs');
   fs.writeFileSync(cli, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';
@@ -125,6 +125,15 @@ emit({method:'turn/completed',params:{threadId:'fresh-local',turn:{status:'compl
   return { app, broker, c, project, request, scenario: value => fs.writeFileSync(scenario, JSON.stringify(value)), changed: () => { tags = [{ ...row, digest: 'b'.repeat(64) }]; }, cloud: () => { modelInfo = { ...info, remote_host: 'https://ollama.com' }; }, captures: () => fs.existsSync(captures) ? fs.readFileSync(captures, 'utf8').trim().split('\n').map(JSON.parse) : [] };
 }
 const selection = (metadata, requestId = 'local-request') => ({ model, digest, task: 'Continue the project locally.', context: metadata.context, requestId });
+
+test('composer local runs include text snapshots and reject images before accepting a message', async t => {
+  const f = await fixture(t), metadata = (await f.request()).body;
+  const text = f.broker.attachments.put({name:'notes.md',data:Buffer.from('Keep this attached context.').toString('base64')});
+  assert.equal((await f.request('/start',{...selection(metadata,'with-text'),attachments:[text.id]})).status,202); await f.broker.running.done;
+  assert(JSON.stringify(f.captures()).includes('Keep this attached context.'));
+  const image = f.broker.attachments.put({name:'image.png',data:Buffer.from([137,80,78,71,13,10,26,10]).toString('base64')}), before = f.c.messages.length;
+  assert.equal((await f.request('/start',{...selection(metadata,'with-image'),attachments:[image.id]})).status,400); assert.equal(f.c.messages.length,before);
+});
 
 test('a local handoff uses the journal and leaves cloud settings, effort and native sessions intact across restart/export', async t => {
   const f = await fixture(t), metadata = (await f.request()).body, before = { provider: f.c.provider, model: f.c.model, effort: f.c.effort, sessions: structuredClone(f.c.sessions), models: structuredClone(f.c.models) };

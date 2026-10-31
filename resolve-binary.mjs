@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { googleRuntimePath } from './antigravity-install.mjs';
 
 const variable = provider => `AI_RELAY_${provider.toUpperCase()}_BIN`;
 const expandHome = (value, home) => value === '~' ? home : value.startsWith('~/') ? path.join(home, value.slice(2)) : value;
@@ -79,7 +80,7 @@ function extensionExecutables(roots, platform, arch) {
 // Search installations outside the project. Empty/relative PATH entries must not
 // cause a checked-out repository's executable to be selected automatically.
 export function resolveBinary(provider, {
-  override, env = process.env, home = os.homedir(), platform = process.platform, arch = process.arch,
+  override, googleRoot, env = process.env, home = os.homedir(), platform = process.platform, arch = process.arch,
   applicationRoots = ['/Applications', path.join(home, 'Applications')],
   extensionRoots = [path.join(home, '.vscode/extensions'), path.join(home, '.vscode-insiders/extensions')],
   systemBinDirs = ['/opt/homebrew/bin', '/usr/local/bin'],
@@ -98,18 +99,9 @@ export function resolveBinary(provider, {
   const pathEntries = (env.PATH || env.Path || '').split(platform === 'win32' ? ';' : path.delimiter)
     .filter(directory => path.isAbsolute(directory));
 
-  // For Gemini, prefer Google Antigravity CLI (agy) if present on PATH or in its home directories.
   if (provider === 'gemini') {
-    const agyNames = platform === 'win32' ? ['agy.exe', 'agy'] : ['agy'];
-    const agyDirs = [
-      ...pathEntries,
-      path.join(home, '.gemini/bin'),
-      path.join(home, '.local/bin'),
-      path.join(home, 'bin'),
-      ...(platform === 'win32' && env.LOCALAPPDATA ? [path.join(env.LOCALAPPDATA, 'agy/bin')] : []),
-    ];
-    const agy = firstExecutable(agyDirs.flatMap(directory => agyNames.map(name => path.join(directory, name))));
-    if (agy) return agy;
+    const native = firstExecutable([...(googleRoot ? [googleRuntimePath(googleRoot)] : []), ...pathEntries.flatMap(directory => ['agy_acp_server.par', 'agy_acp_server.exe', 'antigravity-acp'].map(name => path.join(directory, name)))]);
+    if (native) return native;
   }
 
   const names = platform === 'win32' ? [`${provider}.exe`, provider] : [provider];
@@ -145,5 +137,19 @@ export function resolveBinary(provider, {
     ])));
     if (bundled) return bundled;
   }
+  // Plain Antigravity CLI is detected for setup guidance; only its ACP server is an interactive adapter.
+  if (provider === 'gemini') {
+    const agyNames = platform === 'win32' ? ['agy.exe', 'agy'] : ['agy'];
+    const agyDirs = [
+      ...pathEntries,
+      path.join(home, '.gemini/bin'),
+      path.join(home, '.local/bin'),
+      path.join(home, 'bin'),
+      ...(platform === 'win32' && env.LOCALAPPDATA ? [path.join(env.LOCALAPPDATA, 'agy/bin')] : []),
+    ];
+    const agy = firstExecutable(agyDirs.flatMap(directory => agyNames.map(name => path.join(directory, name))));
+    if (agy) return agy;
+  }
+
   return provider === 'codex' ? firstExecutable(extensionExecutables(extensionRoots, platform, arch)) : null;
 }

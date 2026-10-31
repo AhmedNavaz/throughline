@@ -4,7 +4,7 @@
   // First run: a welcome, three short steps and a summary, then the app.
   // Existing profiles open normally after updates. The step number is saved so setup can resume.
   const steps = ['Agents', 'Preferences', 'Project'], titles = ['Connect your agents', 'Make it yours', 'Start your first project'], last = steps.length - 1;
-  const installGuides = { claude: 'https://code.claude.com/docs/en/overview', codex: 'https://github.com/openai/codex', gemini: 'https://antigravity.google' };
+  const installGuides = { claude: 'https://code.claude.com/docs/en/overview', codex: 'https://github.com/openai/codex', gemini: 'https://antigravity.google/docs/install' };
   const node = (tag, text, cls) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (cls) el.className = cls; return el; };
   const button = (text, fn, cls = 'secondary-button') => { const el = node('button', text, cls); el.type = 'button'; el.addEventListener('click', () => perform(fn)); return el; };
   const field = (label, tag, value = '') => { const wrap = node('label',label), input = node(tag); input.value = value; wrap.append(input); return {wrap,input}; };
@@ -95,14 +95,15 @@
       const [state,label] = api.getState().accountsChecking?.[provider] || !account && !check ? ['checking','Checking…'] : !account ? ['unknown',check.failure === 'timeout' ? 'Check timed out' : 'Not verified'] : !account.installed ? ['missing','Not installed'] : account.authenticated === true ? ['ready','Connected' + (plan ? ' · ' + titleCase(plan) : '')] : account.authenticated === false ? ['signin','Sign-in needed'] : ['unknown','Not verified'];
       const status = node('span',label,'setup-account-state'); status.dataset.state = state; status.dataset.connected = String(account?.authenticated === true);
       const billingNote = account?.installed === false
-        ? (provider === 'gemini' ? `Install Google Antigravity (agy) on ${computer}` : `Install ${providerName(provider)} on ${computer}`)
-        : account?.billingSource === 'subscription' ? 'Uses your subscription' : account?.billingSource === 'api' ? 'Detected API billing' : 'Billing not reported yet';
+        ? (provider === 'gemini' ? `Connect Gemini through Google Antigravity` : `Install ${providerName(provider)} on ${computer}`)
+        : account?.billingSource === 'subscription' ? (account.authMode === 'google-oauth' ? 'Uses your Google account allowance' : 'Uses your subscription') : account?.billingSource === 'api' ? 'Detected API billing' : 'Billing not reported yet';
       card.append(select,status,node('p',billingNote,'setup-billing'));
       if (account?.installed && account.authenticated !== true) card.append(button('Connect ' + providerName(provider),async()=>{
         const result = await api.post(`/api/providers/${provider}/connect`,{},null), url = result.authUrl || result.url;
         card.append(node('p',result.message || 'Finish signing in with the provider, then refresh.','setup-billing'));
         if (url) card.append(button('Open sign-in page',()=>openLink(url)));
       }));
+      if (provider === 'gemini' && account?.source !== 'antigravity-acp') card.append(button('Install Google connection',async()=>{ card.append(node('p','Downloading the official Google connection…','setup-billing')); await api.post('/api/providers/gemini/install',{},null); await api.refreshAccounts({force:true}); render(); }));
       if (account?.installed === false) card.append(button(`How to install ${providerName(provider)}`,()=>openLink(installGuides[provider])));
       cards.append(card);
     }

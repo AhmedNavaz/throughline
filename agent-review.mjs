@@ -11,7 +11,7 @@ export const reviewAgents = c => { const builder = c.lastBuilder || c.provider; 
 const folderSignature = folders => hash(JSON.stringify(folders.map(({ id, path: root }) => [id, fs.realpathSync(root)])));
 
 // Inspect exact file bytes without following symlinks or reading outside attached roots. Deleted files have no bytes.
-function fileVersion(folder, relative, deleted = false) {
+function fileVersion(folder, relative, deleted = false, includeContent = false) {
   validateRelativePath(relative);
   let target = fs.realpathSync(folder.path);
   for (const part of relative.split('/')) {
@@ -30,8 +30,26 @@ function fileVersion(folder, relative, deleted = false) {
     const contents = bytes.subarray(0, count);
     let text; try { text = new TextDecoder('utf-8', { fatal: true }).decode(contents); } catch { fail('Binary files cannot be included in a review.'); }
     if (text.includes('\0')) fail('Binary files cannot be included in a review.');
-    return { contentHash: hash(contents), lines: text.split('\n').length };
+    return { contentHash: hash(contents), lines: text.split('\n').length, ...(includeContent ? { content: text } : {}) };
   } finally { fs.closeSync(fd); }
+}
+
+// A background reviewer gets copies of the approved files, never the mutable
+// working tree. Normal agent runs can continue while this snapshot is read.
+export function copyReviewFiles(snapshot, folders, target) {
+  const copied = folders.map(folder => ({ ...folder, path: path.join(target, folder.id) }));
+  for (const folder of copied) fs.mkdirSync(folder.path, { recursive: true, mode: 0o700 });
+  for (const file of snapshot.files) {
+    const source = folders.find(folder => folder.id === file.folderId), destination = copied.find(folder => folder.id === file.folderId);
+    if (!source || !destination) fail('Review folder is no longer attached.', 409);
+    const version = fileVersion(source, file.path, true, true);
+    if (version.contentHash !== file.contentHash) fail('Selected files changed while preparing the background review.', 409);
+    if (version.contentHash === null) continue;
+    const filename = path.join(destination.path, file.path);
+    fs.mkdirSync(path.dirname(filename), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(filename, version.content, { flag: 'wx', mode: 0o600 });
+  }
+  return copied;
 }
 function repository(folder) {
   const identity = workspaceGitIdentity(folder);
@@ -106,7 +124,7 @@ export function parseReviewResult(text, snapshot) {
 }
 
 export function publicReview(review) {
-  const { snapshot, ...visible } = review;
+  const { snapshot, pid, pidStart, fingerprint, ...visible } = review;
   return { ...visible, files: snapshot.files.map(({ id, folderId, folderName, path, code, lines }) => ({ id, folderId, folderName, path, code, lines })) };
 }
 

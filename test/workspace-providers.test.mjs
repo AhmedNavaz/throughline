@@ -71,6 +71,20 @@ test('native adapters pass all current roots while read mode remains restricted'
   }
 });
 
+test('snapshot reviews cannot resume coding sessions or enable edit access, MCP or hosted search', async () => {
+  const config = { workspace:'/snapshot',workspaces:['/snapshot'],prompt:'Review approved copies',mode:'read',model:'fixture-model',effort:'medium',reviewSnapshot:true };
+  for (const invalid of [{...config,mode:'edit'},{...config,sessionId:'previous-coding-thread'}]) await assert.rejects(runCodex(invalid, {}), /read-only access and a fresh/);
+  class Client extends EventEmitter {
+    requests=[]; async initialize() {}
+    async request(method,params) { this.requests.push({method,params}); if (method==='thread/start') return {thread:{id:'review'}}; if (method==='turn/start') {queueMicrotask(()=>this.emit('message',{method:'turn/completed',params:{turn:{status:'completed'}}}));return {turn:{id:'turn'}};} }
+    close() {}
+  }
+  const client = new Client(); let options;
+  await runCodex(config,{clientFactory:value=>{options=value;return client;},event(){},metadata(){},approval:async()=>false});
+  const started = client.requests.find(row=>row.method==='thread/start').params;
+  assert.equal(options.reviewSnapshot,true); assert.equal(started.ephemeral,true); assert.equal(started.sandbox,'read-only'); assert.deepEqual(started.config.mcp_servers,{}); assert.equal(started.config.web_search,'disabled');
+});
+
 test('folder membership changes reconstruct both native sessions and preserve the canonical chat', async t => {
   const f = fixture(t); let broker = f.open(); const id = broker.create().id;
   const run = async (provider, text) => { const c = broker.get(id); broker.start(c, { provider, text }); await broker.running.done; assert.equal(c.status, 'complete'); };

@@ -1,3 +1,5 @@
+import nodePath from 'node:path';
+import { installAntigravity } from './antigravity-install.mjs';
 import {accountStatus,listModels,connectAccount,disconnectAccount,providerUsage} from './providers.mjs';
 import {resolveBinary} from './resolve-binary.mjs';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
@@ -9,11 +11,13 @@ export async function collaborationRoute({req,res,url,registry,collaboration:c,s
   const input=method==='POST'?await body(req):{};
   const projectId=url.searchParams.get('projectId');
   if(url.pathname==='/api/sharing/config') {json(res,200,method==='POST'?configureSharing(input):{baseUrl:sharing?.baseUrl||null});return true;}
-  const providerMatch=url.pathname.match(/^\/api\/providers\/(codex|claude|gemini)\/(account|models|connect|disconnect|usage)$/);
+  const providerMatch=url.pathname.match(/^\/api\/providers\/(codex|claude|gemini)\/(account|models|connect|disconnect|usage|install)$/);
   if(providerMatch) {
     const [,provider,action]=providerMatch;
     const workspace=projectId?registry.get(projectId).path:undefined;
-    const options={workspace,bin:resolveBinary(provider),refresh:url.searchParams.get('refresh')==='1'};
+    const googleRoot=nodePath.join(registry.dataRoot,'google');
+    if(action==='install') { if(provider!=='gemini'||method!=='POST')fail('Use POST to install the Google connection.',405); json(res,200,await installAntigravity(googleRoot)); return true; }
+    const options={workspace,googleRoot,bin:resolveBinary(provider,{googleRoot}),refresh:url.searchParams.get('refresh')==='1'};
     if(['connect','disconnect'].includes(action)&&method!=='POST')fail('Use POST.',405);
     json(res,200,await ({account:accountStatus,models:listModels,connect:connectAccount,disconnect:disconnectAccount,usage:providerUsage}[action])(provider,options));return true;
   }
