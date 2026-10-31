@@ -676,6 +676,20 @@ test('run indicators distinguish reasoning, quiet providers, approvals, and real
   c.pendingApprovals=[{id:'approval'}];await ui.window.relayUI.refresh();assert.equal(ui.$('run-phase').textContent,'Waiting for approval');
 });
 
+test('input token counts include cached input for Claude as they do for Codex',async()=>{
+  const ui=await browser({insights:true}),c=ui.canonical.get('project-one'),metrics=()=>ui.$('run-metrics').textContent,tokens=count=>new RegExp(`(^|\\D)${count.toLocaleString().replace(/\W/g,'\\$&')} input tokens`);
+  // Claude reports the input it read from and wrote to its prompt cache apart from input_tokens.
+  c.lastRun={provider:'claude',status:'complete',usage:{input_tokens:6,cache_creation_input_tokens:9924,cache_read_input_tokens:15198,output_tokens:412}};await ui.window.relayUI.refresh();
+  assert.match(metrics(),tokens(25128));assert.match(metrics(),/412 output tokens/);
+  c.lastRun.usage={input_tokens:6,output_tokens:412};await ui.window.relayUI.refresh();
+  assert.match(metrics(),tokens(6),'A report without cache counts still shows its input.');
+  delete c.lastRun.usage;await ui.window.relayUI.refresh();
+  assert.doesNotMatch(metrics(),/tokens/,'A run without a usage report shows no token counts.');
+  // Codex's inputTokens already include its cached input.
+  c.lastRun={provider:'codex',status:'complete',usage:{total:{inputTokens:25128,cachedInputTokens:25122,outputTokens:412}}};await ui.window.relayUI.refresh();
+  assert.match(metrics(),tokens(25128));
+});
+
 test('workspace removal confirms, switches safely, and Undo restores the same chat and draft', async()=>{
   const ui=await browser({moreProjects:true}), chatId=ui.state().conversation.id;
   ui.$('message-input').value='Keep my draft';ui.fire('message-input','input');
