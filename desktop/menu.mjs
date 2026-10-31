@@ -89,7 +89,7 @@ export function menuTemplate({ platform, packaged, version, osVersion, arch, sta
     link('Share Design Feedback', `${repository}/issues/new?template=ux_feedback.yml`),
     separator(),
     link('Roadmap', `${repository}/blob/main/ROADMAP.md`),
-    link('What’s New', `${repository}/releases`),
+    command('What’s New', ['whats-new'], { id: 'whats-new' }),
     ...mac ? [] : [separator(), { role: 'about' }],
   ] };
   const application = { label: 'Throughline', submenu: [{ role: 'about' }, separator(), settings, setup, separator(), { role: 'services' }, separator(), { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, separator(), { role: 'quit' }] };

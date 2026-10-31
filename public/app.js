@@ -871,6 +871,7 @@
     stop: () => { if (!isRunning()) return false; stop(); return true; },
     workspace: number => { const project = filteredProjects()[number - 1]; if (!project) return false; selectProject(project.id); return true; },
     settings: press("relay-settings"), "setup-guide": press("open-setup-guide"), "new-workspace": press("create-workspace"), review: press("open-review"),
+    "whats-new": () => { if (covered() || !window.relayUpdates) return false; window.relayUpdates.open(); return true; },
     "previous-chats": press("open-import"), export: press("open-export"), files: press("toggle-explorer"), "keep-awake": press("keep-awake"),
     "add-folder": () => { if (covered()) return false; toggleFolderForm(true); return true; },
     agent: provider => ["codex", "claude"].includes(provider) && press("select-" + provider)(),

@@ -1,8 +1,8 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id), api = window.relayUI, dialog = $('setup-dialog'), desktop = window.relayDesktop;
-  // First run: a welcome, three short steps and a summary, then the app. A new install that finds saved
-  // workspaces asks first whether to continue with them. The step number is saved so setup can resume.
+  // First run: a welcome, three short steps and a summary, then the app.
+  // Existing profiles open normally after updates. The step number is saved so setup can resume.
   const steps = ['Agents', 'Preferences', 'Project'], titles = ['Connect your agents', 'Make it yours', 'Start your first project'], last = steps.length - 1;
   const installGuides = { claude: 'https://code.claude.com/docs/en/overview', codex: 'https://github.com/openai/codex' };
   const node = (tag, text, cls) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (cls) el.className = cls; return el; };
@@ -14,7 +14,7 @@
   const computer = desktop?.platform === 'darwin' ? 'this Mac' : 'this computer';
   let connectionSignature = '';
   const connectionState = () => { const state = api.getState(); return JSON.stringify([state.accounts, state.accountsChecking, state.accountChecks]); };
-  let preferences, launch = null, screen = 'welcome', reviewing = false, shownStep = -1, advancedOpen = false;
+  let preferences, screen = 'welcome', reviewing = false, shownStep = -1, advancedOpen = false;
   let step = 0, busy = false, revision = 0, catalog = {}, draft = {provider:'codex',model:null,effort:null,mode:'edit',billing:'subscription'}, projectName = '', projectPaths = '', created = '';
   function progress() {
     const completed = preferences?.onboarding?.completedAt;
@@ -58,16 +58,6 @@
       host.append(node('p','Your workspace for AI coding agents. Work with Claude Code and Codex using your own accounts.','onboarding-tagline'),points,start,node('p','Takes about a minute.','onboarding-note'));
       start.focus();
     }
-    if (screen === 'returning') {
-      $('setup-title').textContent = 'Welcome back';
-      const count = launch.workspaces, when = launch.lastUsed ? new Date(launch.lastUsed).toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'}) : '';
-      host.append(node('p',`We found ${count} workspace${count === 1 ? '' : 's'} from an earlier install${when ? `, last used ${when}` : ''}. How would you like to start?`,'onboarding-tagline'));
-      const choices = node('div',undefined,'onboarding-choices');
-      const choice = (value, title, text) => { const el = button('',()=>choose(value,choices),'onboarding-choice'); el.dataset.choice = value; el.append(node('strong',title),node('span',text)); choices.append(el); return el; };
-      const keep = choice('continue','Continue where you left off','Open your workspaces, conversations and settings.');
-      choice('fresh','Start fresh','Set Throughline up from scratch. Your current data is kept as a backup, never deleted.');
-      host.append(choices); keep.focus();
-    }
     if (screen === 'done') {
       $('setup-title').textContent = 'You’re all set';
       const state = api.getState(), connected = state.accounts?.[draft.provider]?.authenticated === true, count = state.projects.length;
@@ -79,16 +69,6 @@
       const open = button('Open Throughline',()=>complete(),'primary-button onboarding-cta');
       host.append(node('p','You can change any of this later in Settings.','onboarding-tagline'),summary,open); open.focus();
     }
-  }
-  // The main process can be busy checking accounts right after launch, so the choice shows progress at once.
-  async function choose(value, group) {
-    const cards = [...group.children], chosen = cards.find(card => card.dataset.choice === value), note = chosen.lastElementChild, before = note.textContent;
-    for (const card of cards) card.disabled = true;
-    chosen.setAttribute('aria-busy','true'); note.textContent = value === 'fresh' ? 'Moving your data to a backup and starting fresh…' : 'Opening your workspaces…';
-    try { launch = await desktop.chooseData(value); }
-    catch (e) { for (const card of cards) card.disabled = false; chosen.removeAttribute('aria-busy'); note.textContent = before; throw e; }
-    if (value === 'fresh') return; // The window reloads with an empty profile and starts at the welcome.
-    if (preferences?.firstRun) show('welcome'); else leave();
   }
   function renderStep() {
     const version = ++revision, host = $('setup-content'), entering = shownStep !== step; shownStep = step;
@@ -192,7 +172,6 @@
     await ready; draft = {...preferences.defaults}; error();
     reviewing = review; step = review ? 0 : Math.min(preferences.onboarding?.step || 0, last); hideLaunch(); show('flow');
   }
-  window.relaySetup = {open};
   $('open-setup').addEventListener('click',()=>perform(()=>open()));
   $('open-setup-guide')?.addEventListener('click',()=>{$('workbench').close();perform(()=>open({review:Boolean(preferences?.onboarding?.completedAt)}));});
   $('close-setup').addEventListener('click',()=>perform(dismiss));
@@ -207,8 +186,10 @@
   $('setup-next').addEventListener('click',()=>perform(async()=>{if(step<last)return move(step+1);if(reviewing)return complete();await save();show('done');}));
   window.addEventListener('relay-state',()=>{if(dialog.open && screen === 'flow' && step===0 && !busy && connectionSignature!==connectionState())render();});
   window.addEventListener('relay-account',()=>{if(dialog.open && screen === 'flow' && step===0 && !busy)render();});
-  const ready = Promise.all([api.api('/api/preferences',{},null),desktop?.getLaunchState ? desktop.getLaunchState().catch(()=>null) : null]).then(([value,state])=>{
-    preferences = value; launch = state; step = Math.min(value.onboarding?.step || 0, last); draft = {...value.defaults}; progress();
-    if (launch?.choice) show('returning'); else if (value.firstRun) show('welcome');
+  const ready = api.api('/api/preferences',{},null).then(value=>{
+    preferences = value; step = Math.min(value.onboarding?.step || 0, last); draft = {...value.defaults}; progress();
+    if (value.firstRun) show('welcome');
+    return value;
   }).catch(e=>{preferences={defaults:draft,onboarding:{step:0}};api.showNotice('Setup preferences could not be loaded. '+e.message);}).finally(()=>{hideLaunch();window.dispatchEvent(new CustomEvent('relay-setup-ready'));});
+  window.relaySetup = {open,ready};
 })();

@@ -101,6 +101,8 @@ Files are saved as immutable snapshots in the workspace’s local application st
 
 The first launch opens a short setup: a welcome, then three steps (connect your agents, choose the theme and default access, and choose your project folders) and a summary before the app appears. **Finish** leads to the summary, and **Open Throughline** completes setup. Previous conversations are offered inside the workspace after setup. **Skip for now** leaves a **Getting started** shortcut in the sidebar, and **Settings › Setup guide** reopens the steps at any time. Setup never changes existing chats.
 
+Updates and reinstalls open your saved workspaces directly. After an update, a dismissible **What’s New** panel shows release notes bundled with the installed app, including recent releases you skipped. Once dismissed, it does not reopen automatically for that version. **Help › What’s New** reopens it at any time, including offline. The first update from a version without version tracking shows the installed version's notes without guessing the previous version. Downgrades and reinstalling the same version do not announce another update.
+
 When a newly installed copy of the desktop app finds saved workspaces, it asks whether to **continue where you left off** or **start fresh**. Starting fresh renames the saved data to `relay-data-backup-<date>` in the same folder instead of deleting it; rename it back while the app is closed to restore it.
 
 ## Import Claude Code and Codex chats

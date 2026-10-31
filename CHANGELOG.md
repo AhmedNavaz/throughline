@@ -2,6 +2,16 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- An in-app **What’s New** panel with bundled release notes, including releases skipped since the last acknowledged version. Dismiss it once per update and reopen it from **Help › What’s New**, including while offline.
+
+### Fixed
+
+- Updating or reinstalling the desktop app opens saved workspaces directly instead of asking users to continue or start fresh. Version tracking replaces app-bundle identity checks, and new profiles still receive first-run setup.
+
 ## [0.9.1] - 2026-10-31
 
 ### Fixed

@@ -62,8 +62,8 @@ const response=(data,status=200)=>({ok:status>=200&&status<300,status,text:async
 async function flush(){for(let index=0;index<12;index++)await new Promise(resolve=>setImmediate(resolve));}
 function deferred(){let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};}
 
-async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,reviewsUI=false,launch=null,theme=false,systemDark=true}={}){
-  const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[],dataChoices=[];let timerId=0,intercept=null;
+async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,updatesUI=setup,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,reviewsUI=false,launch=null,theme=false,systemDark=true}={}){
+  const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[],updateAcknowledgements=[],externalLinks=[];let timerId=0,intercept=null;
   let preferences=clone(savedPreferences);
   window.innerWidth=1280;window.innerHeight=800;
   const awakeChanges=[],menuListeners=[],menuStates=[];
@@ -145,7 +145,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   if(desktop)Object.assign(window.relayDesktop,{getKeepAwake:async()=>({enabled:false,active:false,runningCount:0}),setKeepAwake:async enabled=>{awakeChanges.push(enabled);return {enabled,active:false,runningCount:0};},onKeepAwakeChanged:callback=>{window.addEventListener('desktop-keep-awake',event=>callback(event.detail));return ()=>{};}});
   // The menu bar's side of the bridge: commands arrive through onMenuCommand, and reported states are cloned as IPC would.
   if(desktop)Object.assign(window.relayDesktop,{onMenuCommand:callback=>{menuListeners.push(callback);return ()=>{};},setMenuState:state=>{menuStates.push(clone(state));}});
-  if(desktop&&launch)Object.assign(window.relayDesktop,{getLaunchState:async()=>clone(launch),chooseData:async choice=>{dataChoices.push(choice);return {...clone(launch),choice:false};}});
+  if(desktop){launch ||= {version:'0.9.1',previousVersion:null,updated:false,releases:[]};Object.assign(window.relayDesktop,{getLaunchState:async()=>clone(launch),acknowledgeUpdate:async()=>{updateAcknowledgements.push(launch.version);launch={...launch,updated:false};return clone(launch);},openExternal:async url=>{externalLinks.push(url);}});}
   // Custom Highlight API stand-ins: ranges record their boundaries, and the registry is a Map.
   class Range{setStart(node,offset){this.startContainer=node;this.startOffset=offset;}setEnd(node,offset){this.endContainer=node;this.endOffset=offset;}getBoundingClientRect(){return this.startContainer.parentNode.getBoundingClientRect();}}
   class Highlight extends Set{constructor(...ranges){super(ranges);this.priority=0;}}
@@ -157,6 +157,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   if(historyUI)vm.runInContext(fs.readFileSync(new URL('../public/conversation-history.js',import.meta.url),'utf8'),context,{filename:'public/conversation-history.js'});
   if(desktopControls)vm.runInContext(fs.readFileSync(new URL('../public/desktop-controls.js',import.meta.url),'utf8'),context,{filename:'public/desktop-controls.js'});
   if(setup)vm.runInContext(fs.readFileSync(new URL('../public/setup.js',import.meta.url),'utf8'),context,{filename:'public/setup.js'});
+  if(updatesUI)vm.runInContext(fs.readFileSync(new URL('../public/updates.js',import.meta.url),'utf8'),context,{filename:'public/updates.js'});
   if(filesUI)vm.runInContext(fs.readFileSync(new URL('../public/files.js',import.meta.url),'utf8'),context,{filename:'public/files.js'});
   if(searchUI)vm.runInContext(fs.readFileSync(new URL('../public/conversation-search.js',import.meta.url),'utf8'),context,{filename:'public/conversation-search.js'});
   if(reviewsUI)vm.runInContext(fs.readFileSync(new URL('../public/agent-review.js',import.meta.url),'utf8'),context,{filename:'public/agent-review.js'});
@@ -167,7 +168,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   const switchProject=async id=>{$('project-select').value=id;fire('project-select','change');await flush();};
   const textNodes=node=>node.nodeType===3?[node]:node.childNodes.flatMap(textNodes);
   const rangeText=range=>{const nodes=textNodes($('messages')),first=nodes.indexOf(range.startContainer),last=nodes.indexOf(range.endContainer);return nodes.slice(first,last+1).map((node,index)=>node.data.slice(index===0?range.startOffset:0,first+index===last?range.endOffset:undefined)).join('');};
-  return {document,window,$,fire,findButton,highlights,rangeText,labelledInput,requests,conversations,submissions,handoffs,projects,canonical,pickedFolders,dataChoices,storage,switchProject,awakeChanges,menuStates,menu:(name,value)=>{for(const fn of menuListeners)fn(name,value);},get chatCreations(){return chatCreations;},setIntercept:fn=>{intercept=fn;},setSystemDark:value=>{colorScheme.matches=value;for(const fn of colorScheme.listeners)fn({matches:value});},state:()=>window.relayUI.getState()};
+  return {document,window,$,fire,findButton,highlights,rangeText,labelledInput,requests,conversations,submissions,handoffs,projects,canonical,pickedFolders,updateAcknowledgements,externalLinks,storage,switchProject,awakeChanges,menuStates,menu:(name,value)=>{for(const fn of menuListeners)fn(name,value);},get chatCreations(){return chatCreations;},setIntercept:fn=>{intercept=fn;},setSystemDark:value=>{colorScheme.matches=value;for(const fn of colorScheme.listeners)fn({matches:value});},state:()=>window.relayUI.getState()};
 }
 
 test('late same-project refresh cannot restore superseded provider/access settings',async()=>{
@@ -910,16 +911,48 @@ test('a failed merge can be cancelled with Escape without changing the workspace
   assert.equal(ui.$('import-dialog').open,false);assert.equal(ui.state().projectId,'project-one');assert.equal(ui.state().conversation.id,conversationId);assert.equal(ui.state().conversation.messages.length,0);
 });
 
-test('a new install that finds saved workspaces asks to continue or start fresh',async()=>{
-  const ui=await browser({setup:true,desktop:true,launch:{choice:true,workspaces:4,lastUsed:'2026-10-30T09:00:00.000Z'}});
-  assert.equal(ui.$('setup-dialog').open,true);assert.equal(ui.$('setup-dialog').dataset.screen,'returning');assert.equal(ui.$('setup-title').textContent,'Welcome back');
-  assert.match(ui.$('setup-hero-content').textContent,/found 4 workspaces/);assert.match(ui.$('setup-hero-content').textContent,/kept as a backup, never deleted/);
-  ui.document.querySelectorAll('.onboarding-choice').find(choice=>choice.dataset.choice==='continue').click();await flush();
-  assert.deepEqual([...ui.dataChoices],['continue']);assert.equal(ui.$('setup-dialog').open,false,'Continuing opens the saved workspaces without setup.');
-  const fresh=await browser({setup:true,desktop:true,launch:{choice:true,workspaces:1,lastUsed:null}});
-  fresh.document.querySelectorAll('.onboarding-choice').find(choice=>choice.dataset.choice==='fresh').click();await flush();
-  assert.deepEqual([...fresh.dataChoices],['fresh']);const cards=fresh.document.querySelectorAll('.onboarding-choice');assert.ok(cards.every(card=>card.disabled),'Both choices lock while the choice is applied.');assert.match(cards.find(card=>card.dataset.choice==='fresh').textContent,/starting fresh…/);assert.equal(fresh.$('setup-dialog').open,true,'The window reloads into the fresh profile rather than showing the old data.');
-  const ordinary=await browser({setup:true,desktop:true});await flush();assert.equal(ordinary.$('setup-dialog').open,false,'Ordinary launches go straight to the app.');assert.equal(ordinary.$('launch-screen').classList.contains('done'),true);
+const updateLaunch={version:'0.10.0',previousVersion:'0.9.0',updated:true,releases:[{version:'0.10.0',sections:[{title:'Added',items:['A new feature.','<img src=x onerror=alert(1)>']}]},{version:'0.9.1',sections:[{title:'Fixed',items:['An earlier fix.']}]}]};
+
+test('an update opens the saved workspace with release notes instead of restart choices',async()=>{
+  const ui=await browser({setup:true,desktop:true,launch:clone(updateLaunch)});
+  assert.equal(ui.$('setup-dialog').open,false);assert.equal(ui.document.querySelector('.onboarding-choice'),null);
+  assert.equal(ui.$('updates-dialog').open,true);assert.equal(ui.$('updates-title').textContent,'Throughline 0.10.0');
+  assert.match(ui.$('updates-description').textContent,/Updated from 0.9.0/);assert.match(ui.$('updates-content').textContent,/An earlier fix/);
+  assert.match(ui.$('updates-content').textContent,/<img src=x onerror=alert\(1\)>/);assert.equal(ui.$('updates-content').querySelector('img'),null,'Changelog text never creates executable HTML.');
+  assert.equal(ui.state().projectId,'project-one');assert.equal(ui.conversations.length,1);assert.equal(ui.updateAcknowledgements.length,0);
+  const requests=ui.requests.length,conversationId=ui.state().conversation.id;ui.$('message-input').value='Keep this draft';ui.fire('message-input','input');
+  ui.$('updates-dismiss').click();await flush();assert.deepEqual(ui.updateAcknowledgements,['0.10.0']);assert.equal(ui.$('updates-dialog').open,false);
+  assert.equal(ui.$('message-input').value,'Keep this draft');assert.equal(ui.state().conversation.id,conversationId);assert.equal(ui.requests.length,requests,'Dismissing notes does not change settings or call a provider.');
+  ui.window.dispatchEvent(new UIEvent('relay-state'));await flush();assert.equal(ui.$('updates-dialog').open,false);
+  assert.equal(ui.$('launch-screen').classList.contains('done'),true);
+});
+
+test('ordinary launches and first-run setup do not open update notes automatically',async()=>{
+  const ordinary=await browser({setup:true,desktop:true});assert.equal(ordinary.$('setup-dialog').open,false);assert.equal(ordinary.$('updates-dialog').open,false);
+  const first=await browser({setup:true,desktop:true,empty:true,existing:false});assert.equal(first.$('setup-dialog').open,true);assert.equal(first.$('setup-dialog').dataset.screen,'welcome');assert.equal(first.$('updates-dialog').open,false);
+  const interrupted=await browser({setup:true,desktop:true,empty:true,existing:false,launch:clone(updateLaunch)});assert.equal(interrupted.$('setup-dialog').open,true);assert.equal(interrupted.$('updates-dialog').open,false,'Onboarding takes precedence over update notes.');
+});
+
+test('Help reopens in-app notes and Close or Escape dismisses them without resetting the app',async()=>{
+  const ui=await browser({setup:true,desktop:true,desktopControls:true,launch:{...clone(updateLaunch),updated:false}});
+  ui.menu('whats-new');await flush();assert.equal(ui.$('updates-dialog').open,true);assert.equal(ui.$('updates-eyebrow').textContent,'WHAT’S NEW');
+  ui.$('updates-release-notes').click();await flush();assert.deepEqual(ui.externalLinks,['https://github.com/AhmedNavaz/throughline/releases']);
+  ui.$('updates-close').click();await flush();assert.equal(ui.$('updates-dialog').open,false);
+  ui.menu('whats-new');await flush();const event=new UIEvent('cancel');ui.$('updates-dialog').dispatchEvent(event);await flush();
+  assert.equal(event.defaultPrevented,true);assert.equal(ui.$('updates-dialog').open,false);assert.equal(ui.state().projectId,'project-one');
+  ui.$('setup-dialog').showModal();ui.menu('whats-new');await flush();assert.equal(ui.$('updates-dialog').open,false,'Help does not stack notes over another dialog.');
+});
+
+test('failed update dismissal leaves the workspace usable and explains that notes may reappear',async()=>{
+  const ui=await browser({setup:true,desktop:true,launch:clone(updateLaunch)});
+  ui.window.relayDesktop.acknowledgeUpdate=async()=>{throw new Error('Disk is full.');};
+  ui.$('updates-dismiss').click();await flush();assert.equal(ui.$('updates-dialog').open,false);
+  assert.match(ui.$('notice-text').textContent,/may appear again.*Disk is full/);assert.equal(ui.state().projectId,'project-one');assert.equal(ui.$('updates-dismiss').disabled,false);
+});
+
+test('updates from untracked versions show installed notes without inventing a previous version',async()=>{
+  const ui=await browser({setup:true,desktop:true,launch:{...clone(updateLaunch),previousVersion:null}});
+  assert.equal(ui.$('updates-dialog').open,true);assert.match(ui.$('updates-description').textContent,/Your update is installed/);assert.equal(ui.$('updates-description').textContent.includes('null'),false);
 });
 
 test('workspace options rename without changing chat or draft and never remove on the first click',async()=>{

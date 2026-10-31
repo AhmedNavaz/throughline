@@ -59,13 +59,14 @@ test('menu items enable and tick from the page, the saved appearance and Keep Aw
   for(const [agent,label] of [['codex','Continue with Codex'],['claude','Continue with Claude Code']]){const offered=menu({state:{...page,continue:agent}}).item('continue');assert.deepEqual([offered.label,disabled(offered)],[label,false]);}
 });
 
-test('page items send their command to the window, and Help opens only fixed GitHub pages',()=>{
+test('page items and in-app release notes send commands, and external Help links open fixed GitHub pages',()=>{
   const {all,sent,opened,item}=menu();
   const commands={'Review Changes with Other Agent…':['review'],'Settings…':['settings'],'Setup Guide':['setup-guide'],'New Workspace':['new-workspace'],'Add Folder to Workspace…':['add-folder'],'Previous Chats…':['previous-chats'],'Export Conversation…':['export'],'Find in Conversation':['find'],'Find Next':['find-next'],'Find Previous':['find-previous'],'Filter Workspaces':['filter-workspaces'],'Show Git Activity':['git'],'Show Files':['files'],'Focus Message Box':['focus-message'],System:['appearance','system'],Dark:['appearance','graphite'],Light:['appearance','light'],'Use Codex':['agent','codex'],'Use Claude Code':['agent','claude'],'Stop Run':['stop'],continue:['continue'],'Keep Awake':['keep-awake'],Frontend:['workspace',1],'R&D':['workspace',2],'Workspace Settings…':['workspace-settings'],'Remove Workspace…':['remove-workspace']};
+  commands['What’s New']=['whats-new'];
   for(const [label,command] of Object.entries(commands)){sent.length=0;item(label).click();assert.deepEqual(sent,[command],label);}
   assert.deepEqual(opened,[]);
   const repository='https://github.com/AhmedNavaz/throughline';
-  const pages={'Throughline Guide':`${repository}/blob/main/docs/guide.md`,'Keyboard Shortcuts':`${repository}/blob/main/docs/guide.md#keyboard-shortcuts`,'Report a Bug':`${repository}/issues/new?template=bug_report.yml&version=0.7.0&system=macOS+26.1.0%2C+Apple+Silicon`,'Share Design Feedback':`${repository}/issues/new?template=ux_feedback.yml`,Roadmap:`${repository}/blob/main/ROADMAP.md`,'What’s New':`${repository}/releases`};
+  const pages={'Throughline Guide':`${repository}/blob/main/docs/guide.md`,'Keyboard Shortcuts':`${repository}/blob/main/docs/guide.md#keyboard-shortcuts`,'Report a Bug':`${repository}/issues/new?template=bug_report.yml&version=0.7.0&system=macOS+26.1.0%2C+Apple+Silicon`,'Share Design Feedback':`${repository}/issues/new?template=ux_feedback.yml`,Roadmap:`${repository}/blob/main/ROADMAP.md`};
   for(const [label,url] of Object.entries(pages)){opened.length=0;item(label).click();assert.deepEqual(opened,[url],label);}
   assert.equal(all.filter(entry=>entry.click).length,Object.keys(commands).length+Object.keys(pages).length,'Every other item is a standard role.');
   for(const entry of all)assert(!(entry.role&&entry.click),`${entry.role} keeps its native behaviour.`);

@@ -25,6 +25,7 @@ flowchart TD
 | Area | Owner |
 | --- | --- |
 | Desktop lifecycle, native dialogs and trusted IPC | `desktop/main.mjs`, `desktop/preload.cjs` |
+| App-version announcements and bundled changelog entries | `desktop/updates.mjs` |
 | Temporary development profiles and data migration | `desktop/launch.mjs`, `desktop/storage.mjs` |
 | Workspace identity, folders and one permanent conversation | `projects.mjs` |
 | Conversation journal, accepted submissions, approvals and run lifecycle | `broker.mjs` |
@@ -48,6 +49,7 @@ The backend modules stay at the repository root while this remains a small appli
 | `insights.js` | Model and effort controls, run progress, account usage and Git activity |
 | `conversation-history.js` | Previous-chat discovery, selection, review, merge and export |
 | `setup.js` | Onboarding and saved preferences; announces `relay-setup-ready` after initial setup state loads |
+| `updates.js` | In-app release notes after updates and from Help; waits for setup and workspace loading |
 | `files.js` | File explorer, previews and attachments |
 | `conversation-search.js` | Find in the conversation: match highlights, the match count and moving between matches |
 | `agent-review.js` | Cross-agent review selection, explicit preview/start, findings and fix drafts |

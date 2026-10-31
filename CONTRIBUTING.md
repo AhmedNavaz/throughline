@@ -62,3 +62,5 @@ Use the [bug report](https://github.com/AhmedNavaz/throughline/issues/new?templa
 ## Releasing
 
 Maintainers: bump `version` in `package.json`, add a section to [CHANGELOG.md](CHANGELOG.md) and push a matching tag such as `v0.4.1`. GitHub Actions tests and builds both macOS apps, publishes the private-link service image and creates the release.
+
+The in-app **What’s New** panel reads versioned entries from the bundled changelog. Move completed **Unreleased** entries into the matching release section before packaging; unreleased and newer-version entries are excluded from the panel.

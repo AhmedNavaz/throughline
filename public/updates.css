@@ -1,0 +1,23 @@
+.updates-dialog { width: min(640px, calc(100vw - 48px)); max-height: calc(100dvh - 80px); padding: 0; border: 1px solid var(--border-strong); border-radius: 14px; background: var(--overlay-bg); color: var(--text); box-shadow: var(--shadow-lg); }
+.updates-dialog::backdrop { background: var(--backdrop); }
+.updates-dialog[open] { display: flex; flex-direction: column; }
+.updates-heading { display: flex; align-items: flex-start; gap: 16px; padding: 28px 28px 22px; border-bottom: 1px solid var(--border); }
+.updates-heading > img { flex: none; border-radius: 10px; }
+.updates-heading > div { flex: 1; min-width: 0; }
+.updates-heading h2 { margin: 5px 0 9px; font-size: 23px; font-weight: 600; letter-spacing: -.6px; color: var(--text-strong); }
+.updates-heading p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.updates-heading .updates-eyebrow { color: var(--accent); font-size: 10px; font-weight: 600; letter-spacing: 1px; }
+.updates-content { min-height: 0; padding: 20px 28px; overflow: auto; overscroll-behavior: contain; }
+.updates-release h3 { margin: 0 0 18px; color: var(--text-strong); font-size: 14px; font-weight: 600; }
+.updates-release h4 { margin: 18px 0 8px; color: var(--text-strong); font-size: 12px; font-weight: 600; }
+.updates-release ul { margin: 0; padding-left: 18px; }
+.updates-release li { margin: 9px 0; padding-left: 3px; font-size: 12px; line-height: 1.75; overflow-wrap: anywhere; }
+.updates-release + .updates-release { margin-top: 20px; border-top: 1px solid var(--border); }
+.updates-release summary { display: flex; align-items: center; gap: 6px; padding: 15px 0 0; color: var(--muted); cursor: pointer; font-size: 12px; }
+.updates-release summary::before { content: ""; flex: none; width: 12px; height: 12px; background: currentColor; -webkit-mask: var(--icon-chevron-right) center / contain no-repeat; mask: var(--icon-chevron-right) center / contain no-repeat; }
+.updates-release[open] > summary::before { transform: rotate(90deg); }
+.updates-empty { color: var(--muted); font-size: 12px; line-height: 1.75; }
+.updates-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 28px; border-top: 1px solid var(--border); }
+.updates-footer .text-link { font-size: 12px; }
+.updates-footer .primary-button { min-width: 100px; }
+@media (max-height: 740px) { .updates-dialog { max-height: calc(100dvh - 56px); } .updates-heading { padding-top: 20px; } }
