@@ -19,9 +19,11 @@
     <script src="/desktop-controls.js" defer></script>
     <script src="/files.js" defer></script>
     <script src="/conversation-search.js" defer></script>
+    <script src="/agent-review.js" defer></script>
     <link rel="stylesheet" href="/polish.css" />
     <link rel="stylesheet" href="/files.css" />
     <link rel="stylesheet" href="/onboarding.css" />
+    <link rel="stylesheet" href="/agent-review.css" />
   </head>
   <body>
     <div id="launch-screen" class="launch-screen" aria-hidden="true"><img src="/icon.svg" alt="" width="72" height="72" /></div>
@@ -49,6 +51,7 @@
           <div class="header-actions">
             <div id="conversation-state" class="conversation-state" hidden><i aria-hidden="true"></i><span>Ready</span></div>
             <span class="toolbar-divider" aria-hidden="true"></span>
+            <button id="open-review" class="toolbar-button" type="button" title="Review changes with the other agent" disabled><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 12 3 3 5-6M12 3l8 4v5c0 5-8 9-8 9s-8-4-8-9V7z"/></svg><span class="button-label">Review</span></button>
             <button id="open-import" class="toolbar-button" type="button" title="Review and merge previous conversations for this workspace" disabled><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 21h14"/></svg><span class="button-label">Previous chats</span></button>
             <button id="open-export" class="toolbar-button" type="button" title="Export this conversation to share with another Throughline user"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m-4 4 4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg><span class="button-label">Export</span></button>
             <button id="ask-friend" class="toolbar-button" type="button" title="Ask a friend for help"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.5A6.5 6.5 0 0 1 21.5 20"/></svg><span class="button-label">Ask a friend</span></button>
@@ -103,6 +106,7 @@
             <p id="run-detail"></p><div id="run-metrics" class="run-metrics"></div>
           </section>
           <div id="other-running" class="running-notice" hidden><span>This workspace has an active run.</span><button id="view-running" type="button">Refresh status</button></div>
+          <section id="review-summary" class="review-strip" aria-label="Latest code review" hidden><span id="review-summary-text"></span><button id="view-review" class="text-link" type="button">View review</button></section>
           <div id="continuation" class="continuation" hidden><span id="continuation-text">The last run stopped.</span><button id="continue-button" type="button">Continue with Codex <span aria-hidden="true">→</span></button></div>
           <div id="connection-notice" class="connection-notice" role="status" hidden><span id="connection-notice-text"></span><button id="connection-action" type="button">Connect account</button></div>
           <form id="composer" class="composer">
@@ -219,6 +223,24 @@
       <header><div><h2 id="workbench-title">Ask a friend</h2><p id="workbench-description">Choose the context and files to include in your request.</p></div><button id="workbench-close" class="icon-button" type="button" aria-label="Close"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
       <nav id="workbench-tabs" aria-label="Settings and collaboration"><button data-tab="request">Ask a friend</button><button data-tab="solutions">Returned solutions</button><button data-tab="friend">Help someone</button><button data-tab="accounts">Connections</button><button id="open-setup-guide" class="workbench-nav-extra" type="button">Setup guide</button></nav>
       <p id="workbench-error" role="alert" hidden></p><div id="workbench-content"></div>
+    </dialog>
+    <dialog id="review-dialog" class="review-dialog" aria-labelledby="review-title">
+      <header class="review-heading"><div><p class="review-eyebrow">BUILD · REVIEW · REFINE</p><h2 id="review-title">A second pair of eyes</h2><p>Let the other agent check your changes, with the project goal in view.</p></div><button id="close-review" class="icon-button" type="button" aria-label="Close review">×</button></header>
+      <nav class="review-tabs" aria-label="Review views"><button id="review-new-tab" type="button" aria-pressed="true">New review</button><button id="review-result-tab" type="button" aria-pressed="false" disabled>Latest review</button></nav>
+      <p id="review-error" class="review-error" role="alert" hidden></p>
+      <div id="review-new" class="review-body">
+        <p id="review-pair" class="review-pair"></p>
+        <label class="review-label" for="review-goal">What should these changes accomplish?</label><textarea id="review-goal" rows="2" maxlength="4000" placeholder="For example: preserve the API contract while adding pagination."></textarea>
+        <div class="review-section-heading"><h3>Choose changes</h3><span id="review-selection-count" role="status">0 selected</span></div>
+        <p class="review-hint">Current changes against the last commit, including staged, unstaged and selected new files. Start with up to 12 text files in attached repository roots.</p>
+        <div id="review-files" class="review-files"></div>
+        <div class="review-actions"><button id="preview-review" type="button" class="secondary-button" disabled>Preview selected changes</button></div>
+        <section id="review-preview" class="review-preview" aria-label="Selected changes preview" hidden></section>
+        <p id="review-account" class="review-account"></p>
+        <label id="review-billing-label" class="review-check" hidden><input id="review-billing" type="checkbox" /><span id="review-billing-text"></span></label>
+        <div class="review-actions"><button id="start-review" type="button" class="primary-button" disabled>Start read-only review</button></div>
+      </div>
+      <div id="review-result" class="review-body" hidden></div>
     </dialog>
   </body>
 </html>

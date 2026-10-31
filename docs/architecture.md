@@ -30,6 +30,7 @@ flowchart TD
 | Conversation journal, accepted submissions, approvals and run lifecycle | `broker.mjs` |
 | Shared prompt context | `context.mjs` |
 | Agent protocol adapters and worker entry point | `providers.mjs`, `provider-worker.mjs`, `resolve-binary.mjs` |
+| Review snapshots, validated findings, freshness and review HTTP routes | `agent-review.mjs`, `agent-review-routes.mjs` |
 | History discovery, reviewed imports and portable exports | `conversation-routes.mjs`, `conversation-import.mjs`, `conversation-export.mjs` |
 | File, attachment and Git HTTP routes | `workspace-routes.mjs` |
 | Filesystem boundaries, baselines and mutation coordination | `workspace-files.mjs`, `workspace-layout.mjs`, `workspace-baseline.mjs`, `mutation-lock.mjs` |
@@ -49,6 +50,7 @@ The backend modules stay at the repository root while this remains a small appli
 | `setup.js` | Onboarding and saved preferences; announces `relay-setup-ready` after initial setup state loads |
 | `files.js` | File explorer, previews and attachments |
 | `conversation-search.js` | Find in the conversation: match highlights, the match count and moving between matches |
+| `agent-review.js` | Cross-agent review selection, explicit preview/start, findings and fix drafts |
 | `workbench.js` | Ask a Friend review flow |
 | `desktop-controls.js` | Native keep-awake controls |
 
@@ -59,6 +61,10 @@ The deferred scripts in `index.html` load the core API before its features, and 
 Each workspace has a stable ID, attached folder records and one permanent conversation ID in `projects.json`. Conversation events live in per-workspace JSONL journals; reopening a workspace replays those events. Preferences live in `settings.json`. Electron keeps this data under its user-data directory; browser-only development uses `.data/` by default. CLI credentials remain managed by the installed agents. The guide describes the user-facing storage and migration behavior.
 
 A submitted message carries a request ID so retrying after a lost response does not run the same task twice. The broker records the submission, starts a provider worker and turns worker events into journal entries and live updates. The UI refreshes the corresponding workspace and rejects stale responses after selection changes.
+
+Cross-agent reviews reuse that same run lifecycle, workspace mutation lease, billing gate, cancellation and provider adapters. Review requests are created by the dedicated route module; ordinary message bodies cannot enable the broker's internal review options. A review forces read-only access and a fresh provider session, preserves coding preferences, and never stores or advances the provider's normal coding session. The journal stores the selected diffs and their file-content/Git-base identities with the review submission, then a validated result record. Snapshot validation is repeated after acquiring the mutation lease. Review callbacks deny write/command approvals; existing native provider read-only policies remain in force.
+
+Review findings must parse as a bounded JSON report with known severities, selected-file identities and valid line numbers. Invalid reports stay explicitly unstructured. Conversation responses expose compact review metadata; the scoped review endpoint supplies captured diffs and checks freshness. Fix preparation accepts finding IDs from a completed, current review and returns a draft without starting a provider. The interface uses text nodes for all agent-supplied review content and guards responses against workspace changes.
 
 The registry coordinates workspace membership and brokers. File guards protect registry writes, project locks protect conversation ownership, and mutation leases prevent conflicting agent and patch operations on overlapping folders. Shutdown waits for brokers and active mutations before releasing their locks.
 

@@ -31,6 +31,7 @@ The fastest way to make Throughline better is to use it on your real projects an
 | System appearance alongside explicit Light and Dark themes | [0.7.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0) |
 | Quiet background agent checks that preserve verified connection status | [0.7.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0) |
 | Native desktop menus for workspace, conversation, agent, appearance and Help controls | [0.8.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.8.0) |
+| Cross-agent review of selected Git changes, with saved findings and explicit fix drafts | [0.9.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.9.0) |
 
 ## Now
 
@@ -74,7 +75,7 @@ Larger ideas for bringing project context, execution and collaboration into one 
 | **Smart model and effort.** Pick the agent, model and effort that fit each request, to save usage on simple tasks. | [#12](https://github.com/AhmedNavaz/throughline/issues/12) |
 | **Live status at a glance.** Progress and input requests in the Mac menu bar and around the notch, extending the desktop approval alerts in [#46](https://github.com/AhmedNavaz/throughline/issues/46). | [#13](https://github.com/AhmedNavaz/throughline/issues/13) |
 | **Play while it works.** Small built-in games for long runs that pause the moment the agent needs you. | [#14](https://github.com/AhmedNavaz/throughline/issues/14) |
-| **Tag-team agents.** One agent builds while the other reviews the diff before you see it. | [#15](https://github.com/AhmedNavaz/throughline/issues/15) |
+| **Automatic tag-team cycles.** Extend cross-agent review with an opt-in handoff from builder to reviewer and user-approved fix cycles. | [#15](https://github.com/AhmedNavaz/throughline/issues/15) |
 | **Race mode.** Two agents take the same task in separate worktrees; keep the better result. | [#16](https://github.com/AhmedNavaz/throughline/issues/16) |
 | **Budget-aware handoff.** Offer to switch agents before a usage limit stops the run. | [#17](https://github.com/AhmedNavaz/throughline/issues/17) |
 | **Everything in the thread.** Issues, pull requests, CI failures and logs as context, and pull requests from the conversation. | [#18](https://github.com/AhmedNavaz/throughline/issues/18) |

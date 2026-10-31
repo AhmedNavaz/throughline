@@ -96,6 +96,12 @@
     if (typeof input === 'number') metrics.push(`${input.toLocaleString()} input tokens`);
     if (typeof output === 'number') metrics.push(`${output.toLocaleString()} output tokens`);
     $('run-metrics').replaceChildren(...metrics.map(value => el('span', value)));
+    if (run.purpose === 'review') {
+      const report = c.reviews?.find(review => review.id === run.reviewId);
+      $('run-phase').textContent = running ? 'Review · ' + $('run-phase').textContent : report?.status === 'complete' ? 'Review complete' : 'Review needs attention';
+      if (!running && report?.status !== 'complete') $('run-phase').className = 'run-phase quiet';
+      $('run-detail').textContent = `${name(run.provider)} · Read-only review${report?.summary ? ' · ' + report.summary : ''}`;
+    }
   }
 
   let gitData = null, gitScope = null, gitBusy = false, gitView = 'changes', gitRequest = 0;

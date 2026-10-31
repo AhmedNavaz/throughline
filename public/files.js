@@ -98,6 +98,7 @@
       const file = await api.api('/api/files/preview?folderId=' + encodeURIComponent(folder.id) + '&path=' + encodeURIComponent(entry.path), {}, id);
       if (version !== previewVersion || id !== api.getState().projectId) return;
       showPreview(file, (folder.displayName || folder.name) + ' / ' + entry.path, id);
+      return true;
     } catch (error) { if (version === previewVersion) api.showNotice(error.message); }
   }
   function directory(folder, relative, name, host, id, version, root = false) {
@@ -168,6 +169,14 @@
   window.addEventListener('keydown',event => { if (event.key === 'Escape' && !$('file-preview').hidden) closePreview(); });
   window.addEventListener('relay-state',sync);
   window.relayFiles = {
+    async openAt(folderId, relative, line) {
+      const state = api.getState(), id = state.projectId, folder = state.projects.find(project => project.id === id)?.folders.find(folder => folder.id === folderId);
+      if (!folder) return api.showNotice('That folder is no longer in this workspace.');
+      if (!await openFile(folder, { path: relative }, id)) return;
+      if (id !== api.getState().projectId || !Number.isSafeInteger(line)) return;
+      const target = $('file-preview-content').querySelectorAll('.source-line')[line - 1];
+      if (target) { target.classList.add('review-line'); target.scrollIntoView({ block: 'center' }); }
+    },
     ids: () => files().map(file => file.id), uploading: () => Boolean(pending.get(api.getState().projectId)), addFiles, addSnapshots,
     accepted(id, ids) { drafts.set(id, files(id).filter(file => !ids.includes(file.id))); save(id); if (id === api.getState().projectId) { status(); closePreview(); update(); } },
     renderMessageAttachments(row, attachments = []) { if (!attachments.length) return; const host = el('div','message-attachments'), id = api.getState().projectId; for (const file of attachments) { const chip = button((file.kind === 'image' ? '▧ ' : '≡ ') + file.name + ' · ' + size(file.bytes),'saved-attachment',() => openSaved(file,id)); host.append(chip); } row.append(host); },

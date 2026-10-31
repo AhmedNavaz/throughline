@@ -2,6 +2,17 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-10-31
+
+### Added
+
+- Cross-agent code review: choose current Git changes, preview their exact scope, then ask the other agent for a fresh read-only review. Saved findings include severity and file locations, preserve the original reviewed diffs, and become outdated when selected files, the Git base or workspace folders change. Selected findings can prepare a fix draft for the builder without starting it automatically. Review runs preserve coding preferences and sessions, retain explicit usage/billing consent, and support cancellation ([#15](https://github.com/AhmedNavaz/throughline/issues/15)).
+
+### Fixed
+
+- Git diff path arguments are treated literally, so a filename containing wildcard characters cannot expand the selected scope.
+- Before the first Git commit, a new staged file's diff includes its current working contents, including edits made after staging.
+
 ## [0.8.0] - 2026-10-31
 
 ### Added
@@ -110,6 +121,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.9.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.9.0
 [0.8.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.8.0
 [0.7.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0
 [0.6.2]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.2

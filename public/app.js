@@ -87,7 +87,7 @@
   }
   async function api(path, options = {}, projectId = state.projectId) {
     const providerEndpoint = /^\/api\/providers(?:\/|$)/.test(path);
-    if (/^\/api\/(?:status|conversation|conversations|collaboration|git|imports|files|attachments)(?:\/|$|\?)/.test(path) || (providerEndpoint && projectId)) {
+    if (/^\/api\/(?:status|conversation|conversations|collaboration|git|imports|files|attachments|reviews)(?:\/|$|\?)/.test(path) || (providerEndpoint && projectId)) {
       if (!projectId) throw new Error("Choose a project first.");
       path += `${path.includes("?") ? "&" : "?"}projectId=${encodeURIComponent(projectId)}`;
     }
@@ -385,6 +385,13 @@
     heading.append(time);
     if (message.text) heading.append(copyButton("message-copy", "Copy message", message.text));
     const body=element('div',user?'message-text':'message-text markdown');
+    if (!user && message.reviewId) {
+      const review = state.conversation?.reviews?.find(item => item.id === message.reviewId);
+      body.append(element('p', '', review?.summary || (streaming ? 'Read-only review in progress…' : 'Read-only review response.')));
+      if (review) { const view = element('button', 'secondary-button', 'View review'); view.type = 'button'; view.addEventListener('click', () => window.relayReviews?.open(message.reviewId)); body.append(view); }
+      const raw = element('details', 'review-raw'); raw.append(element('summary', '', 'Agent response'), element('pre', '', message.text || 'Waiting for the reviewer…')); body.append(raw);
+      row.append(heading, body); return row;
+    }
     const text=message.text || (streaming ? '' : 'No text response.');
     const parts=text.split(/```([^\n`]*)\n([\s\S]*?)```/g);
     for(let i=0;i<parts.length;i+=3){if(parts[i]){if(user)body.append(document.createTextNode(parts[i]));else renderProse(body,parts[i]);}if(parts[i+2]!==undefined){const block=element('div','code-block'),head=element('div','code-head'),pre=element('pre');head.append(element('span','code-language',parts[i+1].trim()||'code'),copyButton('code-copy','Copy code',parts[i+2]));pre.append(highlightedCode(parts[i+2],parts[i+1].trim()));block.append(head,pre);body.append(block);}}
@@ -395,7 +402,7 @@
   function updateJump() { $("jump-latest").hidden = ui.scroll.scrollHeight - ui.scroll.scrollTop - ui.scroll.clientHeight < 240; }
   function renderMessages(forceScroll = false) {
     const messages = state.conversation?.messages || [];
-    const signature = JSON.stringify([state.projectId, state.conversation?.id, messages]);
+    const signature = JSON.stringify([state.projectId, state.conversation?.id, messages, state.conversation?.reviews?.map(({ id, status, summary }) => [id, status, summary])]);
     const noProvider=state.ready&&!messages.length&&!available('codex')&&!available('claude');
     ui.empty.hidden = messages.length > 0 || !state.ready || noProvider;
     if($('provider-empty-state'))$('provider-empty-state').hidden=!noProvider;
@@ -451,7 +458,7 @@
     ui.otherRunning.hidden = !otherRunning;
     const incomplete = ["incomplete", "interrupted"].includes(state.conversation?.status);
     const lastMessage = state.conversation?.messages?.at(-1);
-    const canContinue = !running && (incomplete || lastMessage?.role === "error");
+    const canContinue = !running && state.conversation?.lastRun?.purpose !== 'review' && (incomplete || lastMessage?.role === "error");
     ui.continuation.hidden = !canContinue;
     const previous=state.conversation?.lastRun;
     const reason={quota:'Usage limit reached.',authentication:'Sign-in required.',permission:'A permission request was declined.',protocol:'The assistant connection stopped.',interrupted:'Run stopped.'}[previous?.errorCategory] || 'The previous run did not finish.';
@@ -470,6 +477,7 @@
     ui.state.hidden=!state.projectId||!state.ready;
     const approvals=state.conversation?.pendingApprovals?.length;
     let status=running?(approvals?'Approval required':'Running'):selectedConnection.needsSignIn||!selectedConnection.installed?'Connection required':selectedConnection.needsBilling?'Review billing':selectedConnection.checking?'Checking connection':selectedConnection.account?.authenticated!==true?'Not verified':'Ready';
+    if (running && run?.purpose === 'review') status = 'Reviewing';
     if(incomplete && run?.provider===state.provider)status='Stopped';
     if(state.pending==='stop')status='Stopping…';else if(state.pending==='send'||state.pending==='continue')status='Sending…';
     ui.state.lastElementChild.textContent=status;
@@ -860,7 +868,7 @@
     git: () => { $("open-git").click(); return true; },
     stop: () => { if (!isRunning()) return false; stop(); return true; },
     workspace: number => { const project = filteredProjects()[number - 1]; if (!project) return false; selectProject(project.id); return true; },
-    settings: press("relay-settings"), "setup-guide": press("open-setup-guide"), "new-workspace": press("create-workspace"),
+    settings: press("relay-settings"), "setup-guide": press("open-setup-guide"), "new-workspace": press("create-workspace"), review: press("open-review"),
     "previous-chats": press("open-import"), export: press("open-export"), files: press("toggle-explorer"), "keep-awake": press("keep-awake"),
     "add-folder": () => { if (covered()) return false; toggleFolderForm(true); return true; },
     agent: provider => ["codex", "claude"].includes(provider) && press("select-" + provider)(),
