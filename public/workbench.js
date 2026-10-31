@@ -54,6 +54,104 @@
 
   async function request() {
     const state = api().getState(), c = await api().ensureConversation(); let prepared = null;
+    let detectedFiles = [];
+    try {
+      const git = await api().api('/api/git', {}, state.projectId);
+      for (const repo of git?.repositories || []) {
+        for (const f of repo.changes || []) {
+          if (detectedFiles.length < 8 && !f.reason) detectedFiles.push(f.path);
+        }
+      }
+    } catch {}
+
+    const quickCard = node('div', undefined, 'vibe-quickshare-card');
+    const qHead = node('div', undefined, 'vibe-quickshare-header');
+    qHead.append(node('span', '🤝', 'vibe-quickshare-icon'), node('h3', 'Instant Share for Help'), node('p', 'One-click share current workspace problem and modified files with a teammate. Zero setup.'));
+    quickCard.append(qHead);
+
+    const qBadges = node('div', undefined, 'vibe-quickshare-badges');
+    qBadges.append(
+      node('span', detectedFiles.length ? `📦 ${detectedFiles.length} modified file${detectedFiles.length === 1 ? '' : 's'} included` : '📦 Workspace context included', 'badge positive'),
+      node('span', `💬 Last ${Math.min((c.messages || []).length, 15)} messages included`, 'badge'),
+      node('span', '🔒 Secrets and local paths automatically redacted', 'badge')
+    );
+    quickCard.append(qBadges);
+
+    const qActions = node('div', undefined, 'vibe-quickshare-actions');
+    const qStatus = node('div', undefined, 'quickshare-status');
+    qStatus.hidden = true;
+
+    function quickStatus(text, type = '') {
+      qStatus.textContent = text;
+      qStatus.className = 'quickshare-status ' + type;
+      qStatus.hidden = !text;
+    }
+
+    const quickShareBtn = button('✨ Create Share Link & Copy', async () => {
+      quickStatus('Preparing instant share package…');
+      try {
+        const prep = await post('/handoffs/prepare', {
+          conversationId: c.id,
+          mode: detectedFiles.length ? 'source' : 'context',
+          goal: goal.i.value || c.context?.goal || 'Help with current task',
+          problem: problem.i.value || 'Stuck on current changes. Please review the attached context and files.',
+          expectedOutcome: expected.i.value || 'Working solution with reviewable patch.',
+          decisions: lines(decisions.i.value),
+          tasks: lines(tasks.i.value),
+          messageIds: (c.messages || []).slice(-15).map(m => m.id),
+          files: detectedFiles,
+          newPaths: []
+        });
+        const app = await post('/handoffs/approve', {
+          conversationId: c.id,
+          package: prep.package,
+          approvedIntegrity: prep.package.integrity
+        });
+        let published = null;
+        try { published = await post(`/handoffs/${app.id}/publish`); } catch {}
+        if (published?.viewURL) {
+          await navigator.clipboard.writeText(published.viewURL);
+          quickStatus(`✓ Private link copied to clipboard (${published.viewURL})! Anyone with this link can help.`, 'positive');
+        } else {
+          download(`request-${app.id}.json`, app.package);
+          quickStatus('✓ Request file exported! Send it to your friend to open with "Help someone".', 'positive');
+        }
+      } catch (err) {
+        quickStatus('Could not share: ' + err.message, 'warning');
+      }
+    }, 'primary');
+
+    const quickExportBtn = button('💾 Export Request File', async () => {
+      quickStatus('Exporting package file…');
+      try {
+        const prep = await post('/handoffs/prepare', {
+          conversationId: c.id,
+          mode: detectedFiles.length ? 'source' : 'context',
+          goal: goal.i.value || c.context?.goal || 'Help with current task',
+          problem: problem.i.value || 'Stuck on current changes. Please review the attached context and files.',
+          expectedOutcome: expected.i.value || 'Working solution with reviewable patch.',
+          decisions: lines(decisions.i.value),
+          tasks: lines(tasks.i.value),
+          messageIds: (c.messages || []).slice(-15).map(m => m.id),
+          files: detectedFiles,
+          newPaths: []
+        });
+        const app = await post('/handoffs/approve', {
+          conversationId: c.id,
+          package: prep.package,
+          approvedIntegrity: prep.package.integrity
+        });
+        download(`request-${app.id}.json`, app.package);
+        quickStatus('✓ Request file exported to your Downloads folder! Drop it in Slack, Discord, or email.', 'positive');
+      } catch (err) {
+        quickStatus('Could not export: ' + err.message, 'warning');
+      }
+    }, 'secondary');
+
+    qActions.append(quickShareBtn, quickExportBtn);
+    quickCard.append(qActions, qStatus);
+    content.append(quickCard);
+
     const overview = node('div', undefined, 'friend-workflow'); for (const text of ['1 · Prepare & review', '2 · Share with a person', '3 · Review returned changes']) overview.append(node('span', text)); content.append(overview);
     const s = section('1. Describe what you need', 'A useful request gives your friend a clear goal and a specific problem.');
     const goal = field('Goal', 'textarea', c.context?.goal || ''), problem = field('What is blocking you?', 'textarea'), expected = field('What should happen?', 'textarea');

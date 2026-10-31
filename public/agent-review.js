@@ -101,6 +101,20 @@
     if (report.snapshot) { const details = node('details', undefined, 'review-scope'), content = node('div'); details.append(node('summary', `Reviewed scope · ${report.snapshot.files.length} file${report.snapshot.files.length === 1 ? '' : 's'}`)); showSnapshot(report.snapshot, content); details.append(content); host.append(details); }
     const raw = api.getState().conversation?.messages.filter(message => message.role === 'assistant' && message.reviewId === report.id).at(-1)?.text;
     if (raw) { const details = node('details', undefined, 'review-raw'); details.append(node('summary', 'Agent response'), node('pre', raw)); host.append(details); }
+    const panelBody = $('review-panel-body');
+    if (panelBody) {
+      panelBody.replaceChildren();
+      for (const child of host.childNodes) panelBody.append(child.cloneNode(true));
+      for (const btn of panelBody.querySelectorAll('button')) {
+        const text = btn.textContent;
+        if (text === 'Stop review') btn.onclick = () => perform(async () => { await api.post(`/api/conversations/${api.getState().conversation.id}/stop`, {}, scope); if (current()) await api.refresh(); });
+        if (text?.startsWith('Prepare fixes')) btn.onclick = () => perform(prepareFix);
+      }
+      for (const chk of panelBody.querySelectorAll('input[type="checkbox"]')) {
+        const id = chk.id.replace(/^review-finding-/, '');
+        chk.addEventListener('change', () => { if (chk.checked) findings.add(id); else findings.delete(id); controls(); });
+      }
+    }
     controls();
   }
   async function loadReport(id, token = generation) {
@@ -134,15 +148,63 @@
       renderFiles(); if (id || result.reviews.length && active()) { tab('result'); await loadReport(id || result.reviews[0].id, token); } else renderReport();
     });
   }
+  async function quickReview() {
+    const state = api.getState();
+    if (!state.projectId || active()) return;
+    scope = state.projectId; generation++;
+    try {
+      const result = await api.api('/api/reviews', {}, scope);
+      const files = [];
+      for (const repo of result.repositories || []) {
+        for (const file of repo.changes) {
+          if (!file.reason && files.length < (result.limits?.files || 12)) {
+            files.push({ folderId: repo.folderId, path: file.path });
+          }
+        }
+      }
+      if (!files.length) {
+        api.showNotice('No uncommitted file changes available for review.');
+        return;
+      }
+      const prev = await api.post('/api/reviews/preview', { files }, scope);
+      const goal = result.goal || 'Review and verify current workspace changes for correctness, edge cases and style.';
+      const res = await api.post('/api/reviews/start', {
+        files,
+        goal,
+        approvedDigest: prev.snapshot.digest,
+        requestId: crypto.randomUUID(),
+        billingConfirmed: Boolean(needsBilling())
+      }, scope);
+      const panel = $('review-panel');
+      if (panel) {
+        panel.hidden = false;
+        $('git-panel')?.setAttribute('hidden', 'true');
+      }
+      tab('result');
+      await api.refresh();
+      if (current()) await loadReport(res.reviewId, generation);
+      api.announce('Review started on the side. You can move forward with your next prompt.');
+    } catch (err) {
+      api.showNotice(err.message || 'Could not start review.');
+    }
+  }
   function renderStrip() {
     const state = api.getState(), latest = state.conversation?.reviews?.[0], known = latest && freshness.get(latest.id);
     $('open-review').disabled = !state.ready || active(); $('open-review').title = `Review changes with ${name(reviewer())}`;
     $('review-summary').hidden = !latest;
-    if (latest) { $('review-summary').dataset.stale = String(Boolean(known?.stale)); $('review-summary-text').textContent = `${name(latest.provider)} review · ${known?.stale ? 'Outdated' : latest.status === 'running' ? 'In progress' : latest.status === 'complete' ? `${latest.findings.length} finding${latest.findings.length === 1 ? '' : 's'}` : 'Needs attention'}`; }
+    if (latest) {
+      $('review-summary').dataset.stale = String(Boolean(known?.stale));
+      if (latest.status === 'running') {
+        $('review-summary-text').textContent = `🔍 ${name(latest.provider)} review in progress on the side · You can keep typing below and move forward`;
+      } else {
+        $('review-summary-text').textContent = `${name(latest.provider)} review · ${known?.stale ? 'Outdated' : latest.status === 'complete' ? `${latest.findings.length} finding${latest.findings.length === 1 ? '' : 's'}` : 'Needs attention'}`;
+      }
+    }
   }
   $('open-review').addEventListener('click', () => open());
   $('view-review').addEventListener('click', () => open(api.getState().conversation?.reviews?.[0]?.id));
   $('close-review').addEventListener('click', () => dialog.close());
+  $('close-review-panel')?.addEventListener('click', () => { if ($('review-panel')) $('review-panel').hidden = true; });
   dialog.addEventListener('close', () => { generation++; busy = false; });
   $('review-new-tab').addEventListener('click', () => { if (!active()) open(); });
   $('review-result-tab').addEventListener('click', () => { tab('result'); perform(token => loadReport(report?.id || data.reviews[0].id, token)); });
@@ -172,5 +234,5 @@
     finally { checking = false; }
   }
   window.addEventListener('focus', checkFreshness); setInterval(checkFreshness, 15000);
-  window.relayReviews = { open }; renderStrip();
+  window.relayReviews = { open, quickReview }; renderStrip();
 })();

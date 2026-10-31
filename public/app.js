@@ -8,7 +8,7 @@
     workspace: $("workspace-name"), breadcrumb: $("workspace-breadcrumb"),
     messages: $("messages"), scroll: $("messages-scroll"), empty: $("empty-state"),
     form: $("composer"), input: $("message-input"), send: $("send-button"), stop: $("stop-button"),
-    mode: $("mode-select"), codex: $("select-codex"), claude: $("select-claude"), gemini: $("select-gemini"),
+    mode: $("mode-select"), codex: $("select-codex"), claude: $("select-claude"), gemini: $("select-gemini"), local: $("select-local"),
     continuation: $("continuation"), continueText: $("continuation-text"), continueButton: $("continue-button"),
     otherRunning: $("other-running"), viewRunning: $("view-running"),
     notice: $("notice"), noticeText: $("notice-text"), retry: $("notice-retry"), dismiss: $("notice-dismiss"),
@@ -450,18 +450,25 @@
     const selectedConnection=connection(state.provider);
     ui.codex.classList.toggle("selected", state.provider === "codex");
     ui.claude.classList.toggle("selected", state.provider === "claude");
+    const isLocal = Boolean(state.local);
     for (const provider of ["codex", "claude", "gemini"]) {
-      ui[provider].classList.toggle("selected", state.provider === provider);
-      ui[provider].setAttribute("aria-pressed", String(state.provider === provider));
+      ui[provider].classList.toggle("selected", !isLocal && state.provider === provider);
+      ui[provider].setAttribute("aria-pressed", String(!isLocal && state.provider === provider));
       ui[provider].disabled = !state.ready || busy || running || !available(provider);
       ui[provider].title = available(provider) ? `Use ${label(provider)} for your next message` : `${label(provider)} CLI is not installed`;
+    }
+    if (ui.local) {
+      ui.local.classList.toggle("selected", isLocal);
+      ui.local.setAttribute("aria-pressed", String(isLocal));
+      ui.local.disabled = !state.ready || busy || running;
+      ui.local.title = "Use downloaded local models (Ollama) with workspace tools";
     }
     ui.mode.value = state.mode;
     ui.mode.disabled = !state.ready || busy || running;
     ui.input.disabled = !state.ready || state.loading || state.pending === "new";
     ui.input.placeholder = running ? "Draft your next message…" : "Describe the task or ask a question…";
     ui.send.hidden = running;
-    ui.send.disabled = !state.ready || busy || otherRunning || selectedConnection.blocked || window.relayFiles?.uploading() || (!ui.input.value.trim() && !window.relayFiles?.ids().length);
+    ui.send.disabled = !state.ready || busy || otherRunning || (!state.local && selectedConnection.blocked) || window.relayFiles?.uploading() || (!ui.input.value.trim() && !window.relayFiles?.ids().length);
     ui.send.firstElementChild.textContent = state.pending === "send" ? "Sending…" : "Send";
     ui.stop.hidden = !running;
     ui.stop.disabled = busy;
@@ -582,7 +589,7 @@
     const attachments = continuing ? [] : window.relayFiles?.ids() || [];
     const text = ui.input.value.trim() || (attachments.length ? "Please review the attached files." : "");
     if (window.relayFiles?.uploading()) return;
-    if (state.pending || state.loading || state.projectSaving || isRunning() || isOtherRunning() || !state.ready || connection(state.provider).blocked || (!continuing && !text)) return;
+    if (state.pending || state.loading || state.projectSaving || isRunning() || isOtherRunning() || !state.ready || (!state.local && connection(state.provider).blocked) || (!continuing && !text)) return;
     const provider = state.provider;
     const mode = state.mode;
     const originalDraft = ui.input.value;
@@ -598,6 +605,34 @@
       await state.settingsPromise;
       if (!state.conversation) await ensureCanonicalConversation();
       const id = state.conversation.id;
+      if (state.local || state.model?.startsWith('local:')) {
+        const localData = await api('/api/local-models', {}, projectId);
+        if (!localData.installed) throw new Error('Install Codex CLI to provide workspace tools for local runs.');
+        const cleanModel = (state.model || '').replace(/^local:/, '');
+        const targetModel = localData.models.find(m => m.id === cleanModel) || localData.models[0];
+        if (!targetModel) throw new Error('No compatible local model found in Ollama. Pull a model first.');
+        await post('/api/local-models/start', {
+          model: targetModel.id,
+          digest: targetModel.digest,
+          task: text,
+          requestId,
+          context: localData.context
+        }, projectId);
+        state.retrySubmission = null;
+        if (!continuing) window.relayFiles?.accepted(projectId, attachments);
+        if (!continuing && ui.input.value === originalDraft) {
+          ui.input.value = "";
+          storedWrite(draftKey(), "");
+          storedWrite(draftKey(null), "");
+          resizeInput();
+        }
+        state.conversation.status = "running";
+        state.conversation.connection = 'local';
+        announce('Local · Ollama is working.');
+        await refresh();
+        render(true);
+        return;
+      }
       state.retrySubmission.key = JSON.stringify([state.projectId,id,continuing,text,provider,mode,state.model,state.effort,attachments]);
       await post(endpoint(id, continuing ? "continue" : "messages"), continuing ? { provider, mode, requestId, model:state.model || undefined, effort:state.effort || null, billingConfirmed:window.relayBillingConfirmed === true } : { text, attachments, provider, mode, requestId, model:state.model || undefined, effort:state.effort || null, billingConfirmed:window.relayBillingConfirmed === true }, projectId);
       state.retrySubmission = null;
@@ -923,9 +958,10 @@
   ui.input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!ui.send.disabled && !ui.send.hidden) run(); }
   });
-  ui.codex.addEventListener("click", () => changeSettings("codex", state.mode));
-  ui.claude.addEventListener("click", () => changeSettings("claude", state.mode));
-  ui.gemini.addEventListener("click", () => changeSettings("gemini", state.mode));
+  ui.codex.addEventListener("click", () => { state.local = false; changeSettings("codex", state.mode); });
+  ui.claude.addEventListener("click", () => { state.local = false; changeSettings("claude", state.mode); });
+  ui.gemini.addEventListener("click", () => { state.local = false; changeSettings("gemini", state.mode); });
+  ui.local?.addEventListener("click", () => { state.local = true; renderControls(); window.dispatchEvent(new CustomEvent("relay-state")); });
   ui.mode.addEventListener("change", () => changeSettings(state.provider, ui.mode.value));
   ui.stop.addEventListener("click", stop);
   ui.continueButton.addEventListener("click", () => {const target=state.continuationProvider||state.provider;if(target!==state.provider)changeSettings(target,state.mode);run(true);});

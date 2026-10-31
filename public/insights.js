@@ -9,19 +9,89 @@
   const action = (text, fn, cls) => { const button = el('button', text, cls); button.type = 'button'; button.addEventListener('click', fn); return button; };
   const external = async url => { if (window.relayDesktop) await window.relayDesktop.openExternal(url); else window.open(url, '_blank', 'noopener,noreferrer'); };
   const catalog = {}, loadingModels = {}, attemptedModels = {};
-  let modelSignature = '', lastProject = null;
+  let modelSignature = '', lastProject = null, localModels = [];
+
+  function checkContextualSuggestion() {
+    const bar = $('vibe-contextual-bar');
+    if (!bar) return;
+    const state = api.getState();
+    const changes = gitData?.totalChanges || 0;
+    const lastRun = state.conversation?.lastRun;
+    if (changes > 0 && lastRun && lastRun.purpose !== 'review') {
+      bar.hidden = false;
+      const builder = lastRun.connection === 'local' ? 'Local model' : name(lastRun.provider);
+      const reviewer = (lastRun.provider || state.provider) === 'claude' ? 'Codex' : 'Claude';
+      $('vibe-bar-title').textContent = `${builder} finished · ${changes} file${changes === 1 ? '' : 's'} changed`;
+      $('vibe-btn-review').textContent = `Review changes with ${reviewer} ↗`;
+      $('vibe-btn-review').onclick = () => {
+        bar.hidden = true;
+        if (window.relayReviews?.quickReview) window.relayReviews.quickReview();
+        else $('open-review').click();
+      };
+      $('vibe-btn-friend').onclick = () => {
+        bar.hidden = true;
+        $('ask-friend').click();
+      };
+      $('vibe-btn-dismiss').onclick = () => {
+        bar.hidden = true;
+      };
+    } else {
+      bar.hidden = true;
+    }
+  }
 
   function modelControls() {
     const state = api.getState(), provider = state.provider, rows = catalog[provider] || [];
-    const signature = JSON.stringify([provider, state.model, state.effort, rows]);
+    const isLocal = Boolean(state.local);
+    if (isLocal) {
+      const signature = JSON.stringify(['local', state.model, localModels]);
+      if (signature !== modelSignature) {
+        modelSignature = signature;
+        $('model-select').replaceChildren();
+        if (localModels.length) {
+          for (const m of localModels) {
+            const option = el('option', `${m.id}${m.parameterSize ? ' (' + m.parameterSize + ')' : ''}`);
+            option.value = m.id;
+            $('model-select').append(option);
+          }
+        } else {
+          const option = el('option', 'No local models in Ollama');
+          option.value = '';
+          $('model-select').append(option);
+        }
+        $('model-select').value = (state.model || '').replace(/^local:/, '') || localModels[0]?.id || '';
+        $('effort-select').replaceChildren(el('option', 'Offline (Ollama)'));
+        $('effort-select').dataset.supported = 'false';
+      }
+      $('model-description').textContent = `Local · Ollama · ${$('model-select').value || 'Downloaded models'} · No cloud model charges`;
+      $('effort-select').disabled = true;
+      const locked = !state.ready || state.pending || state.settingsPending || state.conversation?.status === 'running';
+      $('model-select').disabled = Boolean(locked);
+      $('refresh-models').disabled = Boolean(locked);
+      return;
+    }
+    const signature = JSON.stringify([provider, state.model, state.effort, rows, localModels]);
     const selected = rows.find(row => [row.id, row.model, row.value, row.resolvedModel].includes(state.model)) || (!state.model && rows.find(row => row.isDefault || row.value === 'default'));
     if (signature !== modelSignature) {
       modelSignature = signature;
       $('model-select').replaceChildren();
-      const base = el('option', 'Provider default'); base.value = ''; $('model-select').append(base);
-      for (const row of rows.filter(row => row.value !== 'default')) { const option = el('option', row.displayName || row.name || row.id || row.value); option.value = row.id || row.model || row.value; $('model-select').append(option); }
-      if (state.model && !rows.some(row => (row.id || row.model || row.value) === state.model)) { const option = el('option', state.model); option.value = state.model; $('model-select').append(option); }
-      const custom = el('option', 'Enter a model ID…'); custom.value = '__custom__'; $('model-select').append(custom);
+      const cloudGroup = el('optgroup');
+      cloudGroup.label = `${name(provider)} Models`;
+      const base = el('option', 'Provider default'); base.value = ''; cloudGroup.append(base);
+      for (const row of rows.filter(row => row.value !== 'default')) { const option = el('option', row.displayName || row.name || row.id || row.value); option.value = row.id || row.model || row.value; cloudGroup.append(option); }
+      if (state.model && !rows.some(row => (row.id || row.model || row.value) === state.model) && !state.model.startsWith('local:')) { const option = el('option', state.model); option.value = state.model; cloudGroup.append(option); }
+      const custom = el('option', 'Enter a model ID…'); custom.value = '__custom__'; cloudGroup.append(custom);
+      $('model-select').append(cloudGroup);
+      if (localModels.length) {
+        const localGroup = el('optgroup');
+        localGroup.label = 'Local Models (Ollama · Free & Offline)';
+        for (const m of localModels) {
+          const option = el('option', `${m.id}${m.parameterSize ? ' (' + m.parameterSize + ')' : ''}`);
+          option.value = `local:${m.id}`;
+          localGroup.append(option);
+        }
+        $('model-select').append(localGroup);
+      }
       $('model-select').value = state.model || '';
       const effortDefault = el('option', selected?.defaultReasoningEffort ? `Default (${selected.defaultReasoningEffort})` : 'Provider default'); effortDefault.value = '';
       $('effort-select').replaceChildren(effortDefault);
@@ -40,8 +110,17 @@
     $('effort-select').disabled = Boolean(locked || $('effort-select').dataset.supported !== 'true');
     $('model-description').textContent = loadingModels[provider] ? `Loading ${name(provider)} models…` : `${name(provider)} · ${selected?.displayName || state.model || 'Provider default'} · ${state.effort ? title(state.effort) + ' reasoning effort' : 'Default reasoning effort'}${!rows.length ? ' — refresh to load available models' : ''}`;
   }
+  async function loadLocalModels() {
+    const state = api.getState();
+    if (!state.projectId || !state.ready) return;
+    try {
+      const res = await api.api('/api/local-models', {}, state.projectId);
+      if (res?.models) { localModels = res.models; modelSignature = ''; modelControls(); }
+    } catch { /* Ollama may not be running */ }
+  }
   async function loadModels(force = false) {
     const state = api.getState(), provider = state.provider;
+    loadLocalModels();
     if (loadingModels[provider] || (!force && catalog[provider]?.length) || !state.ready) return;
     loadingModels[provider] = true; attemptedModels[provider] = true; modelControls();
     try { const result = await api.api(`/api/providers/${provider}/models`, {}, state.projectId); catalog[provider] = result.models || []; }
@@ -54,6 +133,18 @@
   $('refresh-models').addEventListener('click', () => loadModels(true));
   $('model-select').addEventListener('change', async () => {
     const state = api.getState(), model = $('model-select').value;
+    if (model.startsWith('local:')) {
+      state.local = true;
+      state.model = model.slice(6);
+      api.renderControls();
+      window.dispatchEvent(new CustomEvent('relay-state'));
+      return;
+    }
+    if (state.local) {
+      state.local = false;
+      api.renderControls();
+      window.dispatchEvent(new CustomEvent('relay-state'));
+    }
     if (model === '__custom__') { $('custom-model-editor').hidden = false; $('custom-model-input').value = state.model || ''; $('custom-model-input').focus(); return; }
     $('custom-model-editor').hidden = true;
     const effort = state.conversation?.efforts?.[state.provider]?.[model || 'default'] ?? null;
@@ -137,6 +228,7 @@
       }
     }
     $('git-updated').textContent = (gitView === 'commits' ? 'Latest 15 local commits · refreshed ' : 'Local Git · refreshed ') + date(gitData.checkedAt);
+    checkContextualSuggestion();
   }
   async function loadGit() {
     const projectId = api.getState().projectId; if (!projectId || gitBusy) return;
@@ -303,7 +395,7 @@
     for (const provider of ['codex', 'claude', 'gemini']) if (state.accounts?.[provider]?.authenticated === true && !usageAttempted[provider]) loadUsage(provider);
     // A finished run changes files and consumes usage.
     const running = state.conversation?.status === 'running' ? state.projectId : null;
-    if (runningProject && runningProject === state.projectId && !running) { if (!$('git-panel').hidden) loadGit(); for (const provider of ['codex', 'claude', 'gemini']) loadUsage(provider, true); }
+    if (runningProject && runningProject === state.projectId && !running) { if (!$('git-panel').hidden) loadGit(); for (const provider of ['codex', 'claude', 'gemini']) loadUsage(provider, true); checkContextualSuggestion(); }
     runningProject = running;
     renderUsage();
     if (state.ready && state.status?.providers?.[state.provider]?.available && state.accounts?.[state.provider]?.authenticated === true && !catalog[state.provider] && !attemptedModels[state.provider] && !loadingModels[state.provider]) loadModels();
