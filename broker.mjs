@@ -11,6 +11,7 @@ import { classifyError, capabilities, accountStatus } from './providers.mjs';
 import { workspaceBaseline } from './workspace-baseline.mjs';
 import { AttachmentStore } from './attachments.mjs';
 import { processStart, reused } from './mutation-lock.mjs';
+import { parseReviewResult, publicReview, reviewPrompt } from './agent-review.mjs';
 
 export const PROVIDERS = ['codex', 'claude'];
 const MODES = ['edit', 'read'];
@@ -104,6 +105,7 @@ export class Broker extends EventEmitter {
           this.record(conversation, { type: 'message_update', id: message.id, update: { status: 'incomplete' } });
         }
         this.message(conversation, 'error', 'The previous run was interrupted. Its saved output is available; inspect project changes before continuing.', conversation.provider);
+        if (conversation.activeRun.reviewId) this.record(conversation, { type: 'review_result', id: conversation.activeRun.reviewId, result: { status: 'interrupted', summary: 'The review was interrupted. Start a new review to check these changes.', findings: [] } });
         this.record(conversation, { type: 'run_end', status: 'interrupted', errorCategory: 'interrupted' });
       }
     }
@@ -111,7 +113,7 @@ export class Broker extends EventEmitter {
 
   empty(id) {
     return { id, title: 'New conversation', provider: 'codex', mode: 'edit', status: 'idle', messages: [],
-      sessions: {}, models: {}, efforts: {}, effort: null, imports: {}, transports: {}, requests: {}, context: emptyContext(), model: null, transport: 'auto', settingsRevision: 0, lastRun: null, records: 0, activeRun: null, createdAt: null, updatedAt: null };
+      sessions: {}, models: {}, efforts: {}, effort: null, imports: {}, transports: {}, requests: {}, reviews: [], context: emptyContext(), model: null, transport: 'auto', settingsRevision: 0, lastRun: null, records: 0, activeRun: null, createdAt: null, updatedAt: null };
   }
 
   apply(c, record) {
@@ -120,7 +122,7 @@ export class Broker extends EventEmitter {
     if (record.type === 'created') Object.assign(c, { createdAt: record.at, title: record.title });
     if (record.type === 'settings') { Object.assign(c, { provider: record.provider, mode: record.mode, model: record.model ?? null, transport: record.transport || c.transport, settingsRevision: record.seq }); c.models[record.provider] = record.model ?? null; c.transports[record.provider] = record.transport || c.transport; }
     if (record.type === 'context') c.context = record.context;
-    if (['settings', 'submission'].includes(record.type)) {
+    if (['settings', 'submission'].includes(record.type) && !record.review) {
       c.effort = record.effort ?? null;
       c.efforts[record.provider] ||= {};
       c.efforts[record.provider][record.model || 'default'] = c.effort;
@@ -136,14 +138,17 @@ export class Broker extends EventEmitter {
     if (record.type === 'message_delta') { const message = c.messages.find(m => m.id === record.id); if (!message) throw new Error('Message delta has no original message.'); message.text += record.text; message.seq = record.seq; if (record.status) message.status = record.status; }
     if (record.type === 'run_metadata') { if (c.activeRun) Object.assign(c.activeRun, record.metadata); }
     if (record.type === 'submission') {
-      if (record.resetSession) delete c.sessions[record.provider];
-      Object.assign(c, { provider: record.provider, mode: record.mode, model: record.model, transport: record.transport, settingsRevision: record.seq });
-      c.models[record.provider] = record.model; c.transports[record.provider] = record.transport;
+      if (!record.review) {
+        if (record.resetSession) delete c.sessions[record.provider];
+        Object.assign(c, { provider: record.provider, mode: record.mode, model: record.model, transport: record.transport, settingsRevision: record.seq });
+        c.models[record.provider] = record.model; c.transports[record.provider] = record.transport;
+      } else c.reviews = [{ ...record.review, id: record.id, startedAt: record.at, status: 'running', findings: [] }, ...c.reviews].slice(0, 10);
       if (record.title) c.title = record.title;
       c.messages.push({ ...record.message, seq: record.seq });
       c.requests[record.requestId] = { runId: record.id, requestId: record.requestId, fingerprint: record.fingerprint };
-      c.activeRun = { id: record.id, provider: record.provider, model: record.model, transport: record.effectiveTransport || record.transport, baseline: record.baseline, context: record.context, effort: record.effort ?? null, phase: 'starting', lastEventAt: record.at, toolCount: 0, startedAt: record.at }; c.status = 'running';
+      c.activeRun = { id: record.id, provider: record.provider, model: record.model, transport: record.effectiveTransport || record.transport, baseline: record.baseline, context: record.context, ...(record.review ? { purpose: 'review', reviewId: record.id } : {}), effort: record.effort ?? null, phase: 'starting', lastEventAt: record.at, toolCount: 0, startedAt: record.at }; c.status = 'running';
     }
+    if (record.type === 'review_result') { const review = c.reviews.find(item => item.id === record.id); if (review) Object.assign(review, record.result, { endedAt: record.at }); }
     if (record.type === 'title') c.title = record.title;
     if (record.type === 'message') c.messages.push({ ...record.message, seq: record.seq });
     if (record.type === 'message_update') {
@@ -161,7 +166,7 @@ export class Broker extends EventEmitter {
       c.status = 'running';
     }
     if (record.type === 'run_process' && c.activeRun) Object.assign(c.activeRun, { pid: record.pid, pidStart: record.pidStart });
-    if (record.type === 'run_end') { c.lastRun = { ...c.activeRun, status: record.status, errorCategory: record.errorCategory || null, endedAt: record.at }; c.activeRun = null; c.status = record.status; }
+    if (record.type === 'run_end') { if (c.activeRun && !c.activeRun.reviewId) c.lastBuilder = c.activeRun.provider; c.lastRun = { ...c.activeRun, status: record.status, errorCategory: record.errorCategory || null, endedAt: record.at }; c.activeRun = null; c.status = record.status; }
   }
 
   record(c, value) {
@@ -184,7 +189,7 @@ export class Broker extends EventEmitter {
     else if (existing && (text !== existing.text || (status && status !== existing.status))) this.record(c, { type: 'message_update', id, update: { ...(text !== existing.text ? { text } : {}), ...(status ? { status } : {}) } });
     else if (existing) return id;
     else this.record(c, { type: 'message', message: { id, role, text, provider, status,
-      createdAt: new Date().toISOString(), runId: c.activeRun?.id, model: c.activeRun?.effectiveModel || c.activeRun?.model || null, effort: c.activeRun?.effectiveEffort || c.activeRun?.effort || null } });
+      createdAt: new Date().toISOString(), runId: c.activeRun?.id, ...(c.activeRun?.reviewId ? { reviewId: c.activeRun.reviewId } : {}), model: c.activeRun?.effectiveModel || c.activeRun?.model || null, effort: c.activeRun?.effectiveEffort || c.activeRun?.effort || null } });
     return id;
   }
 
@@ -195,8 +200,8 @@ export class Broker extends EventEmitter {
   }
 
   view(c) {
-    const { sessions, requests, records, imports, ...visible } = c;
-    return { ...visible, pendingApprovals: this.running?.c.id === c.id ? [...this.running.approvals.values()] : [], messages: c.messages.map(({ seq, ...m }) => m) };
+    const { sessions, requests, records, imports, reviews, ...visible } = c;
+    return { ...visible, reviews: reviews.map(publicReview), pendingApprovals: this.running?.c.id === c.id ? [...this.running.approvals.values()] : [], messages: c.messages.map(({ seq, ...m }) => m) };
   }
 
   list() {
@@ -290,14 +295,15 @@ export class Broker extends EventEmitter {
 
   prompt(c, text, fresh = false) { return prepareContext(c, text, { workspace: this.workspace, workspaceFolders: this.workspaceFolders, fresh: fresh || c.sessions[c.provider]?.workspaceSignature !== this.workspaceSignature }).prompt; }
 
-  start(c, { text, attachments: attachmentIds = [], provider = c.provider, mode = c.mode, fresh = false, model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', requestId = randomUUID(), billingConfirmed = false, effort = c.efforts[provider]?.[model || 'default'] ?? null }) {
+  start(c, { text, attachments: attachmentIds = [], provider = c.provider, mode = c.mode, fresh = false, model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', requestId = randomUUID(), billingConfirmed = false, effort = c.efforts[provider]?.[model || 'default'] ?? null }, { review, verifyReview } = {}) {
+    if (review) { mode = 'read'; fresh = true; attachmentIds = []; }
     checkSettings(provider, mode);
     this.validateSelection(model, transport, effort);
     if (typeof text !== 'string' || !text.trim() || text.length > 100000) throw Object.assign(new Error('Enter a message between 1 and 100,000 characters.'), { status: 400 });
     if (typeof requestId !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(requestId)) throw Object.assign(new Error('Invalid request ID.'), { status: 400 });
     const attachments = this.attachments.select(attachmentIds);
     text = text.trim(); model = model || null;
-    const fingerprint = createHash('sha256').update(JSON.stringify({ text, ...(attachments.length ? { attachments: attachmentIds } : {}), provider, mode, fresh, model, ...(effort ? { effort } : {}), transport: transport === 'auto' ? this.configuredBins[provider] ? 'cli' : provider === 'codex' ? 'app-server' : 'sdk' : transport })).digest('hex');
+    const fingerprint = createHash('sha256').update(JSON.stringify({ text, ...(review ? { review: review.snapshot.digest } : {}), ...(attachments.length ? { attachments: attachmentIds } : {}), provider, mode, fresh, model, ...(effort ? { effort } : {}), transport: transport === 'auto' ? this.configuredBins[provider] ? 'cli' : provider === 'codex' ? 'app-server' : 'sdk' : transport })).digest('hex');
     const accepted = c.requests[requestId];
     if (accepted) { if (accepted.fingerprint !== fingerprint) throw Object.assign(new Error('This request ID was already used for another message.'), { status: 409 }); return { runId: accepted.runId, requestId, duplicate: true }; }
     if (this.running) throw Object.assign(new Error('An assistant is already working in this workspace. Stop it before starting another run.'), { status: 409 });
@@ -315,21 +321,22 @@ export class Broker extends EventEmitter {
     const resetSession = Boolean(c.sessions[provider] && c.sessions[provider].workspaceSignature !== this.workspaceSignature);
     const effectiveFresh = fresh || resetSession;
     const sessionId = effectiveFresh ? null : c.sessions[provider]?.id;
-    const prepared = prepareContext(c, text, { workspace: this.workspace, workspaceFolders: this.workspaceFolders, fresh: effectiveFresh, provider, mode, attachments, readAttachment: id => this.attachments.read(id) });
+    const prepared = review ? { prompt: reviewPrompt(review, { ...validateContext(c.context), workspaceFolders: this.workspaceFolders }), images: [], metadata: { purpose: 'review', fresh: true, digest: review.snapshot.digest } } : prepareContext(c, text, { workspace: this.workspace, workspaceFolders: this.workspaceFolders, fresh: effectiveFresh, provider, mode, attachments, readAttachment: id => this.attachments.read(id) });
+    if (review && Buffer.byteLength(prepared.prompt) > 192000) throw Object.assign(new Error('Review context exceeds 192 KB. Select fewer files or shorten the saved project brief.'), { status: 413 });
     if (actualTransport === 'cli' && prepared.images.length) throw Object.assign(new Error('Image attachments require the native Codex or Claude connection. Switch the transport from CLI, or remove the images.'), { status: 400 });
     const images = prepared.images.map(file => this.attachments.imageInput(file.id));
     const lease = this.acquireMutation(`provider:${provider}`);
     let baseline;
-    try { baseline = workspaceBaseline(this.workspace, this.workspaceFolders); } catch (error) { lease.release(); throw error; }
+    try { if (review) verifyReview(); baseline = review ? { kind: 'review', git: true, digest: review.snapshot.digest, capturedAt: new Date().toISOString() } : workspaceBaseline(this.workspace, this.workspaceFolders); } catch (error) { lease.release(); throw error; }
     const runId = randomUUID();
     const run = { id: runId, c, provider, child: null, terminalSuccess: false, failed: false, stopped: false,
-      stderr: '', tools: new Map(), approvals: new Map(), currentClaudeMessage: null, killTimer: null, done: null, lease, errorCategory: null, workspaceSignature: this.workspaceSignature };
+      stderr: '', tools: new Map(), approvals: new Map(), currentClaudeMessage: null, killTimer: null, done: null, lease, review, errorCategory: null, workspaceSignature: this.workspaceSignature };
     let finish;
     run.done = new Promise(resolve => { finish = resolve; });
     try {
       this.record(c, { type: 'submission', id: runId, requestId, fingerprint, provider, mode, model, effort, transport, effectiveTransport: actualTransport, baseline, context: prepared.metadata, resetSession, workspaceSignature: this.workspaceSignature,
-        ...(c.messages.every(m => m.role !== 'user') ? { title: text.slice(0, 64) } : {}),
-        message: { id: randomUUID(), role: 'user', text, ...(attachments.length ? { attachments } : {}), provider, createdAt: new Date().toISOString(), runId } });
+        ...(review ? { review } : {}), ...(c.messages.every(m => m.role !== 'user') ? { title: text.slice(0, 64) } : {}),
+        message: { id: randomUUID(), role: 'user', text, ...(review ? { reviewId: runId } : {}), ...(attachments.length ? { attachments } : {}), provider, createdAt: new Date().toISOString(), runId } });
     } catch (error) { lease.release(); throw error; }
     this.running = run; this.bins[provider] = bin;
     let finished = false;
@@ -342,12 +349,13 @@ export class Broker extends EventEmitter {
         if (!success) {
           const detail = run.stopped ? 'Stopped. Files already changed by this run remain in the workspace.' : error?.message || run.stderr.trim() || `The assistant ended without completing the turn (exit ${code ?? signal ?? 'unknown'}).`;
           run.errorCategory ||= run.stopped ? 'interrupted' : classifyError(error || detail);
-          this.message(c, 'error', clip(detail) + (run.stopped ? '' : '\nYour conversation is saved. Select the other assistant and continue, or retry after resolving the error.'), provider);
+          this.message(c, 'error', clip(detail) + (review ? '\nStart a new read-only review when ready.' : run.stopped ? '' : '\nYour conversation is saved. Select the other assistant and continue, or retry after resolving the error.'), provider);
         }
         for (const message of c.messages.filter(m => m.runId === runId && m.role === 'assistant')) this.record(c, { type: 'message_update', id: message.id, update: { status: success ? 'complete' : 'incomplete' } });
         this.record(c, { type: 'run_metadata', metadata: { elapsedMs: Date.now() - Date.parse(c.activeRun.startedAt), phase: success ? 'complete' : 'stopped', lastEventAt: c.activeRun.lastEventAt } });
+        if (review) this.record(c, { type: 'review_result', id: runId, result: success ? parseReviewResult(c.messages.filter(message => message.runId === runId && message.role === 'assistant').at(-1)?.text, review.snapshot) : { status: run.stopped ? 'interrupted' : 'failed', summary: run.stopped ? 'Review stopped. Start a new review when ready.' : 'The review did not finish. Check the agent response and try again.', findings: [] } });
         this.record(c, { type: 'run_end', status: run.stopped ? 'interrupted' : success ? 'complete' : 'incomplete', errorCategory: run.errorCategory });
-        if (success && c.sessions[provider]) this.record(c, { type: 'checkpoint', provider });
+        if (success && !review && c.sessions[provider]) this.record(c, { type: 'checkpoint', provider });
       } catch (persistError) { success = false; run.persistenceError = persistError.message; }
       finally { try { lease.release(); } catch (releaseError) { success = false; run.persistenceError ||= releaseError.message; } finally { this.running = null; this.emit('update', { conversationId: c.id }); finish({ success, error: run.persistenceError }); } }
     };
@@ -386,7 +394,10 @@ export class Broker extends EventEmitter {
             if (message.type === 'event') this.event(run, message.event);
             if (message.type === 'metadata') this.record(c, { type: 'run_metadata', metadata: message.metadata });
             if (message.type === 'failure') { run.failed = true; run.errorCategory = message.category; run.stderr = clip(run.stderr + '\n' + message.message); }
-            if (message.type === 'approval') { const approval = { ...message.request, runId, provider }; run.approvals.set(approval.id, approval); this.emit('update', { conversationId: c.id }); }
+            if (message.type === 'approval') {
+              if (review && !['Read', 'Glob', 'Grep'].includes(message.request.kind)) { run.child.send({ type: 'approval-result', id: message.request.id, allow: false }); return; }
+              const approval = { ...message.request, runId, provider }; run.approvals.set(approval.id, approval); this.emit('update', { conversationId: c.id });
+            }
           } catch (error) { run.failed = true; run.errorCategory = classifyError(error); run.stderr = error.message; this.stop(c.id); }
         });
         run.child.on('close', (code, signal) => { if (buffer.trim()) consume(buffer); complete(code, signal, run.spawnError); });
@@ -411,7 +422,7 @@ export class Broker extends EventEmitter {
     if (!event || typeof event !== 'object') throw new Error('Invalid provider protocol event.');
     if (event.type === 'relay.delta') { const id = `${run.id}:${event.id}`; const existing = c.messages.find(m => m.id === id); this.message(c, 'assistant', (existing?.text || '') + event.text, provider, id, 'streaming'); return; }
     if (provider === 'codex') {
-      if (event.type === 'thread.started' && event.thread_id) this.record(c, { type: 'session', provider, id: event.thread_id, workspaceSignature: run.workspaceSignature || this.workspaceSignature });
+      if (!run.review && event.type === 'thread.started' && event.thread_id) this.record(c, { type: 'session', provider, id: event.thread_id, workspaceSignature: run.workspaceSignature || this.workspaceSignature });
       if (event.type === 'turn.completed') run.terminalSuccess = true;
       if (event.type === 'error') this.message(c, 'activity', clip(`Codex diagnostic: ${event.message || JSON.stringify(event)}`), provider);
       if (event.type === 'turn.failed') {
@@ -440,7 +451,7 @@ export class Broker extends EventEmitter {
       }
     }
     if (event.type === 'assistant' && event.error) { run.failed = true; run.errorCategory = classifyError(event.error + ' ' + JSON.stringify(event.message?.content || [])); }
-    if (event.session_id && c.sessions.claude?.id !== event.session_id) this.record(c, { type: 'session', provider, id: event.session_id, workspaceSignature: run.workspaceSignature || this.workspaceSignature });
+    if (!run.review && event.session_id && c.sessions.claude?.id !== event.session_id) this.record(c, { type: 'session', provider, id: event.session_id, workspaceSignature: run.workspaceSignature || this.workspaceSignature });
     if (event.type === 'stream_event') {
       const stream = event.event;
       if (stream?.type === 'message_start') run.currentClaudeMessage = stream.message?.id || randomUUID();

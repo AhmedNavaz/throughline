@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 
-const prefix = ['--no-pager', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
+const prefix = ['--no-pager', '--literal-pathspecs', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
 export function githubRepository(remote = '') {
   const match = remote.trim().match(/^(?:git@github\.com:|https:\/\/github\.com\/)([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/);
   return match ? `https://github.com/${match[1]}/${match[2]}` : null;
@@ -21,8 +21,8 @@ function filterOverrides(run) {
   }
   return { overrides };
 }
-function workingChanges(run, overrides) {
-  const status = run(['status', '--porcelain=v1', '-z', '--untracked-files=normal', '--', '.'], overrides);
+function workingChanges(run, overrides, untracked = 'normal') {
+  const status = run(['status', '--porcelain=v1', '-z', `--untracked-files=${untracked}`, '--', '.'], overrides);
   const changes = [], entries = String(status.stdout || '').split('\0');
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i]; if (entry.length < 4) continue;
@@ -31,14 +31,14 @@ function workingChanges(run, overrides) {
   }
   return { ok: status.status === 0, changes };
 }
-export function workspaceGit(folders, { spawnImpl = spawnSync } = {}) {
+export function workspaceGit(folders, { spawnImpl = spawnSync, untracked = 'normal' } = {}) {
   return { checkedAt: new Date().toISOString(), repositories: folders.map(folder => {
     const run = runner(folder, spawnImpl);
     const base = { folderId: folder.id, name: folder.displayName || folder.name, alias: folder.name };
     if (!isRepository(run)) return { ...base, available: false, error: 'No Git repository in this folder.' };
     const filters = filterOverrides(run);
     if (filters.error) return { ...base, available: false, error: filters.error };
-    const status = workingChanges(run, filters.overrides);
+    const status = workingChanges(run, filters.overrides, untracked);
     const branch = run(['symbolic-ref', '--quiet', '--short', 'HEAD']);
     const log = run(['log', '-15', '--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s%x00', '--', '.']);
     const origin = run(['config', '--get', 'remote.origin.url']);
@@ -58,7 +58,7 @@ export function workspaceGitDiff(folder, filePath, { spawnImpl = spawnSync, limi
   if (!isRepository(run)) throw fail('No Git repository in this folder.', 404);
   const filters = filterOverrides(run);
   if (filters.error) throw fail(filters.error, 409);
-  const file = workingChanges(run, filters.overrides).changes.find(entry => entry.path === filePath);
+  const file = workingChanges(run, filters.overrides).changes.find(entry => entry.path === filePath) || workingChanges(run, filters.overrides, 'all').changes.find(entry => entry.path === filePath);
   if (!file) throw fail('This file has no current changes. Refresh Git activity.', 404);
   const base = { folderId: folder.id, path: file.path, code: file.code, ...(file.originalPath ? { originalPath: file.originalPath } : {}) };
   if (file.path.endsWith('/')) return { ...base, diff: '', directory: true, truncated: false };
@@ -68,12 +68,19 @@ export function workspaceGitDiff(folder, filePath, { spawnImpl = spawnSync, limi
   else {
     const paths = ['--', ...(file.originalPath ? [file.originalPath] : []), file.path];
     const head = run(['rev-parse', '--verify', '--quiet', 'HEAD']);
-    // Without a first commit there is no HEAD; show what is staged.
-    result = run(head.status === 0 ? ['diff', 'HEAD', ...options, ...paths] : ['diff', '--cached', ...options, ...paths], filters.overrides);
+    // Before the first commit, the base is empty. Include current bytes even if a new staged file was edited again.
+    if (head.status !== 0 && file.code.includes('D')) return { ...base, diff: '', truncated: false };
+    result = run(head.status === 0 ? ['diff', 'HEAD', ...options, ...paths] : ['diff', '--no-index', ...options, '--', '/dev/null', file.path], filters.overrides);
   }
   // --no-index exits 1 when the files differ; ENOBUFS keeps the output read so far.
   const overflow = result.error?.code === 'ENOBUFS';
   if ((result.error && !overflow) || (!overflow && ![0, 1].includes(result.status))) throw fail('Could not read this file’s changes.', 500);
   const diff = String(result.stdout || '');
   return { ...base, diff: diff.slice(0, limit), truncated: overflow || diff.length > limit };
+}
+
+export function workspaceGitIdentity(folder) {
+  const run = runner(folder, spawnSync), root = run(['rev-parse', '--show-toplevel']), head = run(['rev-parse', '--verify', '--quiet', 'HEAD']);
+  if (root.status !== 0) throw Object.assign(new Error('Attach a Git repository root to review its changes.'), { status: 400 });
+  return { root: root.stdout.trim(), head: head.status === 0 ? head.stdout.trim() : null };
 }

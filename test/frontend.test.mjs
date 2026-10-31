@@ -61,7 +61,7 @@ const response=(data,status=200)=>({ok:status>=200&&status<300,status,text:async
 async function flush(){for(let index=0;index<12;index++)await new Promise(resolve=>setImmediate(resolve));}
 function deferred(){let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};}
 
-async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,launch=null,theme=false,systemDark=true}={}){
+async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,reviewsUI=false,launch=null,theme=false,systemDark=true}={}){
   const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[],dataChoices=[];let timerId=0,intercept=null;
   let preferences=clone(savedPreferences);
   window.innerWidth=1280;window.innerHeight=800;
@@ -158,6 +158,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   if(setup)vm.runInContext(fs.readFileSync(new URL('../public/setup.js',import.meta.url),'utf8'),context,{filename:'public/setup.js'});
   if(filesUI)vm.runInContext(fs.readFileSync(new URL('../public/files.js',import.meta.url),'utf8'),context,{filename:'public/files.js'});
   if(searchUI)vm.runInContext(fs.readFileSync(new URL('../public/conversation-search.js',import.meta.url),'utf8'),context,{filename:'public/conversation-search.js'});
+  if(reviewsUI)vm.runInContext(fs.readFileSync(new URL('../public/agent-review.js',import.meta.url),'utf8'),context,{filename:'public/agent-review.js'});
   if(theme)document.dispatchEvent(new UIEvent('DOMContentLoaded'));
   await flush();assert.equal(window.relayUI.getState().ready,!empty);assert.equal(window.relayUI.getState().loading,false);
   const $=id=>document.getElementById(id);const fire=(id,type)=>$(id).dispatchEvent(new UIEvent(type));const findButton=text=>document.querySelectorAll('button').find(button=>button.textContent===text);
@@ -1020,6 +1021,90 @@ test('the menu bar follows the page: the workspace, a run, the agent, Continue, 
   assert.deepEqual(shown().workspaces.map(item=>item.name),['Example workspace','Other workspace',long.slice(0,120),...[4,5,6,7,8,9].map(index=>'Workspace '+index)],'The first nine are listed, each name at most 120 characters.');
 });
 
+
+function reviewBrowserRoutes(ui, { status = null, stale = false } = {}) {
+  const snapshot = { digest: 'd'.repeat(64), files: [{ id: 'frontend:app.js', folderId: 'frontend', folderName: 'Frontend', path: 'app.js', code: ' M', diff: '@@ -1 +1 @@\n-old\n+new\n', lines: 2 }] };
+  let report = status ? { id: 'review-one', status, builder: 'codex', provider: 'claude', goal: 'Keep the public contract', startedAt: '2026-10-31T10:00:00Z', summary: status === 'complete' ? 'One issue to consider.' : 'The review needs attention.', findings: status === 'complete' ? [{ id: '1', severity: 'medium', title: '<img onerror=alert(1)>', detail: 'The change breaks the return value.', folderId: 'frontend', path: 'app.js', line: 1 }] : [], snapshot, stale, staleReason: stale ? 'Selected files changed.' : null } : null;
+  if (report) ui.canonical.get('project-one').reviews = [report];
+  ui.setIntercept((request, next) => {
+    if (request.path === '/api/reviews') return response({ builder: 'codex', reviewer: 'claude', goal: 'Keep the public contract', limits: { files: 12 }, reviews: report ? [report] : [], repositories: [{ name: 'Frontend', folderId: 'frontend', available: true, totalChanges: 2, changes: [{ path: 'app.js', code: ' M' }, { path: 'other.js', code: '??' }] }] });
+    if (request.path === '/api/reviews/preview') return response({ snapshot });
+    if (request.path === '/api/reviews/start') { report = { id: 'review-one', status: 'running', builder: 'codex', provider: 'claude', goal: request.body.goal, startedAt: '2026-10-31T10:00:00Z', findings: [], snapshot, stale: false }; const c = ui.canonical.get('project-one'); c.reviews = [report]; c.status = 'running'; return response({ reviewId: 'review-one' }, 202); }
+    if (request.path === '/api/reviews/review-one/prepare-fix') return response({ provider: 'codex', text: 'Address the selected finding: fix the return value.' });
+    if (request.path === '/api/reviews/review-one') return response(report);
+    return next();
+  });
+  return { snapshot, get report() { return report; } };
+}
+
+test('cross-agent review requires file selection and a preview before an explicit start, and scope changes invalidate the preview', async () => {
+  const ui = await browser({ reviewsUI: true }), fixture = reviewBrowserRoutes(ui);
+  const calls = path => ui.requests.filter(request => request.path === path);
+  assert.equal(calls('/api/reviews/start').length, 0);
+  ui.$('open-review').click(); await flush(); assert.equal(ui.$('review-dialog').open, true); assert.match(ui.$('review-pair').textContent, /Codex builds.*Claude Code reviews/);
+  assert.equal(ui.$('start-review').disabled, true);
+  const choices = ui.$('review-files').querySelectorAll('input'); choices[0].checked = true; choices[0].dispatchEvent(new UIEvent('change')); assert.equal(ui.$('preview-review').disabled, false);
+  ui.$('preview-review').click(); await flush(); assert.equal(ui.$('review-preview').hidden, false); assert.equal(ui.$('start-review').disabled, false);
+  assert.equal(calls('/api/reviews/start').length, 0, 'Preview never runs an agent.');
+  choices[1].checked = true; choices[1].dispatchEvent(new UIEvent('change')); assert.equal(ui.$('start-review').disabled, true); assert.equal(ui.$('review-preview').hidden, true);
+  ui.$('preview-review').click(); await flush(); ui.$('start-review').click(); ui.$('start-review').click(); await flush();
+  assert.equal(calls('/api/reviews/start').length, 1, 'A double click cannot start two reviews.');
+  for (const request of ui.requests.filter(request => request.path.startsWith('/api/reviews'))) assert.equal(request.projectId, 'project-one', 'Every review request is scoped to its workspace by the real API client.');
+  assert.equal(calls('/api/reviews/start')[0].body.approvedDigest, fixture.snapshot.digest); assert.equal(calls('/api/reviews/start')[0].body.billingConfirmed, false);
+  assert.equal(ui.$('review-result').hidden, false); assert.match(ui.$('review-result').textContent, /Review in progress/); assert.equal(ui.state().provider, 'codex');
+});
+
+test('a review with an unverified billing source needs its own explicit confirmation', async () => {
+  const ui = await browser({ reviewsUI: true, billingSource: 'unknown' }); reviewBrowserRoutes(ui);
+  ui.$('open-review').click(); await flush(); const choice = ui.$('review-files').querySelectorAll('input')[0]; choice.checked = true; choice.dispatchEvent(new UIEvent('change'));
+  ui.$('preview-review').click(); await flush(); assert.equal(ui.$('review-billing-label').hidden, false); assert.equal(ui.$('start-review').disabled, true);
+  ui.$('review-billing').checked = true; ui.$('review-billing').dispatchEvent(new UIEvent('change')); assert.equal(ui.$('start-review').disabled, false);
+  ui.$('start-review').click(); await flush(); assert.equal(ui.requests.find(request => request.path === '/api/reviews/start').body.billingConfirmed, true);
+});
+
+test('selected findings prepare a draft without starting a fix or overwriting existing text, and finding content is rendered as text', async () => {
+  const ui = await browser({ reviewsUI: true }); reviewBrowserRoutes(ui, { status: 'complete' }); await ui.window.relayUI.refresh();
+  ui.$('view-review').click(); await flush();
+  assert.equal(ui.$('review-result').querySelectorAll('img').length, 0); assert.match(ui.$('review-result').textContent, /<img onerror=alert\(1\)>/);
+  const choice = ui.$('review-result').querySelectorAll('input')[0]; choice.checked = true; choice.dispatchEvent(new UIEvent('change'));
+  ui.$('message-input').value = 'An existing draft'; ui.$('prepare-review-fix').click(); await flush(); assert.match(ui.$('review-error').textContent, /current draft/); assert.equal(ui.$('message-input').value, 'An existing draft');
+  ui.$('message-input').value = ''; ui.$('prepare-review-fix').click(); await flush();
+  assert.equal(ui.$('message-input').value, 'Address the selected finding: fix the return value.'); assert.equal(ui.$('review-dialog').open, false);
+  assert.equal(ui.requests.filter(request => /\/(messages|continue)$/.test(request.path)).length, 0, 'A fix is only drafted; Send remains an explicit action.');
+  assert.equal(ui.requests.find(request => request.path.endsWith('/provider')).body.mode, 'edit');
+});
+
+test('an outdated review cannot prepare fixes and an unstructured report is never shown as no findings', async () => {
+  const ui = await browser({ reviewsUI: true }); reviewBrowserRoutes(ui, { status: 'complete', stale: true }); await ui.window.relayUI.refresh(); ui.$('view-review').click(); await flush();
+  assert.match(ui.$('review-result').textContent, /Outdated review/); assert.equal(ui.$('review-result').querySelectorAll('input')[0].disabled, true); assert.equal(ui.$('prepare-review-fix').disabled, true);
+  const other = await browser({ reviewsUI: true }); reviewBrowserRoutes(other, { status: 'unstructured' }); await other.window.relayUI.refresh(); other.$('view-review').click(); await flush();
+  assert.match(other.$('review-result').textContent, /Review response needs attention/); assert(!other.$('review-result').textContent.includes('No actionable findings reported'));
+});
+
+test('a delayed review preview cannot follow the user into another workspace', async () => {
+  const ui = await browser({ reviewsUI: true, moreProjects: true }); reviewBrowserRoutes(ui); ui.$('open-review').click(); await flush();
+  const choice = ui.$('review-files').querySelectorAll('input')[0]; choice.checked = true; choice.dispatchEvent(new UIEvent('change'));
+  const gate = deferred(); ui.setIntercept((request, next) => request.path === '/api/reviews/preview' ? gate.promise : next());
+  ui.$('preview-review').click(); await ui.switchProject('project-two'); gate.resolve(response({ snapshot: { digest: 'wrong', files: [] } })); await flush();
+  assert.equal(ui.$('review-dialog').open, false); assert.equal(ui.$('review-preview').hidden, true); assert.equal(ui.state().projectId, 'project-two');
+});
+
+test('a finished review updates its conversation summary, and an interrupted review never offers an editing continuation', async () => {
+  const ui = await browser({ reviewsUI: true, insights: true }); reviewBrowserRoutes(ui, { status: 'running' });
+  const c = ui.canonical.get('project-one'); c.messages.push({ id: 'review-response', role: 'assistant', provider: 'claude', reviewId: 'review-one', text: '{"summary":"Finished","findings":[]}', status: 'complete' });
+  c.lastRun = { provider: 'claude', purpose: 'review', reviewId: 'review-one', status: 'complete' }; await ui.window.relayUI.refresh();
+  c.reviews[0].status = 'complete'; c.reviews[0].summary = 'Updated review summary'; await ui.window.relayUI.refresh(); assert.match(ui.$('messages').textContent, /Updated review summary/);
+  c.status = 'interrupted'; c.lastRun.status = 'interrupted'; c.lastRun.errorCategory = 'interrupted'; await ui.window.relayUI.refresh();
+  assert.equal(ui.$('continuation').hidden, true); assert.match(ui.$('run-phase').textContent, /Review/);
+});
+
+test('a draft typed while review fixes are being prepared is preserved', async () => {
+  const ui = await browser({ reviewsUI: true }); reviewBrowserRoutes(ui, { status: 'complete' }); await ui.window.relayUI.refresh(); ui.$('view-review').click(); await flush();
+  const choice = ui.$('review-result').querySelectorAll('input')[0]; choice.checked = true; choice.dispatchEvent(new UIEvent('change'));
+  const gate = deferred(); ui.setIntercept((request, next) => request.path.endsWith('/prepare-fix') ? gate.promise : next());
+  ui.$('prepare-review-fix').click(); ui.$('message-input').value = 'A newly typed draft'; gate.resolve(response({ provider: 'codex', text: 'Replace the draft' })); await flush();
+  assert.equal(ui.$('message-input').value, 'A newly typed draft'); assert.match(ui.$('review-error').textContent, /draft changed/);
+});
 
 test('attachments stay with their workspace and accepted-send retry preserves attachment identity',async()=>{
   const ui=await browser({filesUI:true,moreProjects:true});

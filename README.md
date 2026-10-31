@@ -22,6 +22,7 @@ Each project becomes a continuous working thread: its folders, conversation, sav
 - Approve agent actions in the app and follow each run live: current step, tool calls, elapsed time and token counts.
 - Run agents in several workspaces at once; the sidebar shows which ones are busy.
 - Find earlier messages and code with Cmd/Ctrl+F, highlighted matches and next/previous navigation.
+- Get a second opinion with **Review**: the other agent checks selected Git changes in a fresh read-only session. Inspect findings, then prepare a fix request from the ones you choose.
 
 **Execution visibility and developer controls**
 

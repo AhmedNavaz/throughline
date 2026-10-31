@@ -35,6 +35,7 @@ export function menuTemplate({ platform, packaged, version, osVersion, arch, sta
     separator(),
     command('Previous Chats…', ['previous-chats'], { enabled: page.imports }),
     command('Export Conversation…', ['export'], { enabled: page.export }),
+    command('Review Changes with Other Agent…', ['review'], { enabled: page.workspace && !page.running }),
     separator(),
     ...mac ? [] : [settings, separator()],
     { role: 'close' },

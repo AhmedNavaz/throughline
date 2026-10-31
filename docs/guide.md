@@ -5,6 +5,7 @@ Everything the [README](../README.md) leaves out: how each feature works, what i
 - [Workspaces, accounts and switching](#workspaces-accounts-and-switching)
 - [Models, runs, Git and usage](#models-runs-git-and-usage)
 - [Keyboard shortcuts](#keyboard-shortcuts)
+- [Cross-agent review](#cross-agent-review)
 - [Files and attachments](#files-and-attachments)
 - [Import Claude Code and Codex chats](#import-claude-code-and-codex-chats)
 - [Export a conversation](#export-a-conversation)
@@ -69,6 +70,20 @@ Shortcuts use ⌘ on macOS and Ctrl elsewhere:
 - ⌘. stops the current run.
 
 The desktop app's menu bar lists these shortcuts too, and adds ⌘, for **Settings…**, ⌘N for **New Workspace** and ⌘G for **Find Next**. Each menu item does what its shortcut or button does. Items are dimmed when they don't apply, such as **Stop Run** when nothing is running, and while a dialog is open, items for the controls behind it do nothing. **Agent** ticks the selected agent and **Keep Awake**, **Workspace** ticks the open workspace, and **View** ticks **Show Files**, **Show Git Activity** and the appearance. **Help** opens this guide, the roadmap, the release notes and the bug and design feedback forms on GitHub. The bug form starts with your Throughline and macOS versions filled in.
+
+## Cross-agent review
+
+Use **Review** in the conversation header, or **File › Review Changes with Other Agent…** in the desktop menu, to get a second opinion on current changes. Codex-built work is reviewed by Claude Code, and Claude-built work by Codex. Before the first coding run, the selected agent is treated as the builder. Both agents need to be installed and signed in through their own supported tools.
+
+1. Describe what the changes should accomplish, then choose changed files from the workspace's attached Git repository roots. The comparison is against each repository's last commit (an empty base before its first commit) and includes staged, unstaged and selected new files. Already committed changes are outside this initial workflow.
+2. **Preview selected changes** shows the exact diffs to be supplied. Changing the selection requires another preview. Reviews support up to 12 text files, with a combined 72 KB snapshot limit and a 1 MB limit on each current file. Binary files, symlinks, submodules and private credential/runtime paths are excluded; oversized diffs are rejected rather than silently shortened. Attach the repository root if a workspace folder is only a subdirectory of one.
+3. **Start read-only review** uses the other agent's own account and consumes its usage. API or unverified billing requires explicit confirmation for that review. The reviewer starts a fresh session with the task goal, saved project brief and selected diffs, and can inspect relevant project files. Your selected coding agent, model, access mode and native coding sessions are preserved.
+4. Follow progress in the conversation, close the dialog while it runs, or stop the review. **View review** opens its summary and findings, including severity, file and line. A file link opens the existing read-only preview at that line when the file is available and fits its preview limits. **Reviewed scope** retains the original diffs. **Agent response** exposes the original response.
+5. Choose findings and select **Prepare fixes with…** to draft a request for the builder. This does not run an agent or change your read/edit access mode. Existing message or attachment drafts must be saved or sent first. Edit the prepared request and press **Send** when ready.
+
+Selected diffs, file contents, Git state and workspace folder membership are checked for freshness. Changed or unavailable scope marks the review outdated and blocks preparing fixes until a new review is run. This includes staging or file-mode changes. The status is refreshed when the app regains focus and periodically while visible, and the server checks again before preparing a fix request. Failed, stopped and unstructured responses remain distinct from a completed review with no reported findings.
+
+The latest ten structured reviews are retained per conversation across restarts. Older original agent responses remain in the conversation. Automatic review starts and repeated builder/reviewer loops are future work; every review and fix run currently starts with your action.
 
 ## Files and attachments
 
