@@ -21,6 +21,7 @@ Each project becomes a continuous working thread: its folders, conversation, sav
 - Choose the model, reasoning effort and access (read only or can edit files) for every message.
 - Approve agent actions in the app and follow each run live: current step, tool calls, elapsed time and token counts.
 - Run agents in several workspaces at once; the sidebar shows which ones are busy.
+- Find earlier messages and code with Cmd/Ctrl+F, highlighted matches and next/previous navigation.
 
 **Execution visibility and developer controls**
 
@@ -37,7 +38,7 @@ Each project becomes a continuous working thread: its folders, conversation, sav
 
 **A local workspace, powered by your accounts**
 
-- Dark and light themes, keyboard shortcuts, Markdown replies with highlighted code and copy buttons, and a short setup guide.
+- System appearance alongside explicit Dark and Light themes, keyboard shortcuts, Markdown replies with highlighted code and copy buttons, and a short setup guide.
 - Runs the official Claude Code and Codex CLIs you already have, on your own subscriptions. It ships no API keys and adds no service of its own.
 
 ## Install

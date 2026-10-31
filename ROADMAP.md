@@ -27,24 +27,16 @@ The fastest way to make Throughline better is to use it on your real projects an
 | One-line install from Terminal, checked against published checksums | [0.5.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.5.0) |
 | First-run welcome and setup, and a continue-or-start-fresh choice after reinstalling | [0.5.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.5.0) |
 | Suggestions for earlier Claude Code and Codex chats that match a workspace's folders | [0.6.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.0) |
-
-## Ready for the next release
-
-These changes are merged on `main` and will be included in the next published build.
-
-| Feature | Pull request |
-| --- | --- |
-| Search the conversation with Cmd/Ctrl+F, highlights and next/previous matches | [#39](https://github.com/AhmedNavaz/throughline/pull/39) |
-| Recover from failed conversation saves and abandoned empty journals | [#41](https://github.com/AhmedNavaz/throughline/pull/41) |
+| Search the conversation with Cmd/Ctrl+F, highlights and next/previous matches | [0.7.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0) |
+| System appearance alongside explicit Light and Dark themes | [0.7.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0) |
+| Quiet background agent checks that preserve verified connection status | [0.7.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0) |
 
 ## Now
 
 | Feature | Status | Issue |
 | --- | --- | --- |
-| Quiet background agent checks that preserve verified connection status | Planned, help wanted | [#43](https://github.com/AhmedNavaz/throughline/issues/43) |
 | Compact workspace activity with clear actions, results and expandable details | Planned, help wanted | [#45](https://github.com/AhmedNavaz/throughline/issues/45) |
 | Persistent approval indicators and desktop notifications that open the right request | Planned | [#46](https://github.com/AhmedNavaz/throughline/issues/46) |
-| System appearance alongside explicit Light and Dark themes | Planned, help wanted | [#44](https://github.com/AhmedNavaz/throughline/issues/44) |
 | Notarized macOS builds, so downloads open without a security prompt | Waiting on an Apple Developer account | [#1](https://github.com/AhmedNavaz/throughline/issues/1) |
 | Update button: get new versions from inside the app with one click | Planned | [#2](https://github.com/AhmedNavaz/throughline/issues/2) |
 | Native menus in the menu bar: File, Edit, View, Agent and Help with every feature and its shortcut | Planned, help wanted | [#51](https://github.com/AhmedNavaz/throughline/issues/51) |

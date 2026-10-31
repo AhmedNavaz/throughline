@@ -2,17 +2,24 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.7.0] - 2026-10-31
 
 ### Added
 
 - Find in the conversation with Cmd/Ctrl+F: highlight matches across text formatting and code, move between results, and reveal matches in collapsed activity groups ([#39](https://github.com/AhmedNavaz/throughline/pull/39), thanks [@seeebbii](https://github.com/seeebbii)).
+- System appearance follows your computer's light or dark setting while the app is open. Onboarding, Settings, the status bar and native dialogs share the same preference; existing Light and Dark choices are preserved ([#52](https://github.com/AhmedNavaz/throughline/pull/52), thanks [@seeebbii](https://github.com/seeebbii)).
 
 ### Fixed
 
 - A failed conversation save no longer corrupts the next saved message. Empty or incomplete unused journals no longer prevent the workspace from opening after restart ([#41](https://github.com/AhmedNavaz/throughline/pull/41), thanks [@seeebbii](https://github.com/seeebbii)).
 - On a Mac's case-insensitive disk, a folder typed in another letter case is now the same folder: no duplicate workspace or folder, and two agents can't edit it at once. Workspaces saved by earlier versions keep their IDs and history ([#40](https://github.com/AhmedNavaz/throughline/pull/40), thanks [@seeebbii](https://github.com/seeebbii)).
 - Connection status no longer flickers to "Checking…" when you switch back to the app. A slow check keeps the last verified result and is reported as a timeout instead of "not installed", and Settings shows when each connection was last checked ([#50](https://github.com/AhmedNavaz/throughline/pull/50), thanks [@seeebbii](https://github.com/seeebbii)).
+- Newly saved macOS locks and run records identify their owning process, allowing safe recovery when an exited process's ID is reused. Live owners and their child processes remain protected across clock and time-zone changes; older records retain conservative locking behavior ([#42](https://github.com/AhmedNavaz/throughline/pull/42), thanks [@seeebbii](https://github.com/seeebbii)).
+- Onboarding's **Skip for now** and step buttons receive clicks correctly instead of being covered by the window-drag area ([#53](https://github.com/AhmedNavaz/throughline/pull/53), thanks [@seeebbii](https://github.com/seeebbii)).
+
+### Security
+
+- Packaging dependencies use glob 14.0.2 and minimatch 11.0.1 to address published denial-of-service advisories in cancellation and pattern processing. The overrides apply to Electron's archive tooling ([glob advisory](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4), [minimatch advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249)).
 
 ## [0.6.2] - 2026-10-30
 
@@ -87,7 +94,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
-[Unreleased]: https://github.com/AhmedNavaz/throughline/compare/v0.6.2...HEAD
+[0.7.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0
 [0.6.2]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.2
 [0.6.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.1
 [0.6.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.0
