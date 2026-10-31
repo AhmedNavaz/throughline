@@ -1,4 +1,4 @@
-import {app,BrowserWindow,dialog,ipcMain,shell,powerSaveBlocker} from 'electron';
+import {app,BrowserWindow,dialog,ipcMain,nativeTheme,shell,powerSaveBlocker} from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
@@ -6,6 +6,7 @@ import {randomBytes} from 'node:crypto';
 import {createRelayServer} from '../server.mjs';
 import {migrateLegacyData,preferredUserData,installIdentity,readInstall,recordInstall,savedData,setDataAside} from './storage.mjs';
 import {createKeepAwake} from './keep-awake.mjs';
+import {createAppearance} from './appearance.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const smoke=process.argv.includes('--smoke-test');
 if(process.env.AI_RELAY_DESKTOP_DATA) app.setPath('userData',path.resolve(process.env.AI_RELAY_DESKTOP_DATA));
@@ -28,14 +29,16 @@ else {
     let launch={choice:false,...savedData(data)};
     if(install&&readInstall(installFile)!==install){if(launch.workspaces)launch.choice=true;else recordInstall(installFile,install);}
     const token=randomBytes(32).toString('hex');
+    const appearance=createAppearance({nativeTheme,onBackground:color=>{if(win&&!win.isDestroyed())win.setBackgroundColor(color);}});
     async function start(){
-      relay=createRelayServer({dataRoot:data,accessToken:token});
+      relay=createRelayServer({dataRoot:data,accessToken:token,onAppearance:preference=>appearance.set(preference)});
+      appearance.set(relay.getAppearancePreference());
       keepAwake=createKeepAwake({registry:relay.registry,blocker:powerSaveBlocker,enabled:relay.getKeepAwakePreference(),save:relay.setKeepAwakePreference,onChange:state=>{if(win&&!win.isDestroyed())win.webContents.send('relay:keep-awake-changed',state);}});
       await new Promise((resolve,reject)=>{relay.server.once('error',reject);relay.server.listen(0,'127.0.0.1',resolve);});
       origin=`http://127.0.0.1:${relay.server.address().port}`;
     }
     await start();
-    win=new BrowserWindow({width:1440,height:1000,minWidth:900,minHeight:680,show:false,title:'Throughline',icon:path.join(root,'assets','icon.png'),backgroundColor:'#1f1f1f',...(process.platform==='darwin'?{titleBarStyle:'hiddenInset',trafficLightPosition:{x:14,y:13}}:{}),webPreferences:{preload:path.join(root,'desktop','preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,additionalArguments:[`--relay-token=${token}`]}});
+    win=new BrowserWindow({width:1440,height:1000,minWidth:900,minHeight:680,show:false,title:'Throughline',icon:path.join(root,'assets','icon.png'),backgroundColor:appearance.background(),...(process.platform==='darwin'?{titleBarStyle:'hiddenInset',trafficLightPosition:{x:14,y:13}}:{}),webPreferences:{preload:path.join(root,'desktop','preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,additionalArguments:[`--relay-token=${token}`]}});
     if(!smoke) win.once('ready-to-show',()=>win.show());
     const trusted=event=>event.sender===win.webContents && event.senderFrame===win.webContents.mainFrame && event.senderFrame.url.startsWith(origin+'/');
     ipcMain.handle('relay:keep-awake:get',event=>{if(!trusted(event))throw Error('Untrusted renderer');return keepAwake.getState();});

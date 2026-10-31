@@ -31,7 +31,7 @@ class Element extends Events {
   remove(){if(this.parentNode){this.parentNode.childNodes=this.parentNode.childNodes.filter(child=>child!==this);this.parentNode=null;}}
   setAttribute(key,value){this.attributes[key]=String(value);if(key==='id')this.id=String(value);if(key==='class')this.className=String(value);if(key.startsWith('data-'))this.dataset[key.slice(5)]=String(value);}
   getAttribute(key){return this.attributes[key]??null;}removeAttribute(key){delete this.attributes[key];}
-  matches(selector){if(selector===':popover-open')return this.popoverOpen===true;if(selector.startsWith('#'))return this.id===selector.slice(1);if(selector.startsWith('.'))return this.classList.contains(selector.slice(1));const attr=selector.match(/^(\w+)?\[([^\]]+)\]$/);if(attr)return (!attr[1]||this.tagName===attr[1].toUpperCase())&&(attr[2]==='open'?this.open:this.getAttribute(attr[2])!==null);return this.tagName===selector.toUpperCase();}
+  matches(selector){if(selector===':popover-open')return this.popoverOpen===true;if(selector.startsWith('#'))return this.id===selector.slice(1);if(selector.startsWith('.'))return this.classList.contains(selector.slice(1));const attr=selector.match(/^(\w+)?\[([\w-]+)(?:="([^"]*)")?\]$/);if(attr)return (!attr[1]||this.tagName===attr[1].toUpperCase())&&(attr[2]==='open'?this.open:attr[3]===undefined?this.getAttribute(attr[2])!==null:this.getAttribute(attr[2])===attr[3]);return this.tagName===selector.toUpperCase();}
   querySelectorAll(selector){const found=[];for(const child of this.children){if(child.matches(selector))found.push(child);found.push(...child.querySelectorAll(selector));}return found;}
   querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
   closest(selector){for(let current=this;current;current=current.parentNode)if(current.matches(selector))return current;return selector==='.sidebar'?this.document.sidebar:null;}
@@ -47,16 +47,20 @@ function documentFixture(){
   // accessed by app.js is needed; workbench elements are created by real JS.
   const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');for(const match of html.matchAll(/<([\w-]+)\b[^>]*\bid="([^"]+)"[^>]*>/g)){const node=document.createElement(match[1]);node.id=match[2];if(/\bhidden(?:\s|>|=)/.test(match[0]))node.hidden=true;root.append(node);}
   for(const match of html.matchAll(/<button\b[^>]*data-import-(provider|scope)="([^"]+)"[^>]*>/g)){const button=document.createElement('button');button.setAttribute('data-import-'+match[1],match[2]);button.dataset[match[1]==='scope'?'importScope':'importProvider']=match[2];root.append(button);}
+  // theme.js sets the palette on <html> and the theme-color meta. The element records every palette it is given.
+  const page=document.createElement('html');page.palettes=[];const setPageAttribute=page.setAttribute.bind(page);page.setAttribute=(key,value)=>{if(key==='data-theme')page.palettes.push(String(value));setPageAttribute(key,value);};document.documentElement=page;
+  const meta=document.createElement('meta');meta.setAttribute('name','theme-color');root.append(meta);
+  const appearance=document.getElementById('appearance-options')||root;for(const match of html.matchAll(/<button\b[^>]*data-appearance="([^"]+)"[^>]*>/g)){const button=document.createElement('button');button.setAttribute('data-appearance',match[1]);appearance.append(button);}
   for(const id of ['send-button','stop-button','conversation-state'])document.getElementById(id).append(document.createElement('span'),document.createElement('span'));
   for(const id of ['save-project','save-folder'])document.getElementById(id).append(document.createTextNode('Save '),document.createElement('span'));
   return document;
 }
 const clone=value=>JSON.parse(JSON.stringify(value));
-const response=(data,status=200)=>({ok:status>=200&&status<300,status,text:async()=>JSON.stringify(data)});
+const response=(data,status=200)=>({ok:status>=200&&status<300,status,text:async()=>JSON.stringify(data),json:async()=>clone(data)});
 async function flush(){for(let index=0;index<12;index++)await new Promise(resolve=>setImmediate(resolve));}
 function deferred(){let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};}
 
-async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,launch=null}={}){
+async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,launch=null,theme=false,systemDark=true}={}){
   const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[],dataChoices=[];let timerId=0,intercept=null;
   let preferences=clone(savedPreferences);
   window.innerWidth=1280;window.innerHeight=800;
@@ -82,6 +86,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
       if(request.path==='/api/attachments'&&request.method==='POST'){const id=(snapshots.size+1).toString(16).padStart(64,'0'), file={id,name:request.body.name,kind:'text',mime:'text/plain',bytes:10};snapshots.set(id,file);return response(file,201);}
       if(request.path==='/api/attachments/preview')return response({...snapshots.get(request.params.id),text:'snapshot'});
       if(request.path==='/api/preferences'){if(request.method==='POST')preferences={...preferences,...preferencePatch(request.body,preferences)};return response(publicPreferences(preferences,projects.length>0));}
+      if(request.path==='/api/appearance'){if(request.method==='POST'){try{preferences={...preferences,...preferencePatch({theme:request.body.theme},preferences)};}catch(error){return response({error:error.message},400);}return response({theme:request.body.theme});}return response({theme:publicPreferences(preferences,true).theme});}
       if(request.path==='/api/sharing/config')return response({baseUrl:null});
       const rename=request.path.match(/^\/api\/projects\/([^/]+)$/);if(rename&&request.method==='POST'){const project=projects.find(item=>item.id===rename[1]);if(request.body.name!==undefined)project.name=request.body.name;if(request.body.previousConversationsDismissed!==undefined)project.previousConversationsDismissed=request.body.previousConversationsDismissed;return response(clone(project));}
       if(request.path==='/api/projects'&&request.method==='GET')return response(clone(projects));
@@ -131,7 +136,9 @@ async function browser({existing=true,available=true,providers={},authenticated=
       throw new Error('Unexpected browser request: '+request.method+' '+request.path);
     };return intercept?intercept(request,next):next();
   }
-  if(wide)window.matchMedia=()=>({matches:true});
+  // prefers-color-scheme reports the OS appearance; setSystemDark changes it the way the OS would.
+  const colorScheme={matches:systemDark,listeners:[],addEventListener(type,fn){if(type==='change')this.listeners.push(fn);}};
+  if(wide||theme)window.matchMedia=query=>query==='(prefers-color-scheme: dark)'?colorScheme:{matches:wide};
   if(desktop)window.relayDesktop={token:'desktop-test-token',pickFolder:async()=>pickedFolders.shift()||null};
   if(desktop)Object.assign(window.relayDesktop,{getKeepAwake:async()=>({enabled:false,active:false,runningCount:0}),setKeepAwake:async enabled=>{awakeChanges.push(enabled);return {enabled,active:false,runningCount:0};},onKeepAwakeChanged:callback=>{window.addEventListener('desktop-keep-awake',event=>callback(event.detail));return ()=>{};}});
   if(desktop&&launch)Object.assign(window.relayDesktop,{getLaunchState:async()=>clone(launch),chooseData:async choice=>{dataChoices.push(choice);return {...clone(launch),choice:false};}});
@@ -140,6 +147,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   class Highlight extends Set{constructor(...ranges){super(ranges);this.priority=0;}}
   const highlights=new Map();document.createRange=()=>new Range();
   const context=vm.createContext({document,window,fetch,console,CSS:{highlights},Highlight,crypto:{randomUUID},CustomEvent:UIEvent,Event:UIEvent,EventSource:class extends Events{},requestAnimationFrame:fn=>fn(),setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),setInterval:()=>++timerId,localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,String(value))},URL,Blob,navigator:{clipboard:{writeText:async()=>{}}}});
+  if(theme)vm.runInContext(fs.readFileSync(new URL('../public/theme.js',import.meta.url),'utf8'),context,{filename:'public/theme.js'});
   vm.runInContext(fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8'),context,{filename:'public/app.js'});if(workbench)vm.runInContext(fs.readFileSync(new URL('../public/workbench.js',import.meta.url),'utf8'),context,{filename:'public/workbench.js'});
   if(insights)vm.runInContext(fs.readFileSync(new URL('../public/insights.js',import.meta.url),'utf8'),context,{filename:'public/insights.js'});
   if(historyUI)vm.runInContext(fs.readFileSync(new URL('../public/conversation-history.js',import.meta.url),'utf8'),context,{filename:'public/conversation-history.js'});
@@ -147,13 +155,14 @@ async function browser({existing=true,available=true,providers={},authenticated=
   if(setup)vm.runInContext(fs.readFileSync(new URL('../public/setup.js',import.meta.url),'utf8'),context,{filename:'public/setup.js'});
   if(filesUI)vm.runInContext(fs.readFileSync(new URL('../public/files.js',import.meta.url),'utf8'),context,{filename:'public/files.js'});
   if(searchUI)vm.runInContext(fs.readFileSync(new URL('../public/conversation-search.js',import.meta.url),'utf8'),context,{filename:'public/conversation-search.js'});
+  if(theme)document.dispatchEvent(new UIEvent('DOMContentLoaded'));
   await flush();assert.equal(window.relayUI.getState().ready,!empty);assert.equal(window.relayUI.getState().loading,false);
   const $=id=>document.getElementById(id);const fire=(id,type)=>$(id).dispatchEvent(new UIEvent(type));const findButton=text=>document.querySelectorAll('button').find(button=>button.textContent===text);
   const labelledInput=label=>{const entry=document.querySelectorAll('label').find(item=>item.textContent.startsWith(label));assert(entry,'Missing field: '+label);return entry.children.find(child=>['INPUT','TEXTAREA','SELECT'].includes(child.tagName));};
   const switchProject=async id=>{$('project-select').value=id;fire('project-select','change');await flush();};
   const textNodes=node=>node.nodeType===3?[node]:node.childNodes.flatMap(textNodes);
   const rangeText=range=>{const nodes=textNodes($('messages')),first=nodes.indexOf(range.startContainer),last=nodes.indexOf(range.endContainer);return nodes.slice(first,last+1).map((node,index)=>node.data.slice(index===0?range.startOffset:0,first+index===last?range.endOffset:undefined)).join('');};
-  return {document,window,$,fire,findButton,highlights,rangeText,labelledInput,requests,conversations,submissions,handoffs,projects,canonical,pickedFolders,dataChoices,storage,switchProject,awakeChanges,get chatCreations(){return chatCreations;},setIntercept:fn=>{intercept=fn;},state:()=>window.relayUI.getState()};
+  return {document,window,$,fire,findButton,highlights,rangeText,labelledInput,requests,conversations,submissions,handoffs,projects,canonical,pickedFolders,dataChoices,storage,switchProject,awakeChanges,get chatCreations(){return chatCreations;},setIntercept:fn=>{intercept=fn;},setSystemDark:value=>{colorScheme.matches=value;for(const fn of colorScheme.listeners)fn({matches:value});},state:()=>window.relayUI.getState()};
 }
 
 test('late same-project refresh cannot restore superseded provider/access settings',async()=>{
@@ -679,8 +688,16 @@ test('workspace removal failures keep the dialog and current chat; accepted resp
   ui.$('confirm-remove-workspace').click();await flush();assert.equal(ui.state().projectId,null);assert.equal(ui.$('notice-retry').textContent,'Undo');
 });
 
+const palette=ui=>ui.document.documentElement.getAttribute('data-theme');
+const themeColor=ui=>ui.document.querySelector('meta[name="theme-color"]').getAttribute('content');
+const pressedAppearance=(ui,scope=ui.document)=>scope.querySelectorAll('[data-appearance]').filter(button=>button.getAttribute('aria-pressed')==='true').map(button=>button.dataset.appearance);
+// Setup cards are read by their labels, which earlier versions share.
+const pressedCards=ui=>ui.document.querySelectorAll('.setup-theme').filter(card=>card.getAttribute('aria-pressed')==='true').map(card=>card.querySelector('strong').textContent);
+const appearanceSaves=ui=>ui.requests.filter(request=>request.path==='/api/appearance'&&request.method==='POST').map(request=>request.body.theme);
+const appearanceButton=(ui,value)=>{const button=ui.document.querySelectorAll('[data-appearance]').find(item=>item.dataset.appearance===value);assert(button,'Missing appearance choice: '+value);return button;};
+
 test('first run welcomes, walks through three steps and a summary, saves real choices and never starts a provider run',async()=>{
-  const ui=await browser({empty:true,existing:false,setup:true,insights:true}),dialog=ui.$('setup-dialog');
+  const ui=await browser({empty:true,existing:false,setup:true,insights:true,theme:true}),dialog=ui.$('setup-dialog');
   await flush();
   assert.equal(dialog.open,true);assert.equal(dialog.dataset.screen,'welcome');assert.equal(ui.$('setup-flow').hidden,true);assert.match(ui.$('setup-hero-content').textContent,/Your workspace for AI coding agents/);
   assert.equal(ui.$('launch-screen').classList.contains('done'),true,'The launch screen gives way once setup knows what to show.');
@@ -692,11 +709,13 @@ test('first run welcomes, walks through three steps and a summary, saves real ch
   const model=ui.labelledInput('Default model');model.value='model-one';model.dispatchEvent(new UIEvent('change'));
   const effort=ui.labelledInput('Reasoning effort');effort.value='high';effort.dispatchEvent(new UIEvent('change'));
   ui.document.querySelectorAll('.setup-access-option').find(button=>button.dataset.mode==='read').click();await flush();
-  ui.document.querySelectorAll('.setup-theme').find(button=>button.dataset.theme==='light').click();await flush();
+  assert.deepEqual(pressedCards(ui),['System'],'A new profile starts on System.');
+  ui.document.querySelectorAll('.setup-theme').find(button=>button.dataset.appearance==='light').click();await flush();
   ui.$('setup-next').click();await flush();assert.match(ui.$('setup-content').textContent,/Choose the folders/);assert.equal(ui.document.querySelector('.setup-import-card'),null);
   ui.$('close-setup').click();await flush();assert.equal(dialog.open,false);
   const saved=ui.requests.filter(request=>request.path==='/api/preferences'&&request.method==='POST').at(-1).body;
-  assert.deepEqual(saved.defaults,{provider:'claude',model:'model-one',effort:'high',mode:'read',billing:'subscription'});assert.equal(saved.theme,'light');
+  assert.deepEqual(saved.defaults,{provider:'claude',model:'model-one',effort:'high',mode:'read',billing:'subscription'});assert.equal(saved.theme,undefined);
+  assert.deepEqual(ui.requests.filter(request=>request.path==='/api/appearance'&&request.method==='POST').map(request=>request.body.theme),['light'],'The theme is saved once, the same way as from the status bar.');
   assert.equal(saved.onboarding.step,2);assert.equal(saved.onboarding.dismissed,true);
   ui.$('open-setup').click();await flush();assert.equal(dialog.dataset.screen,'flow');assert.match(ui.$('setup-step-status').textContent,/3 of 3/,'Setup resumes where it was left.');
   ui.$('setup-next').click();await flush();assert.equal(dialog.dataset.screen,'done');
@@ -705,6 +724,62 @@ test('first run welcomes, walks through three steps and a summary, saves real ch
   assert.equal(ui.window.relayBillingConfirmed,undefined,'Setup does not accept API charges.');
   assert.equal(ui.requests.filter(request=>/\/(?:messages|continue|connect)$/.test(request.path)).length,0);
   const completed=ui.requests.filter(request=>request.path==='/api/preferences'&&request.method==='POST').at(-1).body;assert.equal(completed.onboarding.completed,true);
+});
+
+test('a new profile paints the system appearance first and follows the OS while System is selected',async()=>{
+  for(const systemDark of [false,true]){
+    const ui=await browser({theme:true,systemDark});
+    assert.equal(ui.document.documentElement.palettes[0],systemDark?'graphite':'light','The palette set before the stylesheets load already matches the OS.');
+    assert.equal(ui.window.relayTheme.preference(),'system');assert.deepEqual(pressedAppearance(ui),['system']);assert.equal(themeColor(ui),systemDark?'#181818':'#f8f8f8');
+    ui.setSystemDark(!systemDark);assert.equal(palette(ui),systemDark?'light':'graphite');assert.equal(themeColor(ui),systemDark?'#f8f8f8':'#181818');
+    ui.setSystemDark(systemDark);assert.equal(palette(ui),systemDark?'graphite':'light');assert.deepEqual(pressedAppearance(ui),['system']);
+    assert.deepEqual(appearanceSaves(ui),[],'Following the OS never saves a choice.');assert.equal(ui.storage.get('ai-relay:appearance'),'system','The preference is cached, not the palette it resolved to.');
+  }
+});
+
+test('a saved Light or Dark choice ignores OS changes, and returning to System adopts the OS at once',async()=>{
+  const ui=await browser({theme:true,systemDark:true,savedPreferences:{appearance:'light'}});
+  assert.equal(palette(ui),'light');assert.deepEqual(pressedAppearance(ui),['light']);
+  ui.setSystemDark(false);ui.setSystemDark(true);assert.equal(palette(ui),'light','A manual choice ignores the OS.');
+  appearanceButton(ui,'system').click();assert.equal(palette(ui),'graphite');assert.equal(themeColor(ui),'#181818');assert.deepEqual(pressedAppearance(ui),['system']);
+  appearanceButton(ui,'graphite').click();ui.setSystemDark(false);assert.equal(palette(ui),'graphite');
+  await flush();assert.deepEqual(appearanceSaves(ui),['system','graphite']);assert.equal(ui.storage.get('ai-relay:appearance'),'graphite');
+});
+
+test('the preference this browser cached paints first, then the saved preference replaces it',async()=>{
+  // Earlier versions cached the palette, so a Dark cache can stand for a profile that now follows a light OS.
+  const ui=await browser({theme:true,systemDark:false,stored:{'ai-relay:appearance':'graphite'},savedPreferences:{appearance:'system'}});
+  assert.equal(ui.document.documentElement.palettes[0],'graphite');assert.equal(palette(ui),'light');
+  assert.equal(ui.window.relayTheme.preference(),'system');assert.equal(ui.storage.get('ai-relay:appearance'),'system');assert.deepEqual(appearanceSaves(ui),[]);
+});
+
+test('an appearance chosen in the status bar survives reopening the setup checklist',async()=>{
+  const ui=await browser({theme:true,setup:true,savedPreferences:{appearance:'graphite',onboarding:{step:1}}});
+  appearanceButton(ui,'light').click();await flush();assert.equal(palette(ui),'light');
+  ui.window.relaySetup.open();await flush();
+  assert.deepEqual(pressedCards(ui),['Light'],'Setup shows the choice made in the status bar.');
+  ui.$('setup-next').click();await flush();assert.match(ui.$('setup-content').textContent,/Choose the folders/);
+  assert.equal(palette(ui),'light','Moving through setup keeps the choice made since the page loaded.');assert.deepEqual(appearanceSaves(ui),['light']);
+});
+
+test('Settings, setup, the status bar and other windows agree on one appearance preference',async()=>{
+  const ui=await browser({theme:true,setup:true,workbench:true,systemDark:true,savedPreferences:{onboarding:{step:1}}});
+  ui.$('relay-settings').click();await flush();
+  const settings=ui.$('workbench-content').querySelectorAll('[data-appearance]');
+  assert.deepEqual(settings.map(button=>button.textContent),['System','Dark','Light']);assert.deepEqual(pressedAppearance(ui,ui.$('workbench-content')),['system']);
+  settings.find(button=>button.dataset.appearance==='light').click();await flush();
+  assert.equal(palette(ui),'light');assert.deepEqual([...new Set(pressedAppearance(ui))],['light'],'The status bar shows the choice made in Settings.');
+  ui.findButton('Open setup checklist').click();await flush();assert.equal(ui.$('setup-dialog').open,true);
+  const cards=ui.document.querySelectorAll('.setup-theme');assert.deepEqual(cards.map(card=>card.dataset.appearance),['system','graphite','light']);
+  assert.deepEqual(pressedCards(ui),['Light']);
+  cards.find(card=>card.dataset.appearance==='system').click();await flush();
+  assert.equal(palette(ui),'graphite');assert.deepEqual([...new Set(pressedAppearance(ui))],['system'],'Setup, Settings and the status bar show the same choice.');
+  ui.$('setup-next').click();await flush();assert.equal(ui.window.relayTheme.preference(),'system');
+  // A choice made in another window arrives through storage. That window already saved it.
+  ui.window.dispatchEvent(new UIEvent('storage',{key:'ai-relay:appearance',newValue:'light'}));
+  assert.equal(palette(ui),'light');assert.deepEqual([...new Set(pressedAppearance(ui))],['light']);
+  assert.deepEqual(appearanceSaves(ui),['light','system'],'Each choice is saved once, through one request.');
+  assert.equal(ui.requests.some(request=>request.path==='/api/preferences'&&request.method==='POST'&&request.body.theme!==undefined),false);
 });
 
 test('setup resumes its folder step without importing, and failed saves keep the current step',async()=>{

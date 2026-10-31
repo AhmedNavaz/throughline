@@ -19,6 +19,8 @@
 #workbench button.primary:hover:enabled, .pending-approvals button.primary:hover:enabled { border-color: var(--accent-strong); background: var(--accent-strong); }
 #workbench button.quiet-danger { border-color: transparent; color: var(--danger); }
 #workbench button.quiet-danger:hover:enabled { background: var(--danger-bg); }
+#workbench .segmented button { height: 24px; padding: 0 10px; border: 0; border-radius: 4px; color: var(--muted); font-weight: 400; }
+#workbench .segmented button[aria-pressed="true"] { background: var(--surface-strong); color: var(--text-strong); box-shadow: var(--shadow-sm); }
 #workbench #workbench-close { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; color: var(--muted); }
 #workbench #workbench-close:hover { color: var(--text); background: var(--hover); }
 

@@ -8,7 +8,7 @@ import { once } from 'node:events';
 import test from 'node:test';
 import { createRelayServer } from '../server.mjs';
 
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-relay-http-'));
   const workspace = path.join(directory, 'project');
   const dataDir = path.join(directory, 'history');
@@ -24,7 +24,7 @@ async function fixture(t) {
   const launch = async () => {
     // Status probes only execute `node --version`; no assistant or live inference is used.
     const app = createRelayServer({ workspace, dataDir,
-      bins: { codex: process.execPath, claude: process.execPath }, lock: false });
+      bins: { codex: process.execPath, claude: process.execPath }, lock: false, ...options });
     instances.push(app);
     app.server.listen(0, '127.0.0.1');
     await once(app.server, 'listening');
@@ -361,4 +361,32 @@ test('desktop keep awake preference persists without overwriting theme or assist
   f.app.setKeepAwakePreference(true);assert.throws(()=>f.app.setKeepAwakePreference('true'),/enabled or disabled/);
   await f.app.close();const next=await f.launch();assert.equal(next.app.getKeepAwakePreference(),true);
   const prefs=await (await fetch(`${next.url}/api/preferences`)).json();assert.equal(prefs.theme,'light');assert.equal(prefs.defaults.provider,'claude');
+});
+
+const savedAppearance=async url=>(await (await fetch(`${url}/api/appearance`)).json()).theme;
+test('a new profile follows the system appearance, and Light or Dark saved by an earlier version survives the upgrade',async t=>{
+  const f=await fixture(t);let current=f;
+  assert.equal(await savedAppearance(f.url),'system');assert.equal((await (await fetch(`${f.url}/api/preferences`)).json()).theme,'system');assert.equal(f.app.getAppearancePreference(),'system');
+  // Settings as earlier versions wrote them: the status bar saved only the palette, and onboarding saved it with its other choices.
+  for(const [saved,theme] of [[{appearance:'light'},'light'],[{appearance:'graphite',defaults:{provider:'claude'},onboarding:{step:3,completedAt:'2026-10-29T00:00:00.000Z'}},'graphite']]){
+    await current.app.close();fs.writeFileSync(path.join(f.directory,'history','settings.json'),JSON.stringify(saved));current=await f.launch();
+    assert.equal(await savedAppearance(current.url),theme);assert.equal((await (await fetch(`${current.url}/api/preferences`)).json()).theme,theme);assert.equal(current.app.getAppearancePreference(),theme);
+  }
+});
+
+test('System, Light and Dark are saved through both appearance requests and survive a restart',async t=>{
+  const f=await fixture(t);
+  for(const theme of ['light','system','graphite']){const saved=await post(`${f.url}/api/appearance`,{theme});assert.equal(saved.status,200);assert.deepEqual(await saved.json(),{theme});assert.equal(await savedAppearance(f.url),theme);}
+  assert.equal((await post(`${f.url}/api/appearance`,{theme:'dark'})).status,400,'Dark is saved as graphite.');assert.equal(await savedAppearance(f.url),'graphite');
+  const system=await post(`${f.url}/api/preferences`,{theme:'system'});assert.equal(system.status,200);assert.equal((await system.json()).theme,'system');
+  assert.equal((await post(`${f.url}/api/preferences`,{theme:'auto'})).status,400);assert.equal(await savedAppearance(f.url),'system');
+  await post(`${f.url}/api/appearance`,{theme:'light'});await f.app.close();const next=await f.launch();
+  assert.equal(await savedAppearance(next.url),'light');assert.equal(next.app.getAppearancePreference(),'light');
+});
+
+test('the desktop app hears about each saved appearance, whichever request saved it',async t=>{
+  const changes=[],f=await fixture(t,{onAppearance:theme=>changes.push(theme)});
+  await post(`${f.url}/api/appearance`,{theme:'light'});await post(`${f.url}/api/preferences`,{theme:'system',defaults:{provider:'claude'}});
+  await post(`${f.url}/api/preferences`,{defaults:{provider:'codex'}});await post(`${f.url}/api/appearance`,{theme:'blue'});f.app.setKeepAwakePreference(true);
+  assert.deepEqual(changes,['light','system'],'Other settings and rejected values leave the window alone.');
 });
