@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { exportConversation, readConversationPackage } from './conversation-export.mjs';
+import { exportConversation, MAX_CONVERSATION_BYTES, readConversationPackage } from './conversation-export.mjs';
 import { ConversationImporter } from './conversation-import.mjs';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
+// One import carries up to 20 conversations, and each shared file may be up to 2 MB, so its request can exceed the usual limit.
+const MAX_IMPORTS = 20, IMPORT_REQUEST_BYTES = MAX_IMPORTS * MAX_CONVERSATION_BYTES + 1024 * 1024;
 // A previous chat's folder may be recorded in another letter case; the native realpath matches it to the workspace folders.
 const existingFolder = value => { try { const folder = fs.realpathSync.native(value); return fs.statSync(folder).isDirectory() ? folder : null; } catch { return null; } };
 const inside = (folder, root) => folder === root || folder.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
@@ -13,7 +15,7 @@ export function createConversationRoutes({ registry, body, json, importer = new 
   async function importSessions(input) {
     const selected = Array.isArray(input.sessions) ? input.sessions : [], files = Array.isArray(input.files) ? input.files : [];
     const count = selected.length + files.length;
-    if (!count || count > 20) fail('Choose between 1 and 20 conversations to import.');
+    if (!count || count > MAX_IMPORTS) fail(`Choose between 1 and ${MAX_IMPORTS} conversations to import.`);
     if (new Set(selected.map(item => `${item?.provider}:${item?.sessionId}`)).size !== selected.length) fail('Each conversation can be selected only once.');
     const previews = [];
     for (const item of selected) {
@@ -70,7 +72,7 @@ export function createConversationRoutes({ registry, body, json, importer = new 
         json(res, 200, result); return true;
       }
       if (req.method !== 'POST') fail('Use POST for previewing or importing conversations.', 405);
-      const input = await body(req);
+      const input = await body(req, url.pathname === '/api/import-sources/import' ? IMPORT_REQUEST_BYTES : undefined);
       if (url.pathname === '/api/import-sources/preview') { json(res, 200, await importer.preview(input.provider, input.sessionId, null)); return true; }
       if (url.pathname === '/api/import-sources/file-preview') { json(res, 200, readConversationPackage(input.package)); return true; }
       if (url.pathname === '/api/import-sources/import') { json(res, 200, await importSessions(input)); return true; }
