@@ -2,6 +2,17 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.1] - 2026-10-31
+
+### Fixed
+
+- Runs ended by the broker for oversized output or a provider-message handling failure now retain the actual error instead of appearing as a user stop. A later Stop does not replace that reason, and failed cross-agent reviews are reported as failures ([#61](https://github.com/AhmedNavaz/throughline/pull/61)).
+- Enter and Escape shortcuts in the workspace filter, workspace forms, conversation search and file preview leave in-progress input-method composition alone ([#62](https://github.com/AhmedNavaz/throughline/pull/62)).
+- After a model or effort selection fails to save, the pickers return to the saved values that the next run will use ([#63](https://github.com/AhmedNavaz/throughline/pull/63)).
+- Removed and sent image attachments release their cached thumbnails when no workspace draft still uses them, reducing memory retained during long sessions ([#65](https://github.com/AhmedNavaz/throughline/pull/65)).
+
+Thanks to [@seeebbii](https://github.com/seeebbii) for these fixes.
+
 ## [0.9.0] - 2026-10-31
 
 ### Added
@@ -121,6 +132,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.9.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.9.1
 [0.9.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.9.0
 [0.8.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.8.0
 [0.7.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0

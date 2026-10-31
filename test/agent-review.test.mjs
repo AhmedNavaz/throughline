@@ -199,3 +199,13 @@ test('file mode and staging changes invalidate the captured Git scope even when 
   fs.chmodSync(path.join(f.workspace, 'app.js'), 0o644); assert.equal(reviewFreshness(review, folders).stale, false);
   f.git('add', 'app.js'); assert.equal(reviewFreshness(review, folders).stale, true);
 });
+
+test('a broker-ended review retains the protocol failure instead of claiming the user stopped it', async t => {
+  const f = fixture(t), app = await f.launch(), api = client(app), snapshot = await api.preview();
+  f.scenario({ output: 'x'.repeat(9 * 1024 * 1024) });
+  const started = await api.request('/start', { files: api.files, approvedDigest: snapshot.digest, goal: 'Review current changes' });
+  assert.equal(started.status, 202); await api.broker.running.done;
+  assert.equal(api.c.status, 'incomplete'); assert.equal(api.c.lastRun.errorCategory, 'protocol'); assert.equal(api.c.reviews[0].status, 'failed');
+  const errors = api.c.messages.filter(message => message.role === 'error').map(message => message.text);
+  assert.equal(errors.length, 1); assert.match(errors[0], /^Oversized provider protocol event\./); assert.doesNotMatch(errors[0], /JSON|Files already changed|Review stopped/);
+});
