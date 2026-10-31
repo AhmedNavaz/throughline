@@ -90,7 +90,9 @@
     const metrics = [];
     if (running) metrics.push(`${name(run.provider)} · ${model}${effort ? ' · ' + title(effort) : ''}`, `${state.streamConnected === false ? 'Reconnecting to app' : 'Live updates'}`, `Last activity ${duration(silence)} ago`);
     if (run.toolCount) metrics.push(`${run.toolCount} tool step${run.toolCount === 1 ? '' : 's'}`);
-    const usage = run.usage?.total || run.usage, input = usage?.inputTokens ?? usage?.input_tokens, output = usage?.outputTokens ?? usage?.output_tokens;
+    // Codex's inputTokens include its cached input; Claude reports the input it read from and wrote to its cache apart from input_tokens.
+    const usage = run.usage?.total || run.usage, output = usage?.outputTokens ?? usage?.output_tokens;
+    const input = usage?.inputTokens ?? (typeof usage?.input_tokens === 'number' ? usage.input_tokens + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0) : undefined);
     if (typeof input === 'number') metrics.push(`${input.toLocaleString()} input tokens`);
     if (typeof output === 'number') metrics.push(`${output.toLocaleString()} output tokens`);
     $('run-metrics').replaceChildren(...metrics.map(value => el('span', value)));
