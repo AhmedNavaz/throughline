@@ -240,8 +240,17 @@
     for (const item of pending) {
       const card = node('article'); card.append(node('h3', `${providerName(item.provider)} needs your permission`));
       const command = item.command || item.input?.command; if (command) output(card, command); else if (item.input?.file_path || item.input?.path) card.append(node('p', item.input.file_path || item.input.path)); else card.append(node('p', item.kind?.includes('fileChange') ? 'Review the requested file changes before continuing.' : `Requested action: ${item.kind || 'tool use'}`));
-      diagnostics(card, item, 'Review full request'); actions(card, button('Approve', async () => { await api().post(`/api/conversations/${state.conversation.id}/approval`, { runId: item.runId, approvalId: item.id, allow: true }); await api().refresh(); }, 'primary'), button('Deny', async () => { await api().post(`/api/conversations/${state.conversation.id}/approval`, { runId: item.runId, approvalId: item.id, allow: false }); await api().refresh(); })); host.append(card);
+      diagnostics(card, item, 'Review full request');
+      const choices = [['Approve', true, 'primary'], ['Deny', false]].map(([text, allow, cls]) => { const choice = node('button', text, cls); choice.type = 'button'; choice.addEventListener('click', () => answer(choices, state.conversation.id, item, allow)); return choice; });
+      actions(card, ...choices); host.append(card);
     }
+  }
+  // Approval cards sit outside the dialog, so a failed answer is shown in the page notice. The refresh afterwards removes a request that is no longer pending.
+  async function answer(choices, conversationId, item, allow) {
+    choices.forEach(choice => { choice.disabled = true; });
+    try { await api().post(`/api/conversations/${conversationId}/approval`, { runId: item.runId, approvalId: item.id, allow }); }
+    catch (e) { api().showNotice(e.message || 'This action could not be completed. Please try again.'); }
+    finally { choices.forEach(choice => { choice.disabled = false; }); await api().refresh(); }
   }
   modal.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
   $('ask-friend').addEventListener('click', () => open('request')); $('relay-settings').addEventListener('click', () => open('accounts')); $('connection-action')?.addEventListener('click', () => open('accounts')); $('workbench-close').addEventListener('click', () => modal.close());
