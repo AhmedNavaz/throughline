@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -238,6 +239,37 @@ test('locks apply only to opened projects and close releases them for another re
   const thirdRegistry = env.open();
   assert.equal(thirdRegistry.broker(first.id).list().length, 1);
   assert.equal(thirdRegistry.broker(second.id).list().length, 1);
+});
+
+test('a running instance keeps its project lock, even after the clock is set back', t => {
+  if (process.platform !== 'darwin') return t.skip('Process start times are read on macOS only.');
+  const env = setup(t);
+  const registry = env.open();
+  const project = registry.add({ path: env.workspaces[0] });
+  registry.broker(project.id).create();
+  // A backward clock correction after the instance started makes its lock look older than the instance.
+  const lock = path.join(env.dataRoot, project.id, 'server.lock'), earlier = new Date(Date.now() - 60 * 60 * 1000);
+  fs.utimesSync(lock, earlier, earlier);
+  assert.throws(() => env.open().broker(project.id), /already running for this project/);
+});
+
+test('a lock left by a crash is replaced once its process ID belongs to a process that started later', async t => {
+  if (process.platform !== 'darwin') return t.skip('Process start times are read on macOS only.');
+  const env = setup(t);
+  const registry = env.open();
+  const project = registry.add({ path: env.workspaces[0] });
+  registry.broker(project.id).create();
+  const lock = path.join(env.dataRoot, project.id, 'server.lock'), saved = JSON.parse(fs.readFileSync(lock, 'utf8'));
+  await registry.close();
+  // ps reports start times to the second, so the process that takes over the ID starts in a later second.
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  const later = spawn('/bin/sleep', ['30'], { stdio: 'ignore' });
+  t.after(() => later.kill());
+  // A lock saved by an earlier version has no start time, so a live process ID still holds it.
+  fs.writeFileSync(lock, JSON.stringify({ pid: later.pid, token: 'left-by-a-crash' }));
+  assert.throws(() => env.open().broker(project.id), /already running for this project/);
+  fs.writeFileSync(lock, JSON.stringify({ ...saved, pid: later.pid }));
+  assert.equal(env.open().broker(project.id).list().length, 1);
 });
 
 test('projects can run independently and registry close stops every run before releasing locks', async t => {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { fork } from 'node:child_process';
+import { fork, spawn, spawnSync } from 'node:child_process';
 import { EventEmitter, once } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -108,6 +108,75 @@ test('registry merges stale instances and overlapping mutations exclude provider
   assert.equal(c.messages.length, 0);
   release(); await held;
   await second.withMutation(child.id, 'patch', async () => {});
+});
+
+// Other test files take leases in the shared lease folder at the same time, so these tests change it under the application's guard.
+function leases(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-reused-pid-'));
+  const workspace = path.join(root, 'workspace'); fs.mkdirSync(workspace);
+  const coordinator = new MutationCoordinator(path.join(root, 'history'));
+  const guarded = callback => withFileGuard(path.join(coordinator.root, 'coordinator'), callback);
+  const groups = [], files = [];
+  t.after(() => {
+    for (const group of groups) { try { process.kill(-group, 'SIGKILL'); } catch {} }
+    guarded(() => { for (const file of files) fs.rmSync(file, { force: true }); });
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  return {
+    workspace, coordinator, guarded,
+    file(id) { const file = path.join(coordinator.root, `${id}.json`); files.push(file); return file; },
+    // Like an assistant, each process leads its own process group.
+    group(pid = spawn('/bin/sleep', ['30'], { detached: true, stdio: 'ignore' }).pid) { groups.push(pid); return pid; },
+  };
+}
+async function stopped(pid) {
+  for (const until = Date.now() + 5000; Date.now() < until; await new Promise(resolve => setTimeout(resolve, 20))) {
+    // macOS answers EPERM while a stopped group is waiting to be reaped.
+    try { process.kill(pid, 0); } catch (error) { if (error.code === 'ESRCH') return; if (error.code !== 'EPERM') throw error; }
+  }
+  throw new Error(`Process ${pid} is still running.`);
+}
+
+test('a lease is kept while its owner or its assistant is running, even after the clock is set back', async t => {
+  if (process.platform !== 'darwin') return t.skip('Process start times are read on macOS only.');
+  const f = leases(t);
+  // The owner runs in another time zone and language, like an instance started after the user changed them.
+  const owner = fork(fileURLToPath(new URL('./fixtures/lease-owner.mjs', import.meta.url)), [f.workspace], { env: { ...process.env, TZ: 'Asia/Tokyo', LC_ALL: 'de_DE.UTF-8' }, stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+  t.after(() => owner.kill('SIGKILL'));
+  const [{ id, assistant }] = await Promise.race([once(owner, 'message'), once(owner, 'exit').then(() => { throw new Error('The lease owner exited before taking its lease.'); })]);
+  const file = f.file(id), earlier = new Date(Date.now() - 60 * 1000);
+  f.group(assistant);
+  // A backward clock correction after the owner started makes its lease look older than the owner.
+  f.guarded(() => fs.utimesSync(file, earlier, earlier));
+  assert.throws(() => f.coordinator.acquire(f.workspace, 'patch'), /Project files are busy/, 'The owner is running.');
+  owner.kill('SIGKILL'); await once(owner, 'exit'); await stopped(assistant);
+  assert.throws(() => f.coordinator.acquire(f.workspace, 'patch'), /Project files are busy/, 'The owner crashed and the assistant\'s leader exited, while a command it started kept running.');
+  process.kill(-assistant, 'SIGKILL'); await stopped(-assistant);
+  f.coordinator.acquire(f.workspace, 'patch').release();
+  assert.equal(fs.existsSync(file), false, 'Once both have stopped, the lease is stale.');
+});
+
+test('a lease left by a crash is cleared once its process IDs belong to a process that started later', async t => {
+  if (process.platform !== 'darwin') return t.skip('Process start times are read on macOS only.');
+  const f = leases(t);
+  const taken = f.coordinator.acquire(f.workspace, 'provider:codex');
+  taken.setProcess(f.group());
+  const file = f.file(taken.id), saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  // ps reports start times to the second, so the process that takes over the IDs starts in a later second.
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  const later = f.group(), exited = spawnSync('/usr/bin/true').pid;
+  const save = ids => f.guarded(() => fs.writeFileSync(file, JSON.stringify({ ...saved, ...ids })));
+  // The crashed instance's own process ID, then its assistant's process group ID, now belong to the later process.
+  for (const ids of [{ pid: later, processGroup: null }, { pid: exited, processGroup: later }]) {
+    save(ids);
+    f.coordinator.acquire(f.workspace, 'patch').release();
+    assert.equal(fs.existsSync(file), false);
+  }
+  // Earlier versions saved no start times, so a live process ID still holds their leases.
+  for (const ids of [{ pid: later, processGroup: null }, { pid: exited, processGroup: later }]) {
+    save({ ...ids, pidStart: undefined, processGroupStart: undefined });
+    assert.throws(() => f.coordinator.acquire(f.workspace, 'patch'), /Project files are busy/);
+  }
 });
 test('Codex official JSON-RPC approvals return decisions and respect native access/model settings', async () => {
   class FakeClient extends EventEmitter {

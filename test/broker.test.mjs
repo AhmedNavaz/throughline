@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -188,6 +189,35 @@ test('signalling an exited process group on macOS counts as stopped, not as an e
   assert.doesNotThrow(() => Broker.prototype.signal.call(null, run, 'SIGKILL'), 'macOS returns EPERM while the exited group awaits reaping.');
   Object.defineProperty(process, 'platform', { value: 'linux' });
   assert.throws(() => Broker.prototype.signal.call(null, run, 'SIGKILL'), { code: 'EPERM' }, 'Elsewhere EPERM is a real permission error.');
+});
+
+test('restart recovers a run whose process group ID belongs to a process that started later, and refuses while its assistant is still working, even after the clock is set back', async t => {
+  if (process.platform !== 'darwin') return t.skip('Process start times are read on macOS only.');
+  const env = setup(t, { 'Keep working': { behavior: 'hang', text: 'Partial work' } });
+  const broker = env.open();
+  const c = conversation(broker);
+  broker.start(c, { text: 'Keep working', provider: 'codex', mode: 'edit' });
+  await untilUpdate(broker, () => c.messages.some(m => m.role === 'activity'));
+  const records = fs.readFileSync(path.join(env.dataDir, `${c.id}.jsonl`), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  // Restarts from a copy of the journal saved so far, as after a crash, with the run's process record changed.
+  const restart = change => {
+    const dataDir = fs.mkdtempSync(path.join(path.dirname(env.dataDir), 'restart-'));
+    fs.writeFileSync(path.join(dataDir, `${c.id}.jsonl`), `${records.map(record => JSON.stringify(record.type === 'run_process' ? change(record) : record)).join('\n')}\n`);
+    const restarted = new Broker({ workspace: env.workspace, dataDir, bins: env.bins });
+    t.after(() => restarted.close());
+    return restarted;
+  };
+  // ps reports start times to the second, so the process that takes over the ID starts in a later second.
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  const later = spawn('/bin/sleep', ['30'], { detached: true, stdio: 'ignore' });
+  t.after(() => later.kill());
+  const recovered = restart(record => ({ ...record, pid: later.pid })).get(c.id);
+  assert.equal(recovered.status, 'interrupted');
+  assert.ok(recovered.messages.some(m => m.role === 'error' && /previous run was interrupted/.test(m.text)));
+  // A run saved by an earlier version has no start time, so a live process group still counts as its assistant.
+  assert.throws(() => restart(({ pidStart, ...record }) => ({ ...record, pid: later.pid })), { status: 409, message: /previous run may still be active \(process group \d+\)/ });
+  // A backward clock correction after the assistant started makes its process record look older than the assistant.
+  assert.throws(() => restart(record => ({ ...record, at: new Date(Date.now() - 60 * 60 * 1000).toISOString() })), { status: 409, message: /previous run may still be active/ });
 });
 
 test('rejects concurrent turns and preserves partial output when cancelled', async t => {
