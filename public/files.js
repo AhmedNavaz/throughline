@@ -17,6 +17,8 @@
     return drafts.get(id);
   }
   function save(id) { try { localStorage.setItem(key(id), JSON.stringify(files(id))); } catch {} }
+  // Thumbnails are only drawn for draft attachments, so each one goes once no draft holds its image.
+  function pruneThumbnails() { const kept = new Set([...drafts.values()].flat().map(file => file.id)); for (const id of thumbnails.keys()) if (!kept.has(id)) thumbnails.delete(id); }
   function status(text = '') { $('attachment-status').textContent = text; $('attachment-status').hidden = !text; }
   function update() {
     const state = api.getState(), list = $('attachment-list'); list.replaceChildren();
@@ -25,7 +27,7 @@
       const open = button('', 'attachment-open', () => openSaved(file, state.projectId));
       open.append(el('span', 'file-glyph ' + (file.kind === 'image' ? 'image' : 'code'), file.kind === 'image' ? '▧' : '≡'), el('span', 'attachment-name', file.name), el('small', '', size(file.bytes)));
       if (file.kind === 'image' && thumbnails.has(file.id)) { const thumb=el('img','attachment-thumbnail'); thumb.src=thumbnails.get(file.id); thumb.alt=''; open.firstChild.remove(); open.prepend(thumb); }
-      const remove = button('', 'attachment-remove', () => { drafts.set(state.projectId, files(state.projectId).filter(f => f.id !== file.id)); save(state.projectId); update(); });
+      const remove = button('', 'attachment-remove', () => { drafts.set(state.projectId, files(state.projectId).filter(f => f.id !== file.id)); save(state.projectId); pruneThumbnails(); update(); });
       remove.setAttribute('aria-label', 'Remove ' + file.name); remove.disabled = Boolean(state.pending);
       chip.append(open, remove); list.append(chip);
     }
@@ -178,7 +180,7 @@
       if (target) { target.classList.add('review-line'); target.scrollIntoView({ block: 'center' }); }
     },
     ids: () => files().map(file => file.id), uploading: () => Boolean(pending.get(api.getState().projectId)), addFiles, addSnapshots,
-    accepted(id, ids) { drafts.set(id, files(id).filter(file => !ids.includes(file.id))); save(id); if (id === api.getState().projectId) { status(); closePreview(); update(); } },
+    accepted(id, ids) { drafts.set(id, files(id).filter(file => !ids.includes(file.id))); save(id); pruneThumbnails(); if (id === api.getState().projectId) { status(); closePreview(); update(); } },
     renderMessageAttachments(row, attachments = []) { if (!attachments.length) return; const host = el('div','message-attachments'), id = api.getState().projectId; for (const file of attachments) { const chip = button((file.kind === 'image' ? '▧ ' : '≡ ') + file.name + ' · ' + size(file.bytes),'saved-attachment',() => openSaved(file,id)); host.append(chip); } row.append(host); },
   };
   sync();

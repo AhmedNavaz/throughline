@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import v8 from 'node:v8';
 import vm from 'node:vm';
 import test from 'node:test';
 import { sealPackage } from '../collaboration-format.mjs';
@@ -1154,6 +1155,29 @@ test('attachments stay with their workspace and accepted-send retry preserves at
   ui.$('notice-retry').click();await flush();
   assert.equal(submissions.length,2);assert.equal(submissions[0].requestId,submissions[1].requestId);
   assert.deepEqual(submissions[1].attachments,[id]);assert.equal(submissions[1].text,'Please review the attached files.');assert.equal(ui.window.relayFiles.ids().length,0);
+});
+
+test('an image thumbnail is let go once no draft attachment shows it',async()=>{
+  // Only memory shows whether a thumbnail is still held, so the heap is measured after a full collection.
+  v8.setFlagsFromString('--expose-gc');const gc=vm.runInNewContext('gc'),heap=()=>{gc();return process.memoryUsage().heapUsed;};
+  const ui=await browser({filesUI:true}),megabyte=1024*1024;let count=0;
+  ui.setIntercept((request,next)=>request.path==='/api/attachments'?response({id:(++count).toString(16).padStart(64,'0'),name:request.body.name,kind:'image',mime:'image/png',bytes:megabyte},201):next());
+  await ui.window.relayFiles.addSnapshots([1,2,3].map(n=>({name:`screen-${n}.png`,data:String(n).repeat(8*megabyte)})));await flush();
+  assert.equal(ui.$('attachment-list').querySelectorAll('.attachment-thumbnail').length,3);
+  const attached=heap();ui.$('attachment-list').querySelector('.attachment-remove').click();await flush();
+  const removed=heap();assert(attached-removed>4*megabyte,`Removing an image released ${((attached-removed)/megabyte).toFixed(1)} MB.`);
+  assert.equal(ui.$('attachment-list').querySelectorAll('.attachment-thumbnail').length,2,'The other images keep their thumbnails.');
+  ui.$('message-input').value='Review these screens';ui.fire('message-input','input');ui.fire('composer','submit');await flush();assert.equal(ui.window.relayFiles.ids().length,0);
+  const sent=heap();assert(removed-sent>12*megabyte,`Sending the other two released ${((removed-sent)/megabyte).toFixed(1)} MB.`);
+});
+
+test('a thumbnail stays while another workspace still has the image as a draft',async()=>{
+  const ui=await browser({filesUI:true,moreProjects:true}),thumbnails=()=>ui.$('attachment-list').querySelectorAll('.attachment-thumbnail').length;
+  ui.setIntercept((request,next)=>request.path==='/api/attachments'?response({id:'a'.repeat(64),name:request.body.name,kind:'image',mime:'image/png',bytes:1024},201):next());
+  await ui.window.relayFiles.addSnapshots([{name:'screen.png',data:'c2NyZWVu'}]);await flush();
+  await ui.switchProject('project-two');await ui.window.relayFiles.addSnapshots([{name:'screen.png',data:'c2NyZWVu'}]);await flush();assert.equal(thumbnails(),1);
+  ui.$('attachment-list').querySelector('.attachment-remove').click();await flush();assert.equal(ui.window.relayFiles.ids().length,0);
+  await ui.switchProject('project-one');assert.equal(thumbnails(),1,'The image is still a draft here, so its thumbnail still shows.');
 });
 
 test('late attachment uploads stay with their original workspace and block premature send',async()=>{
