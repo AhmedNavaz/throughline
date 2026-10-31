@@ -45,10 +45,18 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
   for (const folder of [...(workspace ? [workspace] : []), ...workspaces]) registry.add({ path: folder });
   const collaboration = new CollaborationService({ registry, dataRoot: registry.dataRoot });
   const settingsFile=path.join(registry.dataRoot,'settings.json');
-  let config=fs.existsSync(settingsFile)?JSON.parse(fs.readFileSync(settingsFile,'utf8')):{};
+  // Settings are saved whole, so a file that can't be read was changed outside Throughline. It is named instead of
+  // replaced with defaults, which would quietly turn a saved Read only default back into Can edit files.
+  const readSettings=()=>{
+    if(!fs.existsSync(settingsFile))return null;
+    let saved;try{saved=JSON.parse(fs.readFileSync(settingsFile,'utf8'));}catch{}
+    if(!saved||typeof saved!=='object'||Array.isArray(saved))throw new Error(`Cannot read the settings file: ${settingsFile}. Fix it, or remove it to start with the default settings.`);
+    return saved;
+  };
+  let config=readSettings()||{};
   registry.conversationDefaults = () => config.defaults;
   // The desktop app hears each saved appearance, so its window follows whichever request saved it.
-  const saveSettings = patch => { config = { ...(fs.existsSync(settingsFile) ? JSON.parse(fs.readFileSync(settingsFile, 'utf8')) : config), ...patch }; atomicJSON(settingsFile, config); if (patch.appearance !== undefined) onAppearance(appearance(config)); };
+  const saveSettings = patch => { config = { ...(readSettings() || config), ...patch }; atomicJSON(settingsFile, config); if (patch.appearance !== undefined) onAppearance(appearance(config)); };
   let sharing=(sharingURL||config.sharingURL)?new SharingClient({baseUrl:sharingURL||config.sharingURL,storePath:path.join(registry.dataRoot,'sharing-client.json'),createKey:process.env.AI_RELAY_SHARING_CREATE_KEY}):null;
   const configureSharing=input=>{const baseUrl=validateSharingURL(input.baseUrl);sharing=new SharingClient({baseUrl,storePath:path.join(registry.dataRoot,'sharing-client.json'),createKey:process.env.AI_RELAY_SHARING_CREATE_KEY});saveSettings({sharingURL:baseUrl});return {baseUrl};};
   const workspaceRoutes = createWorkspaceRoutes({ registry, body, json });

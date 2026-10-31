@@ -363,6 +363,18 @@ test('desktop keep awake preference persists without overwriting theme or assist
   const prefs=await (await fetch(`${next.url}/api/preferences`)).json();assert.equal(prefs.theme,'light');assert.equal(prefs.defaults.provider,'claude');
 });
 
+test('a settings file that cannot be read is named when Throughline starts and when a setting is saved, and is left as it is',async t=>{
+  const f=await fixture(t),settings=path.join(f.directory,'history','settings.json');f.app.setKeepAwakePreference(true);
+  const named={message:`Cannot read the settings file: ${settings}. Fix it, or remove it to start with the default settings.`};
+  // Throughline saves the whole file at once, so files like these were changed by something else.
+  for(const contents of ['{"appearance":"light","keep','','null','[]','"light"']){
+    fs.writeFileSync(settings,contents);
+    assert.throws(()=>f.app.setKeepAwakePreference(false),named);
+    assert.equal(f.app.getKeepAwakePreference(),true);assert.equal(fs.readFileSync(settings,'utf8'),contents);
+    await assert.rejects(f.launch(),named);
+  }
+});
+
 const savedAppearance=async url=>(await (await fetch(`${url}/api/appearance`)).json()).theme;
 test('a new profile follows the system appearance, and Light or Dark saved by an earlier version survives the upgrade',async t=>{
   const f=await fixture(t);let current=f;
