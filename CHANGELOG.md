@@ -2,6 +2,13 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.11.1] - 2026-11-01
+
+### Fixed
+
+- New filesystem transaction guards record their process identity and recover automatically after that owner exits or crashes, preventing an interrupted operation from permanently blocking workspace startup.
+- Concurrent recovery preserves exclusive access, including when a recovery process itself crashes; live owners, unrecognized guards and legacy empty guards remain protected for manual inspection.
+
 ## [0.11.0] - 2026-10-31
 
 ### Added
@@ -181,6 +188,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.11.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.1
 [0.11.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.0
 [0.10.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.1
 [0.10.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.0
