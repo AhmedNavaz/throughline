@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { Broker } from '../broker.mjs';
 import { ProjectRegistry } from '../projects.mjs';
-import { MutationCoordinator, withFileGuard } from '../mutation-lock.mjs';
+import { MutationCoordinator, acquireProjectLock, withFileGuard } from '../mutation-lock.mjs';
 import { prepareContext } from '../context.mjs';
 import { runCodex, runClaude, classifyError, CodexClient } from '../providers.mjs';
 
@@ -177,6 +177,60 @@ test('a lease left by a crash is cleared once its process IDs belong to a proces
     save({ ...ids, pidStart: undefined, processGroupStart: undefined });
     assert.throws(() => f.coordinator.acquire(f.workspace, 'patch'), /Project files are busy/);
   }
+});
+
+// Like a full disk: a file in the folder is created, or emptied, as asked, but nothing can be written into it.
+function fullDisk(folder, callback) {
+  const write = fs.writeFileSync;
+  fs.writeFileSync = (file, data, options) => {
+    if (typeof file !== 'string' || !file.startsWith(folder + path.sep)) return write(file, data, options);
+    fs.closeSync(fs.openSync(file, options?.flag || 'w', options?.mode));
+    throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
+  };
+  try { return callback(); } finally { fs.writeFileSync = write; }
+}
+// An unreadable lease blocks every change, so these leases stay in a folder of their own, away from other test files.
+function privateLeases(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-full-disk-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const one = path.join(root, 'one'), two = path.join(root, 'two'); fs.mkdirSync(one); fs.mkdirSync(two);
+  const coordinator = new MutationCoordinator(path.join(root, 'data'));
+  coordinator.root = path.join(root, 'leases'); fs.mkdirSync(coordinator.root);
+  return { one, two, coordinator };
+}
+
+test('a lease that a full disk keeps from being saved leaves nothing behind to block later changes', t => {
+  const { one, two, coordinator } = privateLeases(t);
+  assert.throws(() => fullDisk(coordinator.root, () => coordinator.acquire(one, 'patch')), { code: 'ENOSPC' });
+  coordinator.acquire(two, 'patch').release();
+  const lease = coordinator.acquire(one, 'provider:codex');
+  assert.equal(fs.statSync(path.join(coordinator.root, `${lease.id}.json`)).mode & 0o777, 0o600);
+  assert.throws(() => fullDisk(coordinator.root, () => lease.setProcess(process.pid)), { code: 'ENOSPC' });
+  // The lease as saved before the update still holds its folder.
+  assert.throws(() => coordinator.acquire(one, 'patch'), /Project files are busy/);
+  coordinator.acquire(two, 'patch').release();
+  lease.release();
+  assert.deepEqual(fs.readdirSync(coordinator.root), []);
+});
+
+test('a lease an earlier version left unreadable is named, and kept because its owner is unknown', t => {
+  const { one, coordinator } = privateLeases(t);
+  // Earlier versions left an empty lease when the disk filled up or the app stopped while saving it.
+  const left = path.join(coordinator.root, 'left-by-an-earlier-version.json'); fs.writeFileSync(left, '');
+  assert.throws(() => coordinator.acquire(one, 'patch'), error => error.status === 409 && error.message.includes(left));
+  assert.ok(fs.existsSync(left));
+});
+
+test('a project lock that a full disk keeps from being saved does not block the project later', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-full-disk-lock-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, 'project'), lock = path.join(project, 'server.lock');
+  assert.throws(() => fullDisk(project, () => acquireProjectLock(project)), { code: 'ENOSPC' });
+  acquireProjectLock(project)();
+  assert.deepEqual(fs.readdirSync(project), []);
+  // Earlier versions left an empty lock the same way. It names its file, not an instance that is running.
+  fs.writeFileSync(lock, '');
+  assert.throws(() => acquireProjectLock(project), error => error.status === 409 && error.message === `Invalid project lock: ${lock}`);
 });
 test('Codex official JSON-RPC approvals return decisions and respect native access/model settings', async () => {
   class FakeClient extends EventEmitter {

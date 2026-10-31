@@ -42,6 +42,13 @@ export function withFileGuard(filename, callback) {
   }
   try { return callback(); } finally { fs.rmdirSync(guard); }
 }
+// Locks and leases are written under a temporary name and renamed into place, so a write that fails (on a full disk,
+// for example) or stops partway leaves no empty file behind to block later changes.
+function atomicWrite(filename, contents) {
+  const temporary = `${filename}.${randomUUID()}.tmp`;
+  try { fs.writeFileSync(temporary, contents, { flag: 'wx', mode: 0o600 }); fs.renameSync(temporary, filename); }
+  finally { fs.rmSync(temporary, { force: true }); }
+}
 export function acquireProjectLock(directory) {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const filename = path.join(directory, 'server.lock');
@@ -51,10 +58,11 @@ export function acquireProjectLock(directory) {
       const raw = fs.readFileSync(filename, 'utf8');
       let pid, pidStart;
       try { ({ pid, pidStart } = raw.trim().startsWith('{') ? JSON.parse(raw) : { pid: Number(raw) }); } catch { throw fail(`Invalid project lock: ${filename}`); }
-      if (!Number.isSafeInteger(pid) || pid <= 0 || alive(pid, pidStart)) throw fail(`Throughline is already running for this project (process ${pid}).`);
+      if (!Number.isSafeInteger(pid) || pid <= 0) throw fail(`Invalid project lock: ${filename}`);
+      if (alive(pid, pidStart)) throw fail(`Throughline is already running for this project (process ${pid}).`);
       fs.unlinkSync(filename);
     }
-    fs.writeFileSync(filename, contents, { flag: 'wx', mode: 0o600 });
+    atomicWrite(filename, contents);
   });
   return () => withFileGuard(filename, () => { if (fs.existsSync(filename) && fs.readFileSync(filename, 'utf8') === contents) fs.unlinkSync(filename); });
 }
@@ -91,20 +99,22 @@ export class MutationCoordinator {
     withFileGuard(coordinator, () => {
       for (const name of fs.readdirSync(this.root).filter(name => name.endsWith('.json'))) {
         const full = path.join(this.root, name);
-        const other = JSON.parse(fs.readFileSync(full, 'utf8'));
+        // A lease that can't be read has no known owner, so it is kept and blocks changes until it is removed by hand.
+        let other;
+        try { other = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { throw fail(`Project files are locked by a lease that cannot be read: ${full}. Remove it only after all Throughline instances are stopped.`); }
         if (!alive(other.pid, other.pidStart) && !groupAlive(other.processGroup, other.processGroupStart)) { fs.unlinkSync(full); continue; }
         const otherRoots = other.workspaces || [other.workspace];
         // Leases from earlier versions hold folders as they were typed, so compare their paths on disk too.
         const otherFolders = otherRoots.map(root => { try { return fs.realpathSync.native(root); } catch { return root; } });
         if (workspaces.some(workspace => otherFolders.some(folder => overlaps(workspace, folder)))) throw fail(`Project files are busy: ${other.operation} is active in an overlapping workspace.`);
       }
-      fs.writeFileSync(filename, JSON.stringify(value), { flag: 'wx', mode: 0o600 });
+      atomicWrite(filename, JSON.stringify(value));
     });
     let released = false;
     return {
       id,
       setProcess(pid, start = processStart(pid)) {
-        withFileGuard(coordinator,()=>{value.processGroup=pid;value.processGroupStart=start;fs.writeFileSync(filename,JSON.stringify(value),{mode:0o600});});
+        withFileGuard(coordinator,()=>{value.processGroup=pid;value.processGroupStart=start;atomicWrite(filename,JSON.stringify(value));});
       },
       release() {
         if(!released)withFileGuard(coordinator,()=>{fs.unlinkSync(filename);released=true;});
