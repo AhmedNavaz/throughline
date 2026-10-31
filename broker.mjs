@@ -384,8 +384,10 @@ export class Broker extends EventEmitter {
         const consume = line => { if (!line.trim()) return; try { this.event(run, JSON.parse(line)); } catch (error) { run.failed = true; run.errorCategory = 'protocol'; run.stderr = clip(`${run.stderr}\n${error.message}`); } };
         run.child.stdout.setEncoding('utf8'); run.child.stderr.setEncoding('utf8');
         run.child.stdout.on('data', chunk => {
+          if (buffer === null) return;
           buffer += chunk;
-          if (buffer.length > 8 * 1024 * 1024) { run.failed = true; run.errorCategory = 'protocol'; run.stderr = 'Oversized provider protocol event.'; this.stop(c.id); return; }
+          // An oversized event ends the run. The rest of the output is dropped, so the cut-off event isn't parsed when the process closes.
+          if (buffer.length > 8 * 1024 * 1024) { buffer = null; run.failed = true; run.errorCategory = 'protocol'; run.stderr = 'Oversized provider protocol event.'; this.cancel(run); return; }
           let newline; while ((newline = buffer.indexOf('\n')) !== -1) { consume(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1); }
         });
         run.child.stderr.on('data', chunk => { run.stderr = clip(run.stderr + chunk); });
@@ -398,9 +400,9 @@ export class Broker extends EventEmitter {
               if (review && !['Read', 'Glob', 'Grep'].includes(message.request.kind)) { run.child.send({ type: 'approval-result', id: message.request.id, allow: false }); return; }
               const approval = { ...message.request, runId, provider }; run.approvals.set(approval.id, approval); this.emit('update', { conversationId: c.id });
             }
-          } catch (error) { run.failed = true; run.errorCategory = classifyError(error); run.stderr = error.message; this.stop(c.id); }
+          } catch (error) { run.failed = true; run.errorCategory = classifyError(error); run.stderr = error.message; this.cancel(run); }
         });
-        run.child.on('close', (code, signal) => { if (buffer.trim()) consume(buffer); complete(code, signal, run.spawnError); });
+        run.child.on('close', (code, signal) => { if (buffer?.trim()) consume(buffer); complete(code, signal, run.spawnError); });
         const pidStart = processStart(run.child.pid);
         this.record(c, { type: 'run_process', pid: run.child.pid, pidStart });
         lease.setProcess(run.child.pid, pidStart);
@@ -505,16 +507,24 @@ export class Broker extends EventEmitter {
   stop(id) {
     if (!this.running || this.running.c.id !== id) return { stopped: false };
     const run = this.running;
-    if (run.stopped) return { stopped: true };
-    run.stopped = true;
+    // A run the broker is already ending keeps the reason it gave.
+    if (!run.ending) run.stopped = true;
+    this.cancel(run);
+    return { stopped: true };
+  }
+
+  // Ends the provider process. Stop uses it, and so does the broker when it ends a run itself; that run counts as failed, not stopped.
+  cancel(run) {
+    if (run.ending) return;
+    run.ending = true;
     run.approvals.clear();
-    if (run.child?.connected) run.child.send({ type: 'cancel' });
+    // The worker may already be exiting. Then the cancel can't be delivered, and that error isn't why the run ended.
+    if (run.child?.connected) run.child.send({ type: 'cancel' }, () => {});
     if (run.child?.pid) {
       this.signal(run, 'SIGTERM');
       run.killTimer = setTimeout(() => this.signal(run, 'SIGKILL'), 3000);
       run.killTimer.unref();
     }
-    return { stopped: true };
   }
 
   async close() {

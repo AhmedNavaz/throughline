@@ -250,6 +250,49 @@ test('rejects concurrent turns and preserves partial output when cancelled', asy
   assert.equal(other.status, 'complete');
 });
 
+test('a run ended for an oversized provider event reports that, not a Stop', async t => {
+  const env = setup(t, { 'Send a huge event': { text: 'x'.repeat(9 * 1024 * 1024) } });
+  const broker = env.open();
+  const c = conversation(broker);
+  await run(broker, c, 'Send a huge event', 'codex');
+  assert.equal(c.status, 'incomplete');
+  assert.equal(c.lastRun.errorCategory, 'protocol');
+  const errors = c.messages.filter(m => m.role === 'error').map(m => m.text);
+  assert.deepEqual(errors.map(text => text.split('\n')[0]), ['Oversized provider protocol event.']);
+  assert.doesNotMatch(errors[0], /JSON/, 'The cut-off rest of the event is not parsed.');
+});
+
+test('a run ended after a provider message could not be handled reports that failure, even if Stop follows', async t => {
+  const env = setup(t);
+  fs.writeFileSync(env.bins.codex, `#!${process.execPath}\nimport readline from 'node:readline';
+if(process.argv.includes('--version')){console.log('handler-fixture 1');process.exit(0);}
+const send=value=>console.log(JSON.stringify(value));
+readline.createInterface({input:process.stdin}).on('line',line=>{const message=JSON.parse(line);
+if(message.method==='initialize')send({id:message.id,result:{}});
+if(message.method==='model/list')send({id:message.id,result:{data:[]}});
+if(message.method==='thread/start')send({id:message.id,result:{thread:{id:'handler-thread'},model:'actual-model'}});
+if(message.method==='turn/start'){send({id:message.id,result:{turn:{id:'handler-turn'}}});send({method:'item/completed',params:{threadId:'handler-thread',item:{id:'answer',type:'agentMessage',text:'An answer'}}});send({method:'turn/completed',params:{threadId:'handler-thread',turn:{status:'completed'}}});}
+});\n`);
+  const broker = env.open();
+  const c = conversation(broker);
+  // Stands in for any failure while the broker handles a provider message, such as a journal write that fails.
+  const handle = broker.event.bind(broker);
+  const signals = [], signal = broker.signal.bind(broker);
+  broker.signal = (active, name) => { signals.push(name); return signal(active, name); };
+  let stop;
+  broker.event = (active, event) => {
+    if (event.item?.type !== 'agent_message') return handle(active, event);
+    // Stop arrives while the failed run is still ending.
+    setImmediate(() => { stop = broker.stop(c.id); });
+    throw new Error('Could not save the answer.');
+  };
+  await run(broker, c, 'Answer', 'codex', { transport: 'app-server' });
+  assert.deepEqual(stop, { stopped: true });
+  assert.equal(signals.filter(name => name === 'SIGTERM').length, 1, 'Stop does not end the process a second time.');
+  assert.equal(c.status, 'incomplete');
+  assert.deepEqual(c.messages.filter(m => m.role === 'error').map(m => m.text.split('\n')[0]), ['Could not save the answer.']);
+});
+
 test('requires both a successful terminal event and a successful process exit', async t => {
   const env = setup(t, {
     'Missing terminal event': { behavior: 'no-terminal' },
