@@ -178,6 +178,21 @@ test('HTTP export and file import hand a conversation to another workspace witho
   assert.equal((await request('/api/import-sources/import', { files: [{ package: { ...file, workspace: { name: 'Changed' } }, approvedDigest: preview.body.digest }], projectId: recipient })).status, 400, 'Altered files are rejected.');
 });
 
+test('several large conversation files import together, though they exceed the general request limit', async t => {
+  const f = fixture(t), other = path.join(f.root, 'recipient'); fs.mkdirSync(other);
+  const app = createRelayServer({ workspace: f.workspace, dataRoot: path.join(f.root, 'app'), bins: { codex: '/missing', claude: '/missing' } }); app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening'); f.closers.push(() => app.close());
+  // Each file is under the 2 MB file limit; together they are over the 3 MB limit for other requests.
+  const project = { name: 'Shop', folders: [{ id: 'web', name: 'web', displayName: 'web', path: '/Users/dev/shop/web' }] };
+  const exported = name => exportConversation({ messages: Array.from({ length: 9 }, (_, index) => ({ id: `${name}-${index}`, role: index % 2 ? 'assistant' : 'user', provider: 'claude', text: `${name} ${index} ${'x'.repeat(190000)}`, createdAt: new Date(Date.UTC(2026, 9, 20, 9, index)).toISOString() })) }, project).package;
+  const files = ['first', 'second'].map(exported).map(file => ({ package: file, approvedDigest: file.digest })), input = JSON.stringify({ files, folders: [other], name: 'Checkout' });
+  assert.ok(files.every(file => Buffer.byteLength(JSON.stringify(file.package)) < 2 * 1024 * 1024) && Buffer.byteLength(input) > 3 * 1024 * 1024, 'Each file fits the file limit, but the request is over the general one.');
+  const response = await fetch(`http://127.0.0.1:${app.server.address().port}/api/import-sources/import`, { method: 'POST', headers: { 'X-AI-Relay': '1', 'Content-Type': 'application/json' }, body: input });
+  const result = await response.json(); assert.equal(response.status, 200, result.error); assert.equal(result.imported, 18);
+  assert.equal(app.registry.mainConversation(result.projectId).messages.length, 18);
+  const preview = await fetch(`http://127.0.0.1:${app.server.address().port}/api/import-sources/file-preview`, { method: 'POST', headers: { 'X-AI-Relay': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ package: { padding: 'x'.repeat(3 * 1024 * 1024) } }) });
+  assert.equal(preview.status, 413, 'Other requests keep the general limit.');
+});
+
 test('Git diff shows tracked, staged and untracked changes but only for paths Git reports as changed', t => {
   const f = fixture(t), [folder] = f.folders; git(f.workspace, 'init', '-q'); git(f.workspace, 'config', 'user.name', 'Fixture'); git(f.workspace, 'config', 'user.email', 'fixture@example.invalid');
   fs.writeFileSync(path.join(f.workspace, 'app.js'), 'const value = 1;\n'); fs.writeFileSync(path.join(f.workspace, 'clean.js'), 'clean\n'); git(f.workspace, 'add', '.'); git(f.workspace, 'commit', '-qm', 'Initial');

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import vm from 'node:vm';
 import test from 'node:test';
 import { sealPackage } from '../collaboration-format.mjs';
+import { exportConversation } from '../conversation-export.mjs';
 import { preferencePatch, publicPreferences } from '../preferences.mjs';
 
 // Minimal DOM/event adapter for executing the actual browser scripts. It does
@@ -565,6 +566,28 @@ test('a shared conversation file merges into the open workspace without another 
   ui.$('import-confirm').checked=true;ui.fire('import-confirm','change');assert.equal(ui.$('confirm-import').disabled,false);ui.$('confirm-import').click();await flush();
   const sent=ui.requests.find(row=>row.path==='/api/import-sources/import');assert.equal(sent.body.projectId,'project-one');assert.equal(sent.body.files[0].approvedDigest,'digest-shared-one');assert.equal(sent.body.sessions.length,0);
   assert.equal(ui.projects.length,1);assert.equal(ui.state().projectId,'project-one');assert.deepEqual([...ui.state().conversation.messages.map(row=>row.text)],['Ship it','Shipped']);assert.equal(ui.requests.filter(row=>/\/(?:messages|continue)$/.test(row.path)).length,0);
+});
+
+test('a conversation file saved near the 2 MB limit opens again for import, and larger ones are still refused',async t=>{
+  // As many messages as a file may hold, just under 2 MB as the server measures it. The saved file is indented, which takes it over 2 MB.
+  const project={name:'Shop',folders:[{id:'web',name:'web',displayName:'web',path:'/Users/dev/shop/web'}]};
+  const long=exportConversation({messages:Array.from({length:5000},(_,index)=>({id:'m'+index,role:index%2?'assistant':'user',...(index%2?{provider:'claude',model:'claude-opus-5-5'}:{}),text:`Step ${index}: `+'x'.repeat(300),createdAt:new Date(Date.UTC(2026,9,20,9,0,index)).toISOString()}))},project);
+  const ui=await browser({insights:true});ui.canonical.get('project-one').messages.push({id:'m1',role:'user',text:'Plan checkout'});await ui.window.relayUI.refresh();
+  ui.setIntercept((request,next)=>request.path==='/api/conversation/export'?response(long):next());
+  const saved=[],createObjectURL=URL.createObjectURL;URL.createObjectURL=blob=>{saved.push(blob);return createObjectURL(blob);};t.after(()=>{URL.createObjectURL=createObjectURL;});
+  ui.$('open-export').click();await flush();ui.$('export-download').click();
+  const text=await saved.at(-1).text(),size=Buffer.byteLength(text);
+  assert.ok(long.stats.omitted===0&&long.stats.bytes<2*1024*1024&&size>2*1024*1024,'The saved file is over 2 MB only because it is indented.');
+  ui.$('close-export').click();ui.$('open-import').click();await flush();
+  const previews=()=>ui.requests.filter(row=>row.path==='/api/import-sources/file-preview');
+  ui.$('import-file').files=[{size,text:async()=>text}];ui.fire('import-file','change');await flush();
+  assert.equal(ui.$('import-error').textContent,'');assert.equal(previews().at(-1)?.body.package.id,long.package.id);
+  // The limit still applies to the conversation itself, and a file far over it is refused without being read.
+  const over=JSON.stringify({...long.package,messages:long.package.messages.map((message,index)=>index?message:{...message,text:message.text+'x'.repeat(30000)})});
+  ui.$('import-file').files=[{size:Buffer.byteLength(over),text:async()=>over}];ui.fire('import-file','change');await flush();
+  assert.equal(ui.$('import-error').textContent,'This conversation file is larger than 2 MB.');assert.equal(previews().length,1);
+  ui.$('import-file').files=[{size:5*1024*1024,text:async()=>assert.fail('A file far over the limit is not read.')}];ui.fire('import-file','change');await flush();
+  assert.equal(ui.$('import-error').textContent,'This conversation file is larger than 2 MB.');assert.equal(previews().length,1);
 });
 
 test('a multi-folder workspace lists its folders and the Files view shows only the selected one',async()=>{

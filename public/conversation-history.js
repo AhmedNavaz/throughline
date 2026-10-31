@@ -167,8 +167,11 @@
     const file = $('import-file').files?.[0]; $('import-file').value = ''; if (!file) return;
     importError('');
     try {
-      if (file.size > 2 * 1024 * 1024) throw new Error('This conversation file is larger than 2 MB.');
+      // Saved files are indented, so the 2 MB limit applies to the conversation as the server measures it; only a file far over it is refused unread.
+      const limit = 2 * 1024 * 1024;
+      if (file.size > 2 * limit) throw new Error('This conversation file is larger than 2 MB.');
       let data; try { data = JSON.parse(await file.text()); } catch { throw new Error('This file is not an Throughline conversation file.'); }
+      if (new Blob([JSON.stringify(data)]).size > limit) throw new Error('This conversation file is larger than 2 MB.');
       const preview = await api.post('/api/import-sources/file-preview', { package: data }, null);
       const session = { id: preview.sessionId, provider: 'file', title: preview.title, folder: 'Conversation files', cwd: null, updatedAt: preview.exportedAt || new Date().toISOString() }, key = sessionKey(session);
       if (!imports.selected.has(key) && imports.selected.size >= 20) throw new Error('Select at most 20 conversations at a time.');
