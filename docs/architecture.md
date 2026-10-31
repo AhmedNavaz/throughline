@@ -26,6 +26,7 @@ flowchart TD
 | --- | --- |
 | Desktop lifecycle, native dialogs and trusted IPC | `desktop/main.mjs`, `desktop/preload.cjs` |
 | App-version announcements and bundled changelog entries | `desktop/updates.mjs` |
+| Isolated background review workers and immutable selected-file copies | `review-jobs.mjs` |
 | Downloaded local-model discovery, validation and scoped launch routes | `local-models.mjs` |
 | Temporary development profiles and data migration | `desktop/launch.mjs`, `desktop/storage.mjs` |
 | Workspace identity, folders and one permanent conversation | `projects.mjs` |
@@ -51,6 +52,7 @@ The backend modules stay at the repository root while this remains a small appli
 | `conversation-history.js` | Previous-chat discovery, selection, review, merge and export |
 | `setup.js` | Onboarding and saved preferences; announces `relay-setup-ready` after initial setup state loads |
 | `updates.js` | In-app release notes after updates and from Help; waits for setup and workspace loading |
+| `model-picker.js` | Searchable cloud/local selection, workspace-scoped catalog requests and normal composer integration |
 | `local-models.js` | Explicit local-model selection, task handoff and setup guidance |
 | `files.js` | File explorer, previews and attachments |
 | `conversation-search.js` | Find in the conversation: match highlights, the match count and moving between matches |
@@ -85,3 +87,5 @@ Add agent protocols through `providers.mjs` and the worker, retaining the broker
 The planned [project command controls](https://github.com/AhmedNavaz/throughline/issues/47) and [integrated terminal](https://github.com/AhmedNavaz/throughline/issues/7) should share a dedicated process/session manager, with separate interface modules for command output and the interactive shell. Start with saved Run/Test/Stop actions, then add the terminal. Resolve workspace and folder IDs through the registry, own child processes, retain sessions when the panel is hidden or workspaces change, and stop them on session close or app shutdown. A user-operated shell is separate from an agent run and its read-only setting. Define interaction with overlapping agent and patch operations while allowing a development server to remain running during edits; send output to the conversation only when the user selects it.
 
 For changes, run `npm test` and `npm run test:desktop`. Tests use temporary folders and mock agents. Add coverage for state transitions and process cleanup when those behaviors change; tests must not use live accounts or saved user history.
+
+Background review routes explicitly opt into a separate broker and private snapshot directory. Canonical review records and request fingerprints remain in the workspace journal; normal coding sessions and last-run state are independent. Snapshot jobs have their own Stop action, a bounded global count and shutdown cleanup. Folder removal/membership checks reject active reviews before persisting changes. Worker events publish phase/tool-count progress; report freshness always checks the live source before preparing fixes. Only approved selected files are copied, and raw responses are bounded. Legacy direct review calls retain their existing behavior.

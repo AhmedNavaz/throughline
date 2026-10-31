@@ -154,7 +154,7 @@ export class ProjectRegistry extends EventEmitter {
   remove(id) {
     this.assertOpen(); this.reload(); const before = this.entry(id, true);
     if (before.removedAt) return { id, removed: true };
-    if (this.brokers.get(id)?.broker.running) throw fail('Stop the current run before removing this workspace.', 409);
+    if (this.brokers.get(id)?.broker.running || this.brokers.get(id)?.broker.backgroundReview) throw fail('Stop the current run and background review before removing this workspace.', 409);
     const signature = rootsSignature(before.folders);
     const lease = this.mutations.acquireMany(before.folders.map(folder => folder.path), 'workspace-removal');
     let held; let releaseHeld = false;
@@ -203,7 +203,7 @@ export class ProjectRegistry extends EventEmitter {
 
   retireBroker(id, keepLock = false, message = 'Workspace folders changed. Refresh the project before continuing.') {
     const existing = this.brokers.get(id); if (!existing) return null;
-    if (existing.broker.running) throw fail('Stop the current run before changing workspace folders.', 409);
+    if (existing.broker.running || existing.broker.backgroundReview) throw fail('Stop the current run and background review before changing workspace folders.', 409);
     existing.broker.close().catch(() => {}); existing.broker.off('update', existing.update);
     existing.broker.record = () => { throw fail(message, 409); };
     existing.broker.start = () => { throw fail(message, 409); };
@@ -212,7 +212,7 @@ export class ProjectRegistry extends EventEmitter {
 
   changeFolders(id, folders, aliases) {
     this.assertOpen(); this.reload(); const before = this.entry(id); const signature = rootsSignature(before.folders);
-    if (this.brokers.get(id)?.broker.running) throw fail('Stop the current run before changing workspace folders.', 409);
+    if (this.brokers.get(id)?.broker.running || this.brokers.get(id)?.broker.backgroundReview) throw fail('Stop the current run and background review before changing workspace folders.', 409);
     const lease = this.mutations.acquireMany([...new Set([...before.folders, ...folders].map(folder => folder.path))], 'workspace-membership');
     let held = null; let releaseHeld = false;
     let changed;

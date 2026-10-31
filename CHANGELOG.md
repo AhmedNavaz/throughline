@@ -2,7 +2,14 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
-## [0.10.2] - 2026-10-31
+## [0.11.0] - 2026-10-31
+
+### Added
+
+- **Background code review** checks an approved snapshot of selected files in a separate read-only worker, with live results in a side panel while you send the next prompt; later edits mark findings outdated.
+- **A grouped, searchable agent and model picker** lists cloud agents and downloaded Ollama models together, with local selections scoped to each workspace and used by the normal Send button.
+- **Ask a Friend previews** are prepared from the current task and recent conversation, with optional changed source files and explicit export or private-link sharing; detailed controls remain in the advanced editor.
+- Local composer runs support text and code attachments, while unsupported images remain saved until removed or sent to a cloud agent.
 
 ### Fixed
 
@@ -13,7 +20,7 @@ Notable changes to Throughline. The format follows [Keep a Changelog](https://ke
 
 ### Changed
 
-- The compact composer separates agent, model, reasoning effort and workspace access, with a clear Local (Ollama) handoff action.
+- The composer uses a two-line agent/model control with a searchable grouped panel, alongside reasoning effort and workspace access controls.
 - Completed runs offer review and collaboration next steps that respect the current workspace and stay dismissed until another run completes.
 
 ## [0.10.1] - 2026-10-31
@@ -173,7 +180,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
-[0.10.2]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.2
+[0.11.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.0
 [0.10.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.1
 [0.10.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.0
 [0.9.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.9.1

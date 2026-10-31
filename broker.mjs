@@ -111,12 +111,19 @@ export class Broker extends EventEmitter {
         if (conversation.activeRun.reviewId) this.record(conversation, { type: 'review_result', id: conversation.activeRun.reviewId, result: { status: 'interrupted', summary: 'The review was interrupted. Start a new review to check these changes.', findings: [] } });
         this.record(conversation, { type: 'run_end', status: 'interrupted', errorCategory: 'interrupted' });
       }
+      for (const review of conversation.reviews.filter(item => item.background && item.status === 'running')) {
+        if (review.pid && process.platform !== 'win32') {
+          try { process.kill(-review.pid, 0); if (!reused(review.pid, review.pidStart)) throw Object.assign(new Error(`A background reviewer from the previous run may still be active (process group ${review.pid}). Stop that process group before restarting Throughline.`), { status: 409 }); }
+          catch (error) { if (!groupGone(error)) throw error; }
+        }
+        this.record(conversation, { type: 'review_result', id: review.id, result: { status: 'interrupted', summary: 'Background review was interrupted. Start a new review when ready.', findings: [] } });
+      }
     }
   }
 
   empty(id) {
     return { id, title: 'New conversation', provider: 'codex', mode: 'edit', status: 'idle', messages: [],
-      sessions: {}, models: {}, efforts: {}, effort: null, imports: {}, transports: {}, requests: {}, reviews: [], context: emptyContext(), model: null, transport: 'auto', settingsRevision: 0, lastRun: null, records: 0, activeRun: null, createdAt: null, updatedAt: null };
+      sessions: {}, models: {}, efforts: {}, effort: null, imports: {}, transports: {}, requests: {}, reviewRequests: {}, reviews: [], context: emptyContext(), model: null, transport: 'auto', settingsRevision: 0, lastRun: null, records: 0, activeRun: null, createdAt: null, updatedAt: null };
   }
 
   apply(c, record) {
@@ -151,6 +158,8 @@ export class Broker extends EventEmitter {
       c.requests[record.requestId] = { runId: record.id, requestId: record.requestId, fingerprint: record.fingerprint };
       c.activeRun = { id: record.id, provider: record.provider, model: record.model, transport: record.effectiveTransport || record.transport, baseline: record.baseline, context: record.context, ...(record.local ? { connection: 'local', local: record.local } : {}), ...(record.review ? { purpose: 'review', reviewId: record.id } : {}), effort: record.effort ?? null, phase: 'starting', lastEventAt: record.at, toolCount: 0, startedAt: record.at }; c.status = 'running';
     }
+    if (record.type === 'background_review') { c.reviews = [record.review, ...c.reviews].slice(0, 10); c.reviewRequests[record.review.requestId] = { reviewId: record.review.id, requestId: record.review.requestId, fingerprint: record.review.fingerprint }; }
+    if (record.type === 'review_process') { const review = c.reviews.find(item => item.id === record.id); if (review) Object.assign(review, { pid: record.pid, pidStart: record.pidStart }); }
     if (record.type === 'review_result') { const review = c.reviews.find(item => item.id === record.id); if (review) Object.assign(review, record.result, { endedAt: record.at }); }
     if (record.type === 'title') c.title = record.title;
     if (record.type === 'message') c.messages.push({ ...record.message, seq: record.seq });
@@ -203,7 +212,7 @@ export class Broker extends EventEmitter {
   }
 
   view(c) {
-    const { sessions, requests, records, imports, reviews, ...visible } = c;
+    const { sessions, requests, reviewRequests, records, imports, reviews, ...visible } = c;
     return { ...visible, reviews: reviews.map(publicReview), pendingApprovals: this.running?.c.id === c.id ? [...this.running.approvals.values()] : [], messages: c.messages.map(({ seq, ...m }) => m) };
   }
 
@@ -300,12 +309,13 @@ export class Broker extends EventEmitter {
 
   start(c, { text, attachments: attachmentIds = [], provider = c.provider, mode = c.mode, fresh = false, model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', requestId = randomUUID(), billingConfirmed = false, effort = c.efforts[provider]?.[model || 'default'] ?? null }, { review, verifyReview, local, verifyLocal } = {}) {
     if (review) { mode = 'read'; fresh = true; attachmentIds = []; }
-    if (local) { if (review || typeof verifyLocal !== 'function') throw Object.assign(new Error('Invalid local run.'), { status: 400 }); provider = 'codex'; model = local.model; transport = 'app-server'; effort = null; fresh = true; attachmentIds = []; }
+    if (local) { if (review || typeof verifyLocal !== 'function') throw Object.assign(new Error('Invalid local run.'), { status: 400 }); provider = 'codex'; model = local.model; transport = 'app-server'; effort = null; fresh = true; }
     checkSettings(provider, mode);
     this.validateSelection(model, transport, effort);
     if (typeof text !== 'string' || !text.trim() || text.length > 100000) throw Object.assign(new Error('Enter a message between 1 and 100,000 characters.'), { status: 400 });
     if (typeof requestId !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(requestId)) throw Object.assign(new Error('Invalid request ID.'), { status: 400 });
     const attachments = this.attachments.select(attachmentIds);
+    if (local && attachments.some(file => file.kind !== 'text')) throw Object.assign(new Error('This local connection supports text and code attachments. Remove image attachments or choose a cloud agent; your draft stays saved.'), { status: 400 });
     text = text.trim(); model = model || null;
     const fingerprint = createHash('sha256').update(JSON.stringify({ text, ...(local ? { local } : {}), ...(review ? { review: review.snapshot.digest } : {}), ...(attachments.length ? { attachments: attachmentIds } : {}), provider, mode, fresh, model, ...(effort ? { effort } : {}), transport: transportFor(provider, transport, this.configuredBins[provider]) })).digest('hex');
     const accepted = c.requests[requestId];
@@ -414,7 +424,7 @@ export class Broker extends EventEmitter {
         const pidStart = processStart(run.child.pid);
         this.record(c, { type: 'run_process', pid: run.child.pid, pidStart });
         lease.setProcess(run.child.pid, pidStart);
-        run.child.send({ type: 'start', config: { bin, args: command.args, workspace: this.workspace, workspaces: this.workspaces, workspaceFolders: this.workspaceFolders, prompt: prepared.prompt, images, transport: actualTransport, provider, mode, model, effort, sessionId, ...(local ? { local } : {}) } });
+        run.child.send({ type: 'start', config: { bin, args: command.args, workspace: this.workspace, workspaces: this.workspaces, workspaceFolders: this.workspaceFolders, prompt: prepared.prompt, images, transport: actualTransport, provider, mode, model, effort, sessionId, ...(local ? { local } : {}), ...(review ? { reviewSnapshot: true } : {}) } });
       } catch (error) { run.errorCategory = error.category || classifyError(error); complete(null, null, error); }
     };
     launch();

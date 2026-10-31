@@ -19,7 +19,7 @@ Everything the [README](../README.md) leaves out: how each feature works, what i
 
 ## Workspaces, accounts and switching
 
-Choose the agent in the composer’s **Agent** picker and the model in the separate **Model** picker. **Local (Ollama)…** opens a handoff preview; it does not change cloud model preferences or start a run. Review and sharing shortcuts always open the existing selection and preview flow.
+Open the composer’s agent/model button to browse cloud agents and downloaded Ollama models in one searchable panel. Selecting a model prepares the next prompt; only Send starts inference. Local selections stay with their workspace, preserve cloud preferences, and support text/code attachments. Images require a cloud connection and are never silently discarded. The legacy model/agent controls remain available as a fallback if the picker script cannot load.
 
 Click **New workspace** or **Add workspace**, name the project, and select its folders. For example, a Shop workspace can contain its admin panel, backend and website together. Its single chat opens automatically; there is no New chat button or conversation list. Use **Workspace settings › Add folder** to attach more folders, and the remove control next to a folder to detach one. Files remain on disk, and folder changes preserve the same chat and drafts. The final folder cannot be removed.
 
@@ -94,17 +94,11 @@ The desktop app's menu bar lists these shortcuts too, and adds ⌘, for **Settin
 
 ## Cross-agent review
 
-Use **Review** in the conversation header, or **File › Review Changes with Other Agent…** in the desktop menu, to get a second opinion on current changes. Claude-built work is reviewed by Codex, and Codex- or Gemini-built work by Claude Code. Before the first coding run, the selected agent is treated as the builder. Both agents need to be installed and signed in through their own supported tools.
+After a completed task, **Review changes…** suggests the eligible changed files and prepares their exact diff preview. The goal is filled from the current task. Adjust the selected files if needed, inspect the preview and choose **Start read-only review**. Unknown or API billing needs explicit confirmation before the review can consume usage. The toolbar's **Review** action also supports choosing files manually.
 
-1. Describe what the changes should accomplish, then choose changed files from the workspace's attached Git repository roots. The comparison is against each repository's last commit (an empty base before its first commit) and includes staged, unstaged and selected new files. Already committed changes are outside this initial workflow.
-2. **Preview selected changes** shows the exact diffs to be supplied. Changing the selection requires another preview. Reviews support up to 12 text files, with a combined 72 KB snapshot limit and a 1 MB limit on each current file. Binary files, symlinks, submodules and private credential/runtime paths are excluded; oversized diffs are rejected rather than silently shortened. Attach the repository root if a workspace folder is only a subdirectory of one.
-3. **Start read-only review** uses the other agent's own account and consumes its usage. API or unverified billing requires explicit confirmation for that review. The reviewer starts a fresh session with the task goal, saved project brief and selected diffs, and can inspect relevant project files. Your selected coding agent, model, access mode and native coding sessions are preserved.
-4. Follow progress in the conversation, close the dialog while it runs, or stop the review. **View review** opens its summary and findings, including severity, file and line. A file link opens the existing read-only preview at that line when the file is available and fits its preview limits. **Reviewed scope** retains the original diffs. **Agent response** exposes the original response.
-5. Choose findings and select **Prepare fixes with…** to draft a request for the builder. This does not run an agent or change your read/edit access mode. Existing message or attachment drafts must be saved or sent first. Edit the prepared request and press **Send** when ready.
+The reviewer runs in a separate worker against copies of the approved files and their diffs. Its results appear in a side panel while you send your next prompt in the main conversation. Only selected files are copied; unrelated project files and native agent sessions are not transferred into this snapshot. The review cannot edit the live workspace, and stopping it does not stop the main agent. Close the panel and reopen it from **View review** at any time.
 
-Selected diffs, file contents, Git state and workspace folder membership are checked for freshness. Changed or unavailable scope marks the review outdated and blocks preparing fixes until a new review is run. This includes staging or file-mode changes. The status is refreshed when the app regains focus and periodically while visible, and the server checks again before preparing a fix request. Failed, stopped and unstructured responses remain distinct from a completed review with no reported findings.
-
-The latest ten structured reviews are retained per conversation across restarts. Older original agent responses remain in the conversation. Automatic review starts and repeated builder/reviewer loops are future work; every review and fix run currently starts with your action.
+Later edits to selected files, Git state or attached folders make the report outdated. Select findings to prepare a fix draft only after the review completes and freshness checks pass. Existing text or attachments are preserved; a fix draft never starts an agent automatically. Failed, interrupted and unstructured reviews show that status instead of claiming there were no issues. App shutdown stops background workers, and interrupted reviews can be restarted. Finish or stop a background review before changing folder membership or removing the workspace.
 
 ## Files and attachments
 
@@ -145,6 +139,10 @@ Discovery and preview use the installed Claude Agent SDK session readers and the
 By default an export contains the user and assistant text of the whole conversation plus the saved goal, decisions and tasks. Secrets and local paths are removed, and workspace paths become folder names such as `[frontend]/src/app.js`. You can limit it to recent messages, include tool activity, or turn removal off; the dialog shows what the file contains before you save it. **Save as Markdown** writes a readable copy instead. A file holds up to 2 MB of conversation (the oldest messages are left out first). A file that was edited after export is rejected on import. On import, shared context fills only fields the receiving conversation has not set, and the other person's messages are shown as theirs. Import files only from people you trust, because their messages become context for your assistant. To ask someone for code changes and receive a reviewable patch instead, use **Ask a Friend**.
 
 ## Ask a Friend
+
+The default view prepares a local preview from the current task and up to eight recent conversation messages. No form is required: edit the filled-in request if you wish, optionally include the suggested changed source files, then inspect the exact preview. **Export request file** approves and exports that preview. **Create private link** approves and publishes that preview only when a sharing service is configured. Opening the view never approves or publishes anything. Changes to the request require a refreshed preview. Source files are opt-in, and secret scanning can miss private information.
+
+**Advanced request editor** retains exact message selection, source paths, decisions, tasks and editable package JSON. The complete workflow is:
 
 1. In the original conversation click **Ask a Friend**. Enter the problem and expected outcome; select individual messages or tool logs.
 2. Choose **Context only** or **Selected source**. Enter only approved workspace-relative text-file paths. Add specific permitted new-file paths if a returned patch may create files. The repository is never selected automatically.
