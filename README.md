@@ -29,6 +29,7 @@ Each project becomes a continuous working thread: its folders, conversation, sav
 - A file browser with syntax-highlighted previews. Attach files and images by clicking, dragging or pasting.
 - Plan usage for both agents in the status bar, with reset times.
 - Keep awake: your Mac stays awake while agents are working and sleeps normally once they finish.
+- Native desktop menus for workspaces, agents, conversation search, appearance and Help, with keyboard shortcuts and current selections.
 
 **Context portability and human collaboration**
 

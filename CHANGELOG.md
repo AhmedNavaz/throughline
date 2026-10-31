@@ -2,6 +2,22 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-10-31
+
+### Added
+
+- Native desktop menus for workspace, conversation, agent and appearance controls, with their keyboard shortcuts and current selection states. Help links open the guide, roadmap, release notes and feedback forms; bug reports include the app and system versions ([#59](https://github.com/AhmedNavaz/throughline/pull/59)).
+
+### Fixed
+
+- Conversation files exported near the 2 MB limit can be imported again, including formatted JSON files that grow beyond 2 MB on disk. Multiple valid large files can also be imported together while retaining per-file limits and the existing limits on other requests ([#54](https://github.com/AhmedNavaz/throughline/pull/54)).
+- Failed **Approve** and **Deny** actions show a visible notice. Approval cards refresh after either outcome, removing stale requests and allowing pending requests to be retried ([#56](https://github.com/AhmedNavaz/throughline/pull/56)).
+- Failed lock and lease writes no longer leave partial files that block later changes. Failed updates preserve existing leases, and unreadable older files are named without clearing unknown owners ([#57](https://github.com/AhmedNavaz/throughline/pull/57)).
+- Startup and save errors identify a damaged settings file and explain how to recover. The file is preserved, along with the running settings, when it cannot be read ([#58](https://github.com/AhmedNavaz/throughline/pull/58)).
+- Claude run cards include cache reads and writes in their input-token total, making the count consistent with Codex. Existing saved runs show the corrected total too ([#60](https://github.com/AhmedNavaz/throughline/pull/60)).
+
+Thanks to [@seeebbii](https://github.com/seeebbii) for these improvements.
+
 ## [0.7.0] - 2026-10-31
 
 ### Added
@@ -94,6 +110,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.8.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.8.0
 [0.7.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0
 [0.6.2]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.2
 [0.6.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.6.1

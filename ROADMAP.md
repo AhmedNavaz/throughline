@@ -30,6 +30,7 @@ The fastest way to make Throughline better is to use it on your real projects an
 | Search the conversation with Cmd/Ctrl+F, highlights and next/previous matches | [0.7.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0) |
 | System appearance alongside explicit Light and Dark themes | [0.7.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0) |
 | Quiet background agent checks that preserve verified connection status | [0.7.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0) |
+| Native desktop menus for workspace, conversation, agent, appearance and Help controls | [0.8.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.8.0) |
 
 ## Now
 
@@ -39,7 +40,6 @@ The fastest way to make Throughline better is to use it on your real projects an
 | Persistent approval indicators and desktop notifications that open the right request | Planned | [#46](https://github.com/AhmedNavaz/throughline/issues/46) |
 | Notarized macOS builds, so downloads open without a security prompt | Waiting on an Apple Developer account | [#1](https://github.com/AhmedNavaz/throughline/issues/1) |
 | Update button: get new versions from inside the app with one click | Planned | [#2](https://github.com/AhmedNavaz/throughline/issues/2) |
-| Native menus in the menu bar: File, Edit, View, Agent and Help with every feature and its shortcut | Planned, help wanted | [#51](https://github.com/AhmedNavaz/throughline/issues/51) |
 | Install with Homebrew: `brew install --cask throughline` | Depends on #1 | [#3](https://github.com/AhmedNavaz/throughline/issues/3) |
 
 ## Next
