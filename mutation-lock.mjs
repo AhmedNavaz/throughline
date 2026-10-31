@@ -26,21 +26,72 @@ const alive = (pid, start) => exists(pid) && !reused(pid, start);
 // A group ID is its leader's PID, and no new process gets it while the group exists. So a process using it with
 // another start time means the group has ended. A leader that exited alone has no start time, so its group still counts.
 function groupAlive(pid, start) { return process.platform !== 'win32' && pid ? exists(-pid) && !reused(pid, start) : false; }
+// Ownership lives in a unique filename so a recovery process can claim a dead
+// owner's marker with one atomic rename. A contender holding an old filename
+// can never remove a replacement guard created by another process.
+function guardOwner() {
+  const start = processStart(process.pid);
+  return `owner-${process.pid}-${start ? Buffer.from(start).toString('base64url') : 'none'}-${randomUUID()}.json`;
+}
+function savedGuardOwner(name) {
+  const match = /^owner-(\d+)-([A-Za-z0-9_-]+)-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.json$/.exec(name);
+  if (!match || !Number.isSafeInteger(+match[1]) || +match[1] <= 0) return null;
+  const start = match[2] === 'none' ? null : Buffer.from(match[2], 'base64url').toString('utf8');
+  if (start !== null && (!/^(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) +\d{1,2} \d{2}:\d{2}:\d{2} \d{4}$/.test(start) || Buffer.from(start).toString('base64url') !== match[2])) return null;
+  return { pid: +match[1], start };
+}
+function discardGuard(guard, marker) {
+  // Retire the whole directory before deleting its marker. A crash during
+  // cleanup then leaves only a disposable retired directory, never an empty
+  // guard blocking the next application launch.
+  const retired = `${guard}.retired-${randomUUID()}`;
+  fs.renameSync(guard, retired);
+  try { fs.unlinkSync(path.join(retired, marker)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  fs.rmdirSync(retired);
+}
+function recoverGuard(guard, claim) {
+  let names;
+  try {
+    const directory = fs.lstatSync(guard);
+    if (!directory.isDirectory() || directory.isSymbolicLink()) return false;
+    names = fs.readdirSync(guard);
+  } catch (error) { if (error.code === 'ENOENT') return true; if (['ENOTDIR', 'EACCES'].includes(error.code)) return false; throw error; }
+  // Empty legacy guards and unknown content have no verifiable owner. They
+  // remain fail-closed; age alone never grants permission to remove a guard.
+  if (names.length !== 1) return false;
+  const owner = savedGuardOwner(names[0]);
+  if (!owner || alive(owner.pid, owner.start)) return false;
+  const source = path.join(guard, names[0]);
+  try {
+    const marker = fs.lstatSync(source);
+    if (!marker.isFile() || marker.isSymbolicLink()) return false;
+    fs.renameSync(source, path.join(guard, claim));
+  } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  // The marker now names this live recovery process. Other recoverers wait;
+  // if this process crashes here, its successor can claim this marker instead.
+  discardGuard(guard, claim);
+  return true;
+}
 export function withFileGuard(filename, callback) {
   const guard = `${filename}.guard`;
+  const marker = guardOwner();
   const deadline=Date.now()+500;
   const pause=new Int32Array(new SharedArrayBuffer(4));
   for(;;) {
     try {fs.mkdirSync(guard,{mode:0o700});break;}
     catch(error) {
       if(error.code!=='EEXIST')throw error;
+      if(recoverGuard(guard, marker))continue;
       if(Date.now()>=deadline)throw fail(`Another operation is updating ${path.basename(filename)}. Retry. If the application crashed while holding this guard, inspect and remove ${guard} only after all Throughline instances are stopped.`);
       // Guards protect short synchronous filesystem transactions. Another process
       // may finish normally; don't mistake that brief contention for a crash.
       Atomics.wait(pause,0,0,10);
     }
   }
-  try { return callback(); } finally { fs.rmdirSync(guard); }
+  try {
+    fs.writeFileSync(path.join(guard, marker), JSON.stringify({ pid: process.pid, pidStart: processStart(process.pid) }), { flag: 'wx', mode: 0o600 });
+    return callback();
+  } finally { discardGuard(guard, marker); }
 }
 // Locks and leases are written under a temporary name and renamed into place, so a write that fails (on a full disk,
 // for example) or stops partway leaves no empty file behind to block later changes.
