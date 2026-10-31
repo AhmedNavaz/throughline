@@ -503,6 +503,28 @@ test('Git panel stays open on wide layouts unless closed, and changed files open
   const narrow=await browser({insights:true});assert.equal(narrow.$('git-panel').hidden,true,'Overlay layouts start with the panel closed.');
 });
 
+test('Gemini quota uses the reported default model and shows absolute and disabled buckets without percentage bars',async()=>{
+  const windows={gemini:{available:true,source:'antigravity-acp',defaultModel:'gemini-argon',windows:[{id:'flash',label:'5-hour · Flash',usedPercent:20,scopes:['flash']},{id:'argon',label:'Weekly · Argon',usedPercent:100,scopes:['argon']},{id:'units',label:'Daily · Gemini',remainingAmount:1200,scopes:['gemini']},{id:'disabled',label:'Weekly · Other',disabled:true,scopes:[]}]}};
+  const ui=await browser({insights:true,workbench:true,providers:{gemini:{available:true}},authenticated:{codex:true,claude:true,gemini:true},billingSource:{codex:'subscription',claude:'subscription',gemini:'subscription'},usage:windows});await ui.window.relayUI.refreshAccounts({force:true});await flush();
+  ui.$('select-gemini').click();await flush();assert.match(ui.$('gemini-usage').textContent,/Argon.*0% left/);assert.doesNotMatch(ui.$('gemini-usage').textContent,/80%/);
+  ui.state().model='gemini-flash';ui.window.dispatchEvent(new UIEvent('relay-state'));assert.match(ui.$('usage-chip').textContent,/80% left/);
+  ui.window.relayUsage.open('gemini');await flush();const content=ui.$('usage-details');assert.match(content.textContent,/1,200 units left/);assert.match(content.textContent,/Disabled/);assert.equal(content.querySelectorAll('.usage-track').length,2);
+  ui.state().model=null;ui.state().usage.gemini.defaultModel=null;ui.window.dispatchEvent(new UIEvent('relay-state'));assert.equal(ui.$('gemini-usage').hidden,true,'An unknown provider default never assumes Flash.');
+  ui.$('relay-settings').click();await flush();assert.match(ui.$('workbench-content').textContent,/1,200 units left/);assert.match(ui.$('workbench-content').textContent,/Disabled/);assert.doesNotMatch(ui.$('workbench-content').textContent,/NaN/);
+});
+
+test('unavailable Gemini quota never shows estimates or stale percentage rows',async()=>{
+  const ui=await browser({insights:true,providers:{gemini:{available:true}},authenticated:{codex:true,claude:true,gemini:true},usage:{gemini:{available:false,reason:'Google has not reported quota.',windows:[{id:'stale',label:'Weekly',usedPercent:15}]}}});await ui.window.relayUI.refreshAccounts({force:true});await flush();
+  ui.window.relayUsage.open('gemini');await flush();assert.equal(ui.$('gemini-usage').hidden,true);assert.match(ui.$('usage-details').textContent,/Google has not reported quota/);assert.equal(ui.$('usage-details').querySelectorAll('.usage-track').length,0);assert.doesNotMatch(ui.$('usage-details').textContent,/85%/);
+});
+
+test('signing out hides cached Gemini quota and discards a late reading from that account',async()=>{
+  const ui=await browser({insights:true,providers:{gemini:{available:true}},authenticated:{codex:true,claude:true,gemini:true},usage:{gemini:{available:true,defaultModel:'gemini-flash',windows:[{id:'flash',label:'Weekly · Flash',usedPercent:63,scopes:['flash']}]}}}),held=deferred();let calls=0;
+  ui.setIntercept((request,next)=>request.path==='/api/providers/gemini/usage'&&++calls===1?held.promise:next());ui.window.relayUsage.open('gemini');await flush();
+  ui.state().accounts.gemini.authenticated=false;ui.window.dispatchEvent(new UIEvent('relay-state'));held.resolve({ok:true,json:async()=>({available:true,defaultModel:'gemini-flash',windows:[{id:'old',label:'Weekly · Flash',usedPercent:5,scopes:['flash']}]})});await flush();assert.equal(ui.$('gemini-usage').hidden,true);assert.match(ui.$('usage-details').textContent,/Not signed in/);assert.equal(ui.$('usage-details').querySelectorAll('.usage-track').length,0);
+  ui.state().accounts.gemini.authenticated=true;ui.window.dispatchEvent(new UIEvent('relay-state'));await flush();assert.match(ui.$('gemini-usage').textContent,/37% left/);assert.equal(calls,2);
+});
+
 test('plan usage shows remaining percent for both agents and the selected model',async()=>{
   const windows={codex:{provider:'codex',available:true,windows:[{id:'primary',label:'5-hour',usedPercent:80,resetsAt:null},{id:'secondary',label:'Weekly',usedPercent:18,resetsAt:null}]},claude:{provider:'claude',available:true,windows:[{id:'five_hour',label:'5-hour',usedPercent:20,resetsAt:null},{id:'seven_day_opus',label:'Weekly · Opus',usedPercent:95,resetsAt:null,scope:'opus'}]}};
   const ui=await browser({insights:true,usage:windows});await ui.window.relayUI.refreshAccounts({force:true});await flush();

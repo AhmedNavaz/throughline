@@ -200,7 +200,7 @@
   $('close-diff').addEventListener('click', () => diffDialog.close());
 
   // Plan usage for both agents: status bar meters, plus a composer chip for the selected agent and model.
-  const usage = {}, usageLoading = {}, usageAttempted = {}, usageErrors = {};
+  const usage = {}, usageLoading = {}, usageAttempted = {}, usageErrors = {}, usageRequests = {};
   let usageProvider = null, usageAnchor = null;
   const usagePopover = $('usage-dialog');
   const usageIsOpen = () => usagePopover.matches(':popover-open');
@@ -213,10 +213,10 @@
   }
   const describeWindow = row => `${row.label}: ${remaining(row)}% left${resetLabel(row.resetsAt) ? ', ' + resetLabel(row.resetsAt) : ''}`;
   function usageWindows(provider) {
-    const state = api.getState(), result = usage[provider]; if (!result?.available) return [];
+    const state = api.getState(), result = usage[provider]; if (!result?.available || state.accounts?.[provider]?.authenticated !== true) return [];
     let model = String((provider === state.provider ? state.model : state.conversation?.models?.[provider]) || '').toLowerCase();
-    if (provider === 'gemini' && (!model || model === 'default')) model = 'flash';
-    return result.windows.filter(row => !row.scope || (model && model.includes(row.scope)));
+    if (provider === 'gemini' && (!model || model === 'default')) model = String(result.defaultModel || '').toLowerCase();
+    return (result.windows || []).filter(row => Number.isFinite(row.usedPercent) && !row.disabled && (Array.isArray(row.scopes) ? row.scopes.some(scope => model.includes(scope)) : !row.scope || (model && model.includes(row.scope))));
   }
   function renderUsage() {
     const state = api.getState();
@@ -235,10 +235,11 @@
   }
   async function loadUsage(provider, refresh = false) {
     if (usageLoading[provider] || api.getState().accounts?.[provider]?.authenticated !== true) return;
+    const request = usageRequests[provider] = (usageRequests[provider] || 0) + 1;
     usageLoading[provider] = usageAttempted[provider] = true; usageErrors[provider] = null; renderUsageDetails();
-    try { usage[provider] = { ...await api.api(`/api/providers/${provider}/usage${refresh ? '?refresh=1' : ''}`, {}, null), fetchedAt: Date.now() }; api.getState().usage = { ...usage }; }
-    catch (error) { usageErrors[provider] = error.message; }
-    finally { usageLoading[provider] = false; renderUsage(); renderUsageDetails(); }
+    try { const result = await api.api(`/api/providers/${provider}/usage${refresh ? '?refresh=1' : ''}`, {}, null); if (request === usageRequests[provider] && api.getState().accounts?.[provider]?.authenticated === true) { usage[provider] = { ...result, fetchedAt: Date.now() }; api.getState().usage = { ...usage }; } }
+    catch (error) { if (request === usageRequests[provider]) usageErrors[provider] = error.message; }
+    finally { if (request === usageRequests[provider]) { usageLoading[provider] = false; renderUsage(); renderUsageDetails(); } }
   }
   for (const provider of ['codex', 'claude', 'gemini']) $(`${provider}-usage`).addEventListener('click', event => openUsage(provider, event.currentTarget || $(`${provider}-usage`)));
   $('usage-chip').addEventListener('click', () => openUsage(api.getState().provider, $('usage-chip')));
@@ -253,19 +254,22 @@
   function renderUsageDetails() {
     if (!usageProvider || !usageIsOpen()) return;
     const state = api.getState(), provider = usageProvider, account = state.accounts?.[provider], result = usage[provider], plan = result?.plan || account?.planType || account?.subscriptionType;
-    $('usage-title').textContent = 'Plan usage'; $('usage-plan').textContent = `From your own ${name(provider)} account`;
+    $('usage-title').textContent = 'Plan usage'; $('usage-plan').textContent = provider === 'gemini' ? 'Reported by Google Antigravity' : `From your own ${name(provider)} account`;
     const section = el('section', undefined, 'usage-provider'), heading = el('div', undefined, 'usage-provider-heading'), icon = el('i', undefined, 'agent-icon ' + provider);
     section.dataset.provider = provider; icon.setAttribute('aria-hidden', 'true');
     heading.append(icon, el('h3', name(provider))); if (plan) heading.append(el('span', String(plan).replace(/[_-]/g, ' '), 'usage-plan-badge'));
     section.append(heading);
-    const rows = (result?.windows || []).filter(row => Number.isFinite(row.usedPercent));
+    const rows = result?.available && account?.authenticated === true ? (result.windows || []).filter(row => Number.isFinite(row.usedPercent) || Number.isFinite(row.remainingAmount) || row.disabled || row.status) : [];
     for (const row of rows) {
-      const left = remaining(row), item = el('div', undefined, 'usage-window-row'), top = el('div', undefined, 'usage-window-top'), track = el('div', undefined, 'usage-track'), fill = el('i'), bottom = el('div', undefined, 'usage-window-bottom');
-      item.dataset.level = usageLevel(left); fill.style.width = left + '%'; track.append(fill); track.setAttribute('role', 'img'); track.setAttribute('aria-label', `${left}% of the ${row.label} allowance left`);
-      top.append(el('span', row.label, 'usage-window-label'), el('strong', `${left}% left`)); bottom.append(el('span', resetCountdown(row.resetsAt)));
+      const percent = Number.isFinite(row.usedPercent) && !row.disabled, left = percent ? remaining(row) : null, item = el('div', undefined, 'usage-window-row'), top = el('div', undefined, 'usage-window-top'), bottom = el('div', undefined, 'usage-window-bottom');
+      item.dataset.level = percent ? usageLevel(left) : 'unknown';
+      const value = row.disabled ? 'Disabled' : percent ? `${left}% left` : Number.isFinite(row.remainingAmount) ? `${row.remainingAmount.toLocaleString()} units left` : row.status;
+      top.append(el('span', row.label, 'usage-window-label'), el('strong', value)); bottom.append(el('span', row.disabled ? row.statusDescription || 'Quota limit disabled by the provider' : resetCountdown(row.resetsAt)));
       const at = new Date(row.resetsAt || '');
       if (!Number.isNaN(at.getTime())) { const time = el('time', at.toLocaleString(undefined, at.toDateString() === new Date().toDateString() ? { hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' })); time.setAttribute('datetime', at.toISOString()); time.title = at.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' }); bottom.append(time); }
-      item.append(top, track, bottom); section.append(item);
+      item.append(top);
+      if (percent) { const track = el('div', undefined, 'usage-track'), fill = el('i'); fill.style.width = left + '%'; track.append(fill); track.setAttribute('role', 'img'); track.setAttribute('aria-label', `${left}% of the ${row.label} allowance left`); item.append(track); }
+      item.append(bottom); section.append(item);
     }
     if (!rows.length) section.append(el('p', usageLoading[provider] ? 'Reading the current allowance…' : account?.authenticated === false ? 'Not signed in' : result?.reason || 'Not reported for this account.', 'usage-empty'));
     if (usageErrors[provider]) section.append(el('p', 'Could not refresh. ' + usageErrors[provider] + (result?.fetchedAt ? ' The last successful reading is shown.' : ''), 'usage-error'));
@@ -314,12 +318,15 @@
   function render() {
     if (lastFolder !== api.selectedFolderId?.()) { lastFolder = api.selectedFolderId?.(); if (gitData) renderGit(); }
     const state = api.getState(); modelControls(); progress();
-    for (const provider of ['codex', 'claude', 'gemini']) if (state.accounts?.[provider]?.authenticated === true && !usageAttempted[provider]) loadUsage(provider);
+    for (const provider of ['codex', 'claude', 'gemini']) {
+      if (state.accounts?.[provider]?.authenticated === false && (usage[provider] || usageAttempted[provider] || usageLoading[provider])) { usageRequests[provider] = (usageRequests[provider] || 0) + 1; delete usage[provider]; delete usageAttempted[provider]; delete usageErrors[provider]; usageLoading[provider] = false; state.usage = { ...usage }; }
+      if (state.accounts?.[provider]?.authenticated === true && !usageAttempted[provider]) loadUsage(provider);
+    }
     // A finished run changes files and consumes usage.
     const running = state.conversation?.status === 'running' ? state.projectId : null;
     if (runningProject && runningProject === state.projectId && !running) { if (!$('git-panel').hidden) loadGit(); for (const provider of ['codex', 'claude', 'gemini']) loadUsage(provider, true); }
     runningProject = running;
-    renderUsage();
+    renderUsage(); renderUsageDetails();
     if (state.ready && (state.status?.providers?.[state.provider]?.available || state.accounts?.[state.provider]?.available || state.accounts?.[state.provider]?.installed) && state.accounts?.[state.provider]?.authenticated === true && !catalog[state.provider] && !attemptedModels[state.provider] && !loadingModels[state.provider]) loadModels();
     $('open-git').disabled = !state.projectId;
     if (lastProject !== state.projectId) {

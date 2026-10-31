@@ -275,7 +275,8 @@
   function accountLabel(account) { return !account.installed ? 'Not installed' : account.authenticated === true ? 'Connected' : account.authenticated === false ? 'Sign-in required' : 'Connection not confirmed'; }
   function billingLabel(value) { return value === 'subscription' ? 'Your subscription' : value === 'api' ? 'API usage' : 'Not reported'; }
   function usageLabel(usage, plan) {
-    if (plan?.available && plan.windows?.length) return plan.windows.map(row => `${row.label}: ${Math.round(row.usedPercent)}% used`).join(' · ');
+    if (plan?.available && plan.windows?.length) return plan.windows.map(row => `${row.label}: ${row.disabled ? 'Disabled' : Number.isFinite(row.usedPercent) ? Math.round(row.usedPercent) + '% used' : Number.isFinite(row.remainingAmount) ? row.remainingAmount.toLocaleString() + ' units left' : row.status || 'Not reported'}`).join(' · ');
+    if (plan?.available === false) return plan.reason || 'Not reported for this connection';
     if (!usage || typeof usage !== 'object') return 'Not reported by provider';
     const periods = [usage.primary, usage.secondary].filter(period => period && typeof period.usedPercent === 'number');
     if (periods.length) return periods.map(period => { const minutes = period.windowDurationMins, label = minutes >= 10080 ? 'Weekly' : minutes >= 1440 ? 'Daily' : minutes >= 60 ? `${Math.round(minutes / 60)}-hour` : 'Current'; return `${label}: ${Math.round(period.usedPercent)}% used`; }).join(' · ');

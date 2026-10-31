@@ -2,6 +2,13 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.11.3] - 2026-11-01
+
+### Fixed
+
+- Gemini account usage now reads the official Antigravity usage report instead of estimated percentages or old CLI logs. Missing quota remains unavailable, and absolute or disabled limits are shown without fabricated progress bars.
+- Usage follows the native model default, clears on sign-out, and is cached separately for each Google connection profile. Cached account names no longer substitute for verification of this connection’s authentication.
+
 ## [0.11.2] - 2026-11-01
 
 ### Added
@@ -202,6 +209,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.11.3]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.3
 [0.11.2]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.2
 [0.11.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.1
 [0.11.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.0

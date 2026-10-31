@@ -41,7 +41,7 @@ export function antigravityAccount(session) {
 
 const connections = new Map();
 export function closeGoogleConnections() { for (const entry of connections.values()) entry.client.close(); connections.clear(); }
-function clientFor({ bin, googleRoot }, clientFactory) {
+export function createGoogleMetadataClient({ bin, googleRoot }, clientFactory) {
   const options = antigravityInvocation({ bin, googleRoot, mode: 'edit' });
   const cwd = path.join(options.env.GEMINI_HOME, 'metadata'); fs.mkdirSync(cwd, { recursive: true, mode: 0o700 });
   const client = clientFactory({ bin, cwd, ...options });
@@ -50,7 +50,7 @@ function clientFor({ bin, googleRoot }, clientFactory) {
   return { client, cwd };
 }
 export async function googleMetadata(options, clientFactory = options => new GeminiClient(options)) {
-  const { client, cwd } = clientFor(options, clientFactory);
+  const { client, cwd } = createGoogleMetadataClient(options, clientFactory);
   try {
     const initialized = await initializeAntigravity(client);
     verifyAntigravity(initialized);
@@ -69,7 +69,7 @@ export async function googleMetadata(options, clientFactory = options => new Gem
 export async function connectGoogle(options, clientFactory = options => new GeminiClient(options)) {
   const key = options.googleRoot || defaultGoogleRoot();
   const current = connections.get(key); if (current) return { started: true, nativeFlow: true, authUrl: current.url, message: 'Google sign-in is already open. Complete it in your browser, then refresh status.' };
-  const { client } = clientFor(options, clientFactory);
+  const { client } = createGoogleMetadataClient(options, clientFactory);
   try {
     const initialized = await initializeAntigravity(client);
     verifyAntigravity(initialized);
@@ -90,7 +90,7 @@ export async function connectGoogle(options, clientFactory = options => new Gemi
 }
 export async function disconnectGoogle(options, clientFactory = options => new GeminiClient(options)) {
   const current = connections.get(options.googleRoot || defaultGoogleRoot()); current?.client.close(); connections.delete(options.googleRoot || defaultGoogleRoot());
-  const { client } = clientFor(options, clientFactory);
+  const { client } = createGoogleMetadataClient(options, clientFactory);
   try { const initialized = await initializeAntigravity(client); if (!initialized.agentCapabilities?.auth?.logout) throw new Error('Manage sign-out in the native Antigravity client.'); await client.request('logout'); return { disconnected: true }; }
   finally { client.close(); }
 }
