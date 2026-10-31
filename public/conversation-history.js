@@ -3,7 +3,7 @@
   // Uses the shared UI API; Git, model controls and usage do not own history state.
   const $ = id => document.getElementById(id), api = window.relayUI;
   const el = (tag, text, cls) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (cls) node.className = cls; return node; };
-  const name = provider => provider === 'claude' ? 'Claude' : 'Codex';
+  const name = provider => provider === 'gemini' ? 'Gemini' : provider === 'claude' ? 'Claude' : 'Codex';
   const date = value => !value || Number.isNaN(new Date(value).getTime()) ? 'Date unavailable' : new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const action = (text, fn, cls) => { const button = el('button', text, cls); button.type = 'button'; button.addEventListener('click', fn); return button; };
 
@@ -13,7 +13,7 @@
   const discoveries = new Map(), dismissingDiscovery = new Set();
   let setupReady = false;
   const sessionKey = session => `${session.provider}:${session.id}`;
-  const sourceName = provider => provider === 'claude' ? 'Claude Code' : provider === 'file' ? 'Conversation file' : 'Codex';
+  const sourceName = provider => provider === 'gemini' ? 'Gemini' : provider === 'claude' ? 'Claude Code' : provider === 'file' ? 'Conversation file' : 'Codex';
   const isFile = entry => entry.session.provider === 'file';
   const baseName = folder => String(folder || '').split(/[\\/]/).filter(Boolean).pop() || folder;
   const homePath = folder => String(folder || '').replace(/^\/(?:Users|home)\/[^/]+/, '~');

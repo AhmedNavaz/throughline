@@ -10,7 +10,7 @@ Thanks for helping. Bug reports, fixes and focused improvements are all welcome.
 
 ## Set up
 
-You need Node.js 22.12 or later. Claude Code and/or the Codex CLI are only needed to try real runs; the test suite uses mocks.
+You need Node.js 22.12 or later. Claude Code, Codex CLI or Gemini CLI are only needed to try real runs; the test suite uses mocks.
 
 ```sh
 npm ci
@@ -30,8 +30,9 @@ The [architecture guide](docs/architecture.md) explains service boundaries, data
 | `server.mjs` | Local HTTP server bound to 127.0.0.1, with host, origin and token checks |
 | `projects.mjs` | Workspace registry: folders and each workspace's single conversation |
 | `broker.mjs`, `context.mjs` | Conversation journal, runs, and the shared context handed to each agent |
-| `providers.mjs`, `provider-worker.mjs` | Claude Agent SDK and Codex app-server adapters, accounts and plan usage; runs happen in a worker process |
-| `resolve-binary.mjs` | Finds the installed `claude` and `codex` executables |
+| `gemini.mjs`, `providers.mjs`, `provider-worker.mjs` | Claude Agent SDK, Codex app-server and Gemini CLI ACP adapters, accounts and plan usage; runs happen in a worker process |
+| `local-models.mjs` | Ollama local-model discovery, validation and scoped Codex tool-harness launch routes |
+| `resolve-binary.mjs` | Finds the installed `claude`, `codex` and `gemini` executables |
 | `conversation-routes.mjs`, `conversation-import.mjs`, `conversation-export.mjs` | Previous-chat discovery, reviewed imports and conversation files for other users |
 | `collaboration*.mjs`, `patches.mjs`, `sharing-client.mjs` | Ask a Friend: approved packages, returned patches and the private-link client |
 | `workspace-*.mjs`, `file-explorer.mjs`, `mutation-lock.mjs` | Safe file access, Git activity, snapshots and locks that prevent conflicting edits |

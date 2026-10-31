@@ -18,6 +18,8 @@
     <script src="/setup.js" defer></script>
     <link rel="stylesheet" href="/updates.css" />
     <script src="/updates.js" defer></script>
+    <link rel="stylesheet" href="/local-models.css" />
+    <script src="/local-models.js" defer></script>
     <script src="/desktop-controls.js" defer></script>
     <script src="/files.js" defer></script>
     <script src="/conversation-search.js" defer></script>
@@ -53,6 +55,7 @@
           <div class="header-actions">
             <div id="conversation-state" class="conversation-state" hidden><i aria-hidden="true"></i><span>Ready</span></div>
             <span class="toolbar-divider" aria-hidden="true"></span>
+            <button id="open-local" class="toolbar-button" type="button" title="Continue with a downloaded local model" disabled><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4M9 9h6v6H9z"/></svg><span class="button-label">Local</span></button>
             <button id="open-review" class="toolbar-button" type="button" title="Review changes with the other agent" disabled><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 12 3 3 5-6M12 3l8 4v5c0 5-8 9-8 9s-8-4-8-9V7z"/></svg><span class="button-label">Review</span></button>
             <button id="open-import" class="toolbar-button" type="button" title="Review and merge previous conversations for this workspace" disabled><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 21h14"/></svg><span class="button-label">Previous chats</span></button>
             <button id="open-export" class="toolbar-button" type="button" title="Export this conversation to share with another Throughline user"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m-4 4 4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg><span class="button-label">Export</span></button>
@@ -91,7 +94,7 @@
 
         <div id="messages-scroll" class="messages-scroll">
           <section id="project-empty-state" class="empty-state" aria-label="Create a workspace" hidden><span class="empty-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10.5v5M9.5 13h5"/></svg></span><h2>Open your first project</h2><p>Choose your project folders to create a workspace. Once it opens, Throughline can find previous Claude Code and Codex conversations for those folders.</p><div class="empty-actions"><button id="add-first-project" class="primary-button" type="button">Choose project folders</button></div></section>
-          <section id="provider-empty-state" class="empty-state" aria-label="Connect an assistant" hidden><span class="empty-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M9 7V3M15 7V3M6 7h12v4a6 6 0 0 1-12 0zM12 17v4"/></svg></span><h2>Connect an assistant</h2><p>Connect Codex or Claude in Settings to send messages. Your saved work remains available.</p><button id="connect-assistant" class="primary-button" type="button">Open settings</button></section>
+          <section id="provider-empty-state" class="empty-state" aria-label="Connect an assistant" hidden><span class="empty-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M9 7V3M15 7V3M6 7h12v4a6 6 0 0 1-12 0zM12 17v4"/></svg></span><h2>Connect an assistant</h2><p>Connect Codex, Claude or Gemini in Settings to send messages. Your saved work remains available.</p><button id="connect-assistant" class="primary-button" type="button">Open settings</button></section>
           <section id="empty-state" class="empty-state" aria-label="Conversation"><span class="empty-mark" aria-hidden="true"><img src="/icon.svg" alt="" width="44" height="44" /></span><h2>Start a task</h2><p>Describe what you need, or import a conversation to pick up where you left off.</p><div class="starter-prompts"><button type="button" data-prompt="Explore this project and explain how it works."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><strong>Explore the project</strong><small>Explain how it works</small></button><button type="button" data-prompt="Review the current changes and help me find any bugs."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg><strong>Review my changes</strong><small>Find bugs in the current diff</small></button></div></section>
           <div id="messages" class="messages" role="log" aria-label="Conversation messages" aria-live="off"></div>
         </div>
@@ -109,7 +112,7 @@
           </section>
           <div id="other-running" class="running-notice" hidden><span>This workspace has an active run.</span><button id="view-running" type="button">Refresh status</button></div>
           <section id="review-summary" class="review-strip" aria-label="Latest code review" hidden><span id="review-summary-text"></span><button id="view-review" class="text-link" type="button">View review</button></section>
-          <div id="continuation" class="continuation" hidden><span id="continuation-text">The last run stopped.</span><button id="continue-button" type="button">Continue with Codex <span aria-hidden="true">→</span></button></div>
+          <div id="continuation" class="continuation" hidden><span id="continuation-text">The last run stopped.</span><button id="continue-button" type="button">Continue with Codex <span aria-hidden="true">→</span></button><button id="continue-locally" type="button" hidden>Continue locally →</button></div>
           <div id="connection-notice" class="connection-notice" role="status" hidden><span id="connection-notice-text"></span><button id="connection-action" type="button">Connect account</button></div>
           <form id="composer" class="composer">
             <div id="custom-model-editor" class="custom-model-editor" hidden><label for="custom-model-input">Custom model ID</label><input id="custom-model-input" maxlength="200" placeholder="Enter a supported model identifier" /><button id="save-custom-model" type="button">Use model</button><button id="cancel-custom-model" type="button">Cancel</button></div>
@@ -121,7 +124,7 @@
               <div class="composer-controls">
                 <button id="attach-files" class="attach-files" type="button" title="Attach images or text files · also paste or drop files" aria-label="Attach images or text files"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9M6 15l8-8"/></svg><span>Attach</span></button>
                 <span id="assistant-label" class="sr-only">Assistant</span>
-                <div class="provider-selector" role="group" aria-labelledby="assistant-label"><button id="select-codex" class="provider-button selected" type="button" aria-pressed="true"><i class="agent-icon codex" aria-hidden="true"></i>Codex</button><button id="select-claude" class="provider-button" type="button" aria-pressed="false"><i class="agent-icon claude" aria-hidden="true"></i>Claude</button></div>
+                <div class="provider-selector" role="group" aria-labelledby="assistant-label"><button id="select-codex" class="provider-button selected" type="button" aria-pressed="true"><i class="agent-icon codex" aria-hidden="true"></i>Codex</button><button id="select-claude" class="provider-button" type="button" aria-pressed="false"><i class="agent-icon claude" aria-hidden="true"></i>Claude</button><button id="select-gemini" class="provider-button" type="button" aria-pressed="false"><i class="agent-icon gemini" aria-hidden="true"></i>Gemini</button></div>
                 <label class="picker model-picker" title="Model"><span class="sr-only">Model</span><select id="model-select" aria-label="Model"><option value="">Provider default</option></select></label>
                 <button id="refresh-models" class="icon-button refresh-button" type="button" title="Load models from the selected agent" aria-label="Refresh available models"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
                 <label class="picker effort-picker" title="Reasoning effort"><span class="sr-only">Reasoning effort</span><select id="effort-select" aria-label="Reasoning effort"><option value="">Provider default</option></select></label>
@@ -152,6 +155,7 @@
         <div class="status-group">
           <span class="provider-status" data-provider="codex" title="Codex connection"><i id="codex-status-dot" class="status-dot" aria-hidden="true"></i><span class="provider-name">Codex</span><span id="codex-status-text" class="provider-state">Checking…</span><button id="codex-usage" class="usage-meter" type="button" hidden></button></span>
           <span class="provider-status" data-provider="claude" title="Claude connection"><i id="claude-status-dot" class="status-dot" aria-hidden="true"></i><span class="provider-name">Claude</span><span id="claude-status-text" class="provider-state">Checking…</span><button id="claude-usage" class="usage-meter" type="button" hidden></button></span>
+          <span class="provider-status" data-provider="gemini" title="Gemini connection"><i id="gemini-status-dot" class="status-dot" aria-hidden="true"></i><span class="provider-name">Gemini</span><span id="gemini-status-text" class="provider-state">Not checked</span><button id="gemini-usage" class="usage-meter" type="button" hidden></button></span>
         </div>
         <div class="status-group">
           <button id="keep-awake" class="status-button keep-awake" type="button" aria-pressed="false" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M8 9h.01M12 9h.01M16 9h.01"/></svg><span id="keep-awake-label">Keep awake · Off</span></button>
@@ -202,7 +206,7 @@
     </dialog>
 
     <dialog id="export-dialog" class="export-dialog" aria-labelledby="export-title" aria-describedby="export-description">
-      <header><div><h2 id="export-title">Export conversation</h2><p id="export-description">Save this workspace’s conversation as a file. Another Throughline user can import it and continue with their own Claude or Codex account.</p></div><button id="close-export" class="icon-button" type="button" aria-label="Close export"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+      <header><div><h2 id="export-title">Export conversation</h2><p id="export-description">Save this workspace’s conversation as a file. Another Throughline user can import it and continue with their own Claude, Codex or Gemini account.</p></div><button id="close-export" class="icon-button" type="button" aria-label="Close export"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
       <div class="export-body">
         <div class="export-options">
           <label class="export-field" for="export-range">Messages<select id="export-range"><option value="all">Entire conversation</option><option value="100">Last 100 messages</option><option value="30">Last 30 messages</option></select></label>
@@ -221,6 +225,10 @@
       <div id="diff-content" class="diff-content"></div>
     </dialog>
 
+    <dialog id="local-dialog" class="local-dialog" aria-labelledby="local-title" aria-describedby="local-description">
+      <header class="local-heading"><div><p class="local-eyebrow">KEEP THE THREAD · RUN LOCALLY</p><h2 id="local-title" tabindex="-1">Continue locally</h2><p id="local-description">Use a downloaded model with this project’s saved context and workspace tools.</p></div><button id="local-close" class="icon-button" type="button" aria-label="Close local models"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+      <div class="local-body"><p id="local-status" class="local-status" role="status"></p><label class="local-field" for="local-model">Local model<select id="local-model"></select></label><p id="local-model-detail" class="local-model-detail"></p><label class="local-field" for="local-task">Task to continue<textarea id="local-task" maxlength="16000" rows="3"></textarea></label><p id="local-context" class="local-context"></p><p class="local-requirements">Requires Codex CLI, Ollama and a downloaded model with tool support. A ChatGPT subscription is not needed for this connection. For longer coding tasks, configure Ollama with at least 64K context. Your composer draft stays saved.</p><p id="local-error" class="local-error" role="alert" hidden></p></div><footer class="local-actions"><button id="local-setup-guide" class="text-link" type="button">Setup guide ↗</button><div><button id="local-refresh" class="secondary-button" type="button">Refresh models</button><button id="local-start" class="primary-button" type="button" disabled>Continue locally</button></div></footer>
+    </dialog>
     <dialog id="updates-dialog" class="updates-dialog" aria-labelledby="updates-title" aria-describedby="updates-description">
       <header class="updates-heading"><img src="/icon.svg" width="44" height="44" alt="" /><div><p id="updates-eyebrow" class="updates-eyebrow">WHAT’S NEW</p><h2 id="updates-title">Throughline</h2><p id="updates-description"></p></div><button id="updates-close" class="icon-button" type="button" aria-label="Close what’s new"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
       <div id="updates-content" class="updates-content"></div>

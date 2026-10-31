@@ -155,7 +155,7 @@ test('rejects invalid providers, malformed JSON and unknown conversations', asyn
   for (const input of [{ provider: 'other' }, { mode: 'unrestricted' }]) {
     const response = await post(`${endpoint}/provider`, input);
     assert.equal(response.status, 400);
-    assert.match((await response.json()).error, /Choose Codex or Claude/);
+    assert.match((await response.json()).error, /Choose Codex, Claude or Gemini/);
   }
   assert.deepEqual(await (await fetch(endpoint)).json(), created);
 

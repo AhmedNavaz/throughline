@@ -65,7 +65,7 @@ export class CollaborationService {
     if(new Set(selected).size!==selected.length)throw invalid('Select each message only once.');
     const byId=new Map(conversation.messages.map(message=>[message.id,message]));
     const sanitize=value=>this.workspace(projectId).folders.reduce((text,folder)=>redactPublicText(text,folder.path),value);
-    const messages=selected.map(id=>{const message=byId.get(id);if(!message)throw invalid('A selected message no longer exists.');return {role:message.role,text:sanitize(message.text),...(['codex','claude'].includes(message.provider)?{provider:message.provider}:{})};});
+    const messages=selected.map(id=>{const message=byId.get(id);if(!message)throw invalid('A selected message no longer exists.');return {role:message.role,text:sanitize(message.text),...(['codex','claude','gemini'].includes(message.provider)?{provider:message.provider}:{})};});
     const layout=this.workspace(projectId);
     const folderLayout=layout.pathStyle==='namespaced'&&captured.baseline.length?{style:'namespaced',folders:[...new Set(captured.baseline.map(file=>file.path.split('/')[0]))]}:null;
     const outgoing=sealPackage({...(folderLayout?{folderLayout}:{}),schema:'ai-relay.handoff',version:1,id:randomUUID(),createdAt:new Date().toISOString(),mode,goal:sanitize(input.goal||''),problem:sanitize(input.problem||''),expectedOutcome:sanitize(input.expectedOutcome||''),decisions:asTexts(input.decisions,'decisions').map(sanitize),tasks:asTexts(input.tasks,'tasks').map(sanitize),messages,files:captured.files,baseline:captured.baseline});

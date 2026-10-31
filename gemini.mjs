@@ -1,0 +1,163 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { probeCli } from './cli-probe.mjs';
+import { readWorkspaceFile, writeWorkspaceFile } from './workspace-files.mjs';
+
+const reads = ['read_file', 'list_directory', 'glob', 'grep_search', 'read_many_files'];
+const edits = ['write_file', 'replace', 'run_shell_command'];
+export const geminiSetup = 'Install Gemini CLI 0.66.0 or newer, then run gemini in Terminal to configure its supported authentication. Throughline uses that CLI configuration. Availability, quotas and API charges depend on your Google account; no free allowance is assumed.';
+
+// Isolate invocation policy without changing the user's settings or authentication.
+// Managed system policy cannot safely be replaced by this per-run configuration.
+export function geminiInvocation(config, { env = process.env, platform = process.platform, systemDirectory } = {}) {
+  const system = systemDirectory || (platform === 'darwin' ? '/Library/Application Support/GeminiCli' : platform === 'win32' ? path.join(env.ProgramData || 'C:\\ProgramData', 'gemini-cli') : '/etc/gemini-cli');
+  let policies = [];
+  try { policies = fs.readdirSync(path.join(system, 'policies')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (env.GEMINI_CLI_SYSTEM_SETTINGS_PATH || fs.existsSync(path.join(system, 'settings.json')) || policies.some(name => name.endsWith('.toml'))) throw new Error('Gemini uses managed system settings or policy. This connection cannot enforce Throughline access settings alongside that configuration. Use the native CLI.');
+  const folders = [...new Set([config.workspace, ...(config.workspaces || [])])];
+  if (folders.length > 6) throw new Error('Gemini supports a primary folder and up to five additional folders. Use a workspace with at most six folders.');
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'throughline-gemini-'));
+  const cleanup = () => fs.rmSync(temporary, { recursive: true, force: true });
+  try {
+    fs.chmodSync(temporary, 0o700);
+    const policy = path.join(temporary, 'access.toml'), settings = path.join(temporary, 'settings.json');
+    fs.writeFileSync(policy, `[[rule]]\ntoolName = "*"\ndecision = "${config.mode === 'read' ? 'deny' : 'ask_user'}"\npriority = 998\n\n[[rule]]\ntoolName = ${JSON.stringify(reads)}\ndecision = "allow"\npriority = 999\n`, { mode: 0o600 });
+    fs.writeFileSync(settings, JSON.stringify({ policyPaths: [], adminPolicyPaths: [policy], tools: { core: [...reads, ...(config.mode === 'read' ? [] : edits)], sandbox: false }, hooksConfig: { enabled: false }, admin: { mcp: { enabled: false }, extensions: { enabled: false }, skills: { enabled: false } }, telemetry: { enabled: false }, experimental: { autoMemory: false } }), { mode: 0o600 });
+    const args = ['--acp', '--approval-mode', 'default', '--admin-policy', policy, '--extensions', 'none'];
+    if (config.model) args.push('--model', config.model);
+    for (const folder of folders.slice(1)) args.push('--include-directories', folder);
+    return { args, env: { ...env, GEMINI_CLI_SYSTEM_SETTINGS_PATH: settings, GEMINI_TELEMETRY_ENABLED: 'false' }, cleanup };
+  } catch (error) { cleanup(); throw error; }
+}
+
+// ACP is newline-delimited JSON-RPC. Bound frames before parsing, and fail all
+// outstanding requests on malformed output, timeout, exit or cancellation.
+export class GeminiClient extends EventEmitter {
+  constructor({ bin, cwd, args, env, spawnImpl = spawn }) {
+    super(); this.pending = new Map(); this.counter = 0; this.closed = false;
+    this.child = spawnImpl(bin, args, { cwd, env, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+    let buffer = '', diagnostic = '';
+    this.child.stderr.on('data', chunk => { diagnostic = (diagnostic + chunk).slice(-8000); });
+    this.child.stdout.setEncoding('utf8');
+    this.child.stdout.on('data', chunk => {
+      buffer += chunk;
+      if (buffer.length > 8 * 1024 * 1024) { this.fail(new Error('Oversized Gemini protocol event.')); return; }
+      let newline;
+      while ((newline = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
+        if (!line.trim()) continue;
+        try {
+          const message = JSON.parse(line);
+          if (!message || message.jsonrpc !== '2.0') throw new Error('Expected JSON-RPC 2.0.');
+          if (message.id !== undefined && !message.method) {
+            const request = this.pending.get(message.id); if (!request) continue;
+            clearTimeout(request.timer); this.pending.delete(message.id);
+            if (message.error) request.reject(new Error(message.error.message || 'Gemini protocol error.'));
+            else request.resolve(message.result);
+          } else this.emit('message', message);
+        } catch (error) { this.fail(new Error('Invalid Gemini protocol: ' + error.message)); return; }
+      }
+    });
+    this.child.stdin.on('error', () => {});
+    this.child.on('error', error => this.fail(error));
+    this.child.on('close', (code, signal) => this.fail(new Error(diagnostic || `Gemini ACP closed (${code ?? signal}).`)));
+  }
+  send(message) { if (!this.closed) this.child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n'); }
+  request(method, params = {}, timeout = 30000) {
+    if (this.closed) return Promise.reject(new Error('Gemini ACP is closed.'));
+    const id = ++this.counter;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('Gemini protocol timed out: ' + method)); this.close(); }, timeout);
+      this.pending.set(id, { resolve, reject, timer }); this.send({ id, method, params });
+    });
+  }
+  fail(error) {
+    for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(error); }
+    this.pending.clear(); this.close();
+  }
+  close() { if (!this.closed) { this.closed = true; this.child.stdin.end(); this.child.kill('SIGTERM'); } }
+}
+
+export function geminiFile(config, filename) {
+  if (typeof filename !== 'string' || !path.isAbsolute(filename)) throw new Error('Gemini requested an invalid absolute file path.');
+  const target = path.resolve(filename);
+  for (const root of [config.workspace, ...(config.workspaces || [])]) {
+    const relative = path.relative(root, target);
+    if (relative && !relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative)) return { root, relative: relative.split(path.sep).join('/') };
+  }
+  throw new Error('Gemini requested a file outside this workspace.');
+}
+
+export async function runGemini(config, { event, approval, metadata, cancelled = () => false, probe = probeCli, invocation = geminiInvocation, clientFactory = options => new GeminiClient(options) }) {
+  if (config.effort) throw new Error('Gemini reasoning effort is controlled by its native model; clear the effort selection.');
+  const version = await probe(config.bin, ['--version'], 5000), match = version.stdout?.trim().match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (version.status !== 0 || !match || +match[1] === 0 && +match[2] < 66) throw new Error('Gemini CLI 0.66.0 or newer is required. ' + geminiSetup);
+  const options = invocation(config);
+  let client;
+  try { client = clientFactory({ bin: config.bin, cwd: config.workspace, ...options }); }
+  catch (error) { options.cleanup(); throw error; }
+  let sessionId, response = '', denied = false;
+  const tools = new Map();
+  const timer = setInterval(() => { if (cancelled()) { if (sessionId) client.send({ method: 'session/cancel', params: { sessionId } }); client.close(); } }, 100);
+  client.on('message', async message => {
+    const p = message.params || {};
+    try {
+      if (p.sessionId !== sessionId || !sessionId) throw new Error('Gemini requested an unknown session.');
+      if (message.id !== undefined) {
+        let result;
+        if (message.method === 'session/request_permission') {
+          const once = p.options?.find(option => option.kind === 'allow_once');
+          const tool = p.toolCall || {};
+          const allow = !cancelled() && config.mode !== 'read' && once && await approval({ id: String(message.id), kind: tool.kind || 'tool', title: tool.title, input: { action: tool.title }, toolCall: tool });
+          if (!allow || cancelled()) { denied = true; result = { outcome: { outcome: 'cancelled' } }; }
+          else result = { outcome: { outcome: 'selected', optionId: once.optionId } };
+        } else if (message.method === 'fs/read_text_file') {
+          const file = geminiFile(config, p.path), saved = readWorkspaceFile(file.root, file.relative);
+          const line = p.line ?? 1, limit = p.limit;
+          if (!Number.isInteger(line) || line < 1 || limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw new Error('Invalid Gemini file line range.');
+          result = { content: saved.content.split('\n').slice(line - 1, limit === undefined ? undefined : line - 1 + limit).join('\n') };
+        } else if (message.method === 'fs/write_text_file') {
+          if (config.mode === 'read' || cancelled()) throw new Error('Write permission denied in read-only mode.');
+          const file = geminiFile(config, p.path), before = readWorkspaceFile(file.root, file.relative, { allowMissing: true });
+          const allow = await approval({ id: String(message.id), kind: 'write_file', input: { path: p.path, content: p.content } });
+          if (!allow || cancelled()) { denied = true; throw new Error('Write permission denied.'); }
+          writeWorkspaceFile(file.root, file.relative, p.content, { expectedHash: before.sha256 }); result = {};
+        } else throw new Error('This Gemini interaction is unsupported by Throughline.');
+        client.send({ id: message.id, result }); return;
+      }
+      if (message.method !== 'session/update') return;
+      const update = p.update || {};
+      if (update.sessionUpdate === 'agent_message_chunk' && update.content?.type === 'text') { response += update.content.text; event({ type: 'relay.delta', id: 'response', text: update.content.text }); }
+      if (update.sessionUpdate === 'agent_thought_chunk') event({ type: 'relay.progress', phase: 'reasoning' });
+      if (['tool_call', 'tool_call_update'].includes(update.sessionUpdate)) {
+        const tool = { ...tools.get(update.toolCallId), ...update }; tools.set(tool.toolCallId, tool);
+        event({ type: ['completed', 'failed'].includes(tool.status) ? 'item.completed' : 'item.started', item: { id: tool.toolCallId, type: 'mcp_tool_call', tool: tool.title || tool.kind || 'Gemini tool', result: tool.content || [] } });
+      }
+      if (update.sessionUpdate === 'usage_update') metadata({ usage: { used: update.used, size: update.size, cost: update.cost } });
+    } catch (error) {
+      if (message.id !== undefined) { denied = true; client.send({ id: message.id, error: { code: -32000, message: error.message } }); }
+      else client.fail(error);
+    }
+  });
+  try {
+    const initialized = await client.request('initialize', { protocolVersion: 1, clientInfo: { name: 'throughline', version: '0.10.0' }, clientCapabilities: { fs: { readTextFile: true, writeTextFile: config.mode !== 'read' }, terminal: false } });
+    if (initialized.protocolVersion !== 1) throw new Error('Unsupported Gemini ACP protocol version.');
+    if (cancelled()) throw new Error('Gemini run cancelled.');
+    const session = await client.request('session/new', { cwd: config.workspace, mcpServers: [] }, 60000); sessionId = session.sessionId;
+    if (typeof sessionId !== 'string' || !sessionId) throw new Error('Invalid Gemini ACP session.');
+    if (config.model && session.models?.currentModelId !== config.model) throw new Error('Gemini did not select the requested model. No prompt was sent.');
+    const images = config.images || [];
+    if (images.length && !initialized.agentCapabilities?.promptCapabilities?.image) throw new Error('This Gemini CLI does not support image attachments.');
+    metadata({ effectiveModel: session.models?.currentModelId || config.model || 'Provider default', transport: 'acp', account: { authenticated: true, authMode: 'native-cli', billingSource: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api' : 'unknown' } });
+    event({ type: 'relay.progress', phase: 'working' });
+    if (cancelled()) throw new Error('Gemini run cancelled.');
+    const result = await client.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: config.prompt }, ...images.map(image => ({ type: 'image', mimeType: image.mime, data: image.data }))] }, 30 * 60 * 1000);
+    if (result.stopReason !== 'end_turn' || cancelled()) throw new Error('Gemini turn did not complete: ' + (result.stopReason || 'unknown'));
+    if (denied) throw new Error('Gemini requested an action that was denied or unsupported. Some work may be incomplete.');
+    if (response) event({ type: 'item.completed', item: { id: 'response', type: 'agent_message', text: response } });
+    event({ type: 'turn.completed' });
+  } finally { clearInterval(timer); client.close(); options.cleanup(); }
+}

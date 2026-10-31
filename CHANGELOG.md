@@ -2,10 +2,12 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.10.0] - 2026-10-31
 
 ### Added
 
+- **Gemini CLI**: run Gemini CLI (`0.66.0+`) over the Agent Client Protocol alongside Claude Code and Codex in the same permanent project conversation, using your existing Gemini CLI configuration. Includes read-only and edit access modes with isolated per-run policies, in-app approvals for edits and shell commands, verified custom model selection, quota and interruption handoffs, and conversation export ([#4](https://github.com/AhmedNavaz/throughline/issues/4)).
+- **Continue locally**: choose a downloaded, tool-capable Ollama model and continue a task using the saved project brief and recent conversation, with Codex's native workspace tools and approvals. Local runs have separate model/billing attribution, preserve cloud settings and sessions, and never fall back to a cloud model. The first version supports text handoffs and requires Codex CLI plus a running Ollama server ([#4](https://github.com/AhmedNavaz/throughline/issues/4)).
 - An in-app **What’s New** panel with bundled release notes, including releases skipped since the last acknowledged version. Dismiss it once per update and reopen it from **Help › What’s New**, including while offline.
 
 ### Fixed
@@ -142,6 +144,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.10.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.0
 [0.9.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.9.1
 [0.9.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.9.0
 [0.8.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.8.0

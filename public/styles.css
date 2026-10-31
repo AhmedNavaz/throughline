@@ -214,6 +214,7 @@ summary::-webkit-details-marker { display: none; }
 .message-avatar::before { content: ""; width: 12px; height: 12px; background: currentColor; -webkit-mask: var(--avatar-icon, var(--icon-user)) center / contain no-repeat; mask: var(--avatar-icon, var(--icon-user)) center / contain no-repeat; }
 .message-avatar.codex { --avatar-icon: var(--icon-codex); color: var(--codex); background: var(--codex-bg); }
 .message-avatar.claude { --avatar-icon: var(--icon-claude); color: var(--claude); background: var(--claude-bg); }
+.message-avatar.gemini { --avatar-icon: var(--icon-gemini); color: var(--gemini); background: var(--gemini-bg); }
 .message-model, .message-effort, .message-label { height: 18px; padding: 0 6px; border-radius: 4px; background: var(--chip-bg); color: var(--muted); font-size: 11px; font-weight: 500; line-height: 18px; }
 .message-model { font: 11px/18px var(--mono); }
 .message-time { margin-left: auto; color: var(--faint); font-size: 11px; font-weight: 400; }
@@ -332,9 +333,11 @@ summary::-webkit-details-marker { display: none; }
 .provider-button:hover:enabled { color: var(--text); }
 .provider-button.selected { background: var(--surface-strong); color: var(--text-strong); box-shadow: var(--shadow-sm); }
 .agent-icon { width: 12px; height: 12px; background: currentColor; -webkit-mask: var(--icon-codex) center / contain no-repeat; mask: var(--icon-codex) center / contain no-repeat; }
+.agent-icon.gemini { -webkit-mask-image: var(--icon-gemini); mask-image: var(--icon-gemini); }
 .agent-icon.claude { -webkit-mask-image: var(--icon-claude); mask-image: var(--icon-claude); }
 #select-codex.selected .agent-icon { color: var(--codex); }
 #select-claude.selected .agent-icon { color: var(--claude); }
+#select-gemini.selected .agent-icon { color: var(--gemini); }
 .picker { position: relative; display: inline-flex; align-items: center; min-width: 0; color: var(--muted); }
 .picker:hover { color: var(--text); }
 .picker::before, .picker::after { content: ""; position: absolute; top: 50%; background: currentColor; pointer-events: none; transform: translateY(-50%); }
@@ -478,6 +481,7 @@ button.commit-hash:hover { text-decoration: underline; }
 .import-session > .agent-icon { margin-top: 3px; }
 .import-dialog .agent-icon.codex { color: var(--codex); }
 .import-dialog .agent-icon.claude { color: var(--claude); }
+.import-dialog .agent-icon.gemini { color: var(--gemini); -webkit-mask-image: var(--icon-gemini); mask-image: var(--icon-gemini); }
 .import-dialog .agent-icon.user { color: var(--muted); -webkit-mask-image: var(--icon-user); mask-image: var(--icon-user); }
 .import-session-text { flex: 1; min-width: 0; }
 .import-session strong { display: block; overflow: hidden; color: var(--text); font-size: 12.5px; font-weight: 500; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }

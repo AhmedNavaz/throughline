@@ -56,7 +56,7 @@ export function resolveBinary(provider, {
   extensionRoots = [path.join(home, '.vscode/extensions'), path.join(home, '.vscode-insiders/extensions')],
   systemBinDirs = ['/opt/homebrew/bin', '/usr/local/bin'],
 } = {}) {
-  if (!['codex', 'claude'].includes(provider)) throw new Error('Unknown assistant executable.');
+  if (!['codex', 'claude', 'gemini'].includes(provider)) throw new Error('Unknown assistant executable.');
   const names = platform === 'win32' ? [`${provider}.exe`, provider] : [provider];
   const pathEntries = (env.PATH || env.Path || '').split(platform === 'win32' ? ';' : path.delimiter)
     .filter(directory => path.isAbsolute(directory));

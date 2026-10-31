@@ -7,7 +7,7 @@ import { workspaceGit, workspaceGitDiff, workspaceGitIdentity } from './workspac
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const hash = value => createHash('sha256').update(value).digest('hex');
 export const reviewLimits = { files: 12, diffBytes: 72000, fileBytes: 1024 * 1024 };
-export const reviewAgents = c => { const builder = c.lastBuilder || c.provider; return { builder, reviewer: builder === 'claude' ? 'codex' : 'claude' }; };
+export const reviewAgents = c => { const builder = c.lastBuilder || c.provider; return { builder, reviewer: builder === 'claude' ? 'codex' : 'claude', ...(c.lastRun?.connection === 'local' && c.lastRun.provider === builder ? { builderConnection: 'local', builderModel: c.lastRun.effectiveModel || c.lastRun.model } : {}) }; };
 const folderSignature = folders => hash(JSON.stringify(folders.map(({ id, path: root }) => [id, fs.realpathSync(root)])));
 
 // Inspect exact file bytes without following symlinks or reading outside attached roots. Deleted files have no bytes.

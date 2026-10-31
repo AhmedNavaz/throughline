@@ -19,6 +19,7 @@ export function launchDesktop({ args = [], env = process.env, spawnImpl = spawn 
     if (noAgents) {
       childEnv.AI_RELAY_CODEX_BIN = path.join(temporary, 'not-installed-codex');
       childEnv.AI_RELAY_CLAUDE_BIN = path.join(temporary, 'not-installed-claude');
+      childEnv.AI_RELAY_GEMINI_BIN = path.join(temporary, 'not-installed-gemini');
     }
   }
   // IDEs and coding agents can inherit this from their own Electron runtime.
@@ -36,7 +37,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   const temporary = args.includes('--smoke-test') ? fs.mkdtempSync(path.join(os.tmpdir(), 'ai-relay-desktop-smoke-')) : null;
   const env = temporary ? { ...process.env, AI_RELAY_DESKTOP_DATA: path.join(temporary, 'profile'), AI_RELAY_LEGACY_DATA_DIR: path.join(temporary, 'no-legacy-data') } : process.env;
   if (args.includes('--fresh') || args.includes('--no-agents')) console.log('Starting fresh in a temporary profile. Setup and imported chats are discarded when this window closes.');
-  if (args.includes('--no-agents')) console.log('New-user preview: neither agent is detected in this session. Your installed agents and sign-ins are unchanged.');
+  if (args.includes('--no-agents')) console.log('New-user preview: no installed agents are detected in this session. Your installed agents and sign-ins are unchanged.');
   const child = launchDesktop({ args, env });
   const forward = signal => { if (child.exitCode === null && child.signalCode === null) child.kill(signal); };
   const interrupt = () => forward('SIGINT');

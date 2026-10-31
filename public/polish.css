@@ -37,6 +37,7 @@
 .usage-provider-heading .agent-icon { width: 13px; height: 13px; }
 .usage-provider[data-provider="codex"] .agent-icon { color: var(--codex); }
 .usage-provider[data-provider="claude"] .agent-icon { color: var(--claude); -webkit-mask-image: var(--icon-claude); mask-image: var(--icon-claude); }
+.usage-provider[data-provider="gemini"] .agent-icon { color: var(--gemini); -webkit-mask-image: var(--icon-gemini); mask-image: var(--icon-gemini); }
 .usage-plan-badge { padding: 0 6px; border-radius: 9px; background: var(--chip-bg); color: var(--muted); font-size: 10px; line-height: 17px; text-transform: capitalize; }
 .usage-window-row + .usage-window-row { margin-top: 12px; }
 .usage-window-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 12px; }

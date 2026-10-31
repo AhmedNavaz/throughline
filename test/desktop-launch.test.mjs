@@ -42,17 +42,19 @@ test('fresh desktop launches isolate setup and legacy data, preserve agent sign-
 });
 
 test('the no-agents preview hides installed agents only in its isolated child process', () => {
-  const env = { AI_RELAY_CODEX_BIN: '/installed/codex', AI_RELAY_CLAUDE_BIN: '/installed/claude' };
+  const env = { AI_RELAY_CODEX_BIN: '/installed/codex', AI_RELAY_CLAUDE_BIN: '/installed/claude', AI_RELAY_GEMINI_BIN: '/installed/gemini' };
   const child = new EventEmitter();let launch;
   launchDesktop({ args: ['--fresh', '--no-agents'], env, spawnImpl: (...values) => { launch = values;return child; } });
   const childEnv = launch[2].env, previewRoot = path.dirname(childEnv.AI_RELAY_DESKTOP_DATA);
   try {
     assert.equal(childEnv.AI_RELAY_CODEX_BIN, path.join(previewRoot, 'not-installed-codex'));
     assert.equal(childEnv.AI_RELAY_CLAUDE_BIN, path.join(previewRoot, 'not-installed-claude'));
+    assert.equal(childEnv.AI_RELAY_GEMINI_BIN, path.join(previewRoot, 'not-installed-gemini'));
     assert.equal(fs.existsSync(childEnv.AI_RELAY_CODEX_BIN), false);
     assert.equal(fs.existsSync(childEnv.AI_RELAY_CLAUDE_BIN), false);
+    assert.equal(fs.existsSync(childEnv.AI_RELAY_GEMINI_BIN), false);
     assert.deepEqual(launch[1].slice(1), []);
-    assert.deepEqual(env, { AI_RELAY_CODEX_BIN: '/installed/codex', AI_RELAY_CLAUDE_BIN: '/installed/claude' });
+    assert.deepEqual(env, { AI_RELAY_CODEX_BIN: '/installed/codex', AI_RELAY_CLAUDE_BIN: '/installed/claude', AI_RELAY_GEMINI_BIN: '/installed/gemini' });
   } finally { child.emit('close', 0); }
   assert.equal(fs.existsSync(previewRoot), false);
 });

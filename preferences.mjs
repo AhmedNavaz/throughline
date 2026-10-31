@@ -14,7 +14,7 @@ export function preferencePatch(input, previous = {}) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) fail('Choose valid assistant defaults.');
     const next = { ...defaultPreferences, ...previous.defaults };
     for (const key of Object.keys(defaultPreferences)) if (value[key] !== undefined) next[key] = value[key];
-    if (!['codex', 'claude'].includes(next.provider) || !['read', 'edit'].includes(next.mode) || !['subscription', 'api'].includes(next.billing)) fail('Choose a supported assistant, access level and billing preference.');
+    if (!['codex', 'claude', 'gemini'].includes(next.provider) || !['read', 'edit'].includes(next.mode) || !['subscription', 'api'].includes(next.billing)) fail('Choose a supported assistant, access level and billing preference.');
     if (next.model !== null && (typeof next.model !== 'string' || !next.model.trim() || next.model.length > 200)) fail('Choose a model or Provider default.');
     if (next.effort !== null && !['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(next.effort)) fail('Choose a supported effort or Provider default.');
     patch.defaults = next;

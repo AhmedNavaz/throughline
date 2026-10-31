@@ -8,7 +8,7 @@
     workspace: $("workspace-name"), breadcrumb: $("workspace-breadcrumb"),
     messages: $("messages"), scroll: $("messages-scroll"), empty: $("empty-state"),
     form: $("composer"), input: $("message-input"), send: $("send-button"), stop: $("stop-button"),
-    mode: $("mode-select"), codex: $("select-codex"), claude: $("select-claude"),
+    mode: $("mode-select"), codex: $("select-codex"), claude: $("select-claude"), gemini: $("select-gemini"),
     continuation: $("continuation"), continueText: $("continuation-text"), continueButton: $("continue-button"),
     otherRunning: $("other-running"), viewRunning: $("view-running"),
     notice: $("notice"), noticeText: $("notice-text"), retry: $("notice-retry"), dismiss: $("notice-dismiss"),
@@ -51,7 +51,7 @@
   function draftKey(id = state.conversation?.id) { return `ai-relay:draft:${id || "new"}`; }
   function saveDraft() { if (state.status && state.ready && !state.loading) storedWrite(draftKey(), ui.input.value); }
   function restoreDraft() { ui.input.value = storedRead(draftKey()) || ""; resizeInput(); }
-  function label(provider) { return provider === "claude" ? "Claude" : "Codex"; }
+  function label(provider) { return provider === "gemini" ? "Gemini" : provider === "claude" ? "Claude" : "Codex"; }
   function available(provider) { return Boolean(state.status?.providers?.[provider]?.available); }
   function isRunning() { return state.conversation?.status === "running" || Boolean(state.conversation?.id && state.status?.runningConversationId === state.conversation.id); }
   function isOtherRunning() { return Boolean(state.status?.runningConversationId && state.status.runningConversationId !== state.conversation?.id); }
@@ -87,7 +87,7 @@
   }
   async function api(path, options = {}, projectId = state.projectId) {
     const providerEndpoint = /^\/api\/providers(?:\/|$)/.test(path);
-    if (/^\/api\/(?:status|conversation|conversations|collaboration|git|imports|files|attachments|reviews)(?:\/|$|\?)/.test(path) || (providerEndpoint && projectId)) {
+    if (/^\/api\/(?:status|conversation|conversations|collaboration|git|imports|files|attachments|reviews|local-models)(?:\/|$|\?)/.test(path) || (providerEndpoint && projectId)) {
       if (!projectId) throw new Error("Choose a project first.");
       path += `${path.includes("?") ? "&" : "?"}projectId=${encodeURIComponent(projectId)}`;
     }
@@ -151,7 +151,7 @@
     // Routine checks share one probe and run at most once a minute; an explicit recheck always asks again.
     if(!force&&(state.accountRefresh||Date.now()-state.accountsCheckedAt<60000))return state.accountRefresh;
     const check=++state.accountCheck;
-    const refresh=state.accountRefresh=Promise.all(['codex','claude'].map(async provider=>{
+    const refresh=state.accountRefresh=Promise.all(['codex','claude','gemini'].map(async provider=>{
       if(state.status?.providers?.[provider]?.available===false){
         state.accounts[provider]={installed:false,authenticated:'unknown',billingSource:'unknown',usage:'unknown'};state.accountChecks[provider]={checkedAt:Date.now()};
         return;
@@ -175,7 +175,7 @@
     const workspace=state.status?.workspace || currentProject()?.path || '';
     ui.workspace.textContent=currentProject()?.name || 'No workspace selected';
     ui.workspace.title=workspace;ui.breadcrumb.textContent=workspace;
-    for(const provider of ['codex','claude']) {
+    for(const provider of ['codex','claude','gemini']) {
       const info=connection(provider);
       const text=info.checking?'Checking…':info.installed?(info.needsSignIn?'Sign in required':info.account?.authenticated===true?(info.account.billingSource==='api'?'API account':'Connected'):'Not verified'):state.status||info.account?'Not installed':'Not checked';
       $(`${provider}-status-text`).textContent=text;
@@ -184,8 +184,8 @@
   }
   function renderConnectionNotice() {
     const notice=$('connection-notice');if(!notice)return;
-    const info=connection(state.provider),other=state.provider==='codex'?'claude':'codex',name=label(state.provider);
-    const fresh=!state.conversation?.messages?.length,none=!available('codex')&&!available('claude');
+    const info=connection(state.provider),other=['codex','claude','gemini'].find(provider=>provider!==state.provider&&available(provider)) || 'codex',name=label(state.provider);
+    const fresh=!state.conversation?.messages?.length,none=!['codex','claude','gemini'].some(available);
     notice.hidden=true;state.connectionAction=null;
     if(!state.ready||isRunning()||(fresh&&none))return;
     let text='',action='';
@@ -373,9 +373,9 @@
     const streaming = !user && (message.status === "streaming" || message.status === "running");
     const row = element("article", `message ${user ? "message-user" : "message-assistant"}${streaming ? " message-streaming" : ""}`);
     const heading = element("div", "message-heading");
-    const avatar = element("span", `message-avatar ${user ? "user" : provider}`);
+    const avatar = element("span", `message-avatar ${user ? "user" : message.connection === 'local' ? 'local' : provider}`);
     avatar.setAttribute("aria-hidden", "true");
-    heading.append(avatar, element("span", "message-author", user ? "You" : label(provider)));
+    heading.append(avatar, element("span", "message-author", user ? "You" : message.connection === 'local' ? 'Local · Ollama' : label(provider)));
     if (!user && message.model && message.model !== "unknown") heading.append(element("span", "message-model", message.model));
     if (!user && message.effort) heading.append(element("span", "message-effort", message.effort + " effort"));
     if (message.imported) heading.append(element("span", "message-label", "Imported"));
@@ -403,7 +403,7 @@
   function renderMessages(forceScroll = false) {
     const messages = state.conversation?.messages || [];
     const signature = JSON.stringify([state.projectId, state.conversation?.id, messages, state.conversation?.reviews?.map(({ id, status, summary }) => [id, status, summary])]);
-    const noProvider=state.ready&&!messages.length&&!available('codex')&&!available('claude');
+    const noProvider=state.ready&&!messages.length&&!['codex','claude','gemini'].some(available);
     ui.empty.hidden = messages.length > 0 || !state.ready || noProvider;
     if($('provider-empty-state'))$('provider-empty-state').hidden=!noProvider;
     if (signature === state.messagesSignature) return;
@@ -436,11 +436,12 @@
     const running = isRunning();
     const otherRunning = isOtherRunning();
     const busy = Boolean(state.pending) || state.loading || state.projectSaving;
-    const name = label(state.provider);
+    const name = state.conversation?.activeRun?.connection === 'local' ? 'Local model' : label(state.provider);
     const selectedConnection=connection(state.provider);
     ui.codex.classList.toggle("selected", state.provider === "codex");
     ui.claude.classList.toggle("selected", state.provider === "claude");
-    for (const provider of ["codex", "claude"]) {
+    for (const provider of ["codex", "claude", "gemini"]) {
+      ui[provider].classList.toggle("selected", state.provider === provider);
       ui[provider].setAttribute("aria-pressed", String(state.provider === provider));
       ui[provider].disabled = !state.ready || busy || running || !available(provider);
       ui[provider].title = available(provider) ? `Use ${label(provider)} for your next message` : `${label(provider)} CLI is not installed`;
@@ -463,7 +464,7 @@
     const previous=state.conversation?.lastRun;
     const reason={quota:'Usage limit reached.',authentication:'Sign-in required.',permission:'A permission request was declined.',protocol:'The assistant connection stopped.',interrupted:'Run stopped.'}[previous?.errorCategory] || 'The previous run did not finish.';
     ui.continueText.textContent = reason;
-    const alternative=state.provider==='codex'?'claude':'codex';
+    const alternative=['codex','claude','gemini'].find(provider=>provider!==state.provider&&!connection(provider).blocked) || state.provider;
     const continuationProvider=previous?.errorCategory==='quota' && previous.provider===state.provider && !connection(alternative).blocked ? alternative : state.provider;
     state.continuationProvider=continuationProvider;
     ui.continueButton.replaceChildren(document.createTextNode(state.pending === "continue" ? "Continuing…" : `Continue with ${label(continuationProvider)} `), element("span", "", "→"));
@@ -495,7 +496,7 @@
     const previousStatus = state.conversation?.status;
     state.conversation = conversation;
     if (adoptSettings && !state.settingsPending) {
-      state.provider = conversation.provider === "claude" ? "claude" : "codex";
+      state.provider = ['codex','claude','gemini'].includes(conversation.provider) ? conversation.provider : 'codex';
       state.mode = conversation.mode === "read" ? "read" : "edit";
       state.model = conversation.models?.[state.provider] || conversation.model || "";
       state.effort = conversation.effort ?? conversation.efforts?.[state.provider]?.[state.model || "default"] ?? null;
@@ -872,9 +873,10 @@
     workspace: number => { const project = filteredProjects()[number - 1]; if (!project) return false; selectProject(project.id); return true; },
     settings: press("relay-settings"), "setup-guide": press("open-setup-guide"), "new-workspace": press("create-workspace"), review: press("open-review"),
     "whats-new": () => { if (covered() || !window.relayUpdates) return false; window.relayUpdates.open(); return true; },
+    "local-models": press("open-local"),
     "previous-chats": press("open-import"), export: press("open-export"), files: press("toggle-explorer"), "keep-awake": press("keep-awake"),
     "add-folder": () => { if (covered()) return false; toggleFolderForm(true); return true; },
-    agent: provider => ["codex", "claude"].includes(provider) && press("select-" + provider)(),
+    agent: provider => ["codex", "claude", "gemini"].includes(provider) && press("select-" + provider)(),
     continue: () => !ui.continuation.hidden && press("continue-button")(),
     appearance: value => { if (!["system", "graphite", "light"].includes(value)) return false; window.relayTheme?.choose(value); return true; },
     "workspace-settings": () => { if (covered() || !state.projectId) return false; openWorkspaceOptions(state.projectId); return true; },
@@ -913,6 +915,7 @@
   });
   ui.codex.addEventListener("click", () => changeSettings("codex", state.mode));
   ui.claude.addEventListener("click", () => changeSettings("claude", state.mode));
+  ui.gemini.addEventListener("click", () => changeSettings("gemini", state.mode));
   ui.mode.addEventListener("change", () => changeSettings(state.provider, ui.mode.value));
   ui.stop.addEventListener("click", stop);
   ui.continueButton.addEventListener("click", () => {const target=state.continuationProvider||state.provider;if(target!==state.provider)changeSettings(target,state.mode);run(true);});

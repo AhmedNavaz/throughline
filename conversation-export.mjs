@@ -7,7 +7,7 @@ import { validateContext } from './context.mjs';
 export const CONVERSATION_SCHEMA = 'ai-relay.conversation';
 export const MAX_CONVERSATION_BYTES = 2 * 1024 * 1024;
 const MAX_MESSAGES = 5000, MAX_TEXT = 200000;
-const agents = ['codex', 'claude'];
+const agents = ['codex', 'claude', 'gemini'];
 
 const clean = value => Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== null && entry !== ''));
 const contextOf = context => { const value = validateContext(context || {}); return clean({ goal: value.goal, summary: value.summary, decisions: value.decisions.length ? value.decisions : undefined, tasks: value.tasks.length ? value.tasks : undefined }); };
@@ -36,6 +36,7 @@ export function exportConversation(conversation, project, { range = 'all', activ
     provider: message.role === 'user' ? undefined : agents.includes(message.provider) ? message.provider : 'codex',
     createdAt: Number.isFinite(Date.parse(message.createdAt)) ? new Date(message.createdAt).toISOString() : undefined,
     model: typeof message.model === 'string' && message.model !== 'unknown' ? message.model.slice(0, 200) : undefined,
+    connection: message.connection === 'local' ? 'local' : undefined,
   }));
   const context = redact ? JSON.parse(transform(JSON.stringify(rawContext))) : rawContext;
   const value = clean({ schema: CONVERSATION_SCHEMA, version: 1, id: randomUUID(), exportedAt: new Date().toISOString(), workspace: { name: project.name, folders: project.folders.map(folder => folder.displayName || folder.name) }, context: Object.keys(context).length ? context : undefined, messages, clipped: false });
@@ -63,7 +64,7 @@ export function readConversationPackage(input) {
     if (typeof message.text !== 'string' || !message.text.trim() || message.text.length > MAX_TEXT) throw invalid(`Message ${index + 1} has no valid text.`);
     if (message.role !== 'user' && !agents.includes(message.provider)) throw invalid(`Message ${index + 1} names an unsupported assistant.`);
     const createdAt = Number.isFinite(Date.parse(message.createdAt)) ? new Date(message.createdAt).toISOString() : undefined;
-    return clean({ sourceId: typeof message.id === 'string' && /^[\w:.-]{1,128}$/.test(message.id) ? message.id : String(index), role: message.role, text: message.text, provider: message.role === 'user' ? undefined : message.provider, model: typeof message.model === 'string' ? message.model.slice(0, 200) : undefined, timestamp: createdAt });
+    return clean({ sourceId: typeof message.id === 'string' && /^[\w:.-]{1,128}$/.test(message.id) ? message.id : String(index), role: message.role, text: message.text, provider: message.role === 'user' ? undefined : message.provider, model: typeof message.model === 'string' ? message.model.slice(0, 200) : undefined, connection: message.connection === 'local' ? 'local' : undefined, timestamp: createdAt });
   });
   const context = value.context === undefined ? null : contextOf(value.context);
   return { provider: 'file', sessionId: value.id, title, cwd: null, folders, exportedAt: Number.isFinite(Date.parse(value.exportedAt)) ? new Date(value.exportedAt).toISOString() : null, context: context && Object.keys(context).length ? context : null, clipped: value.clipped === true, messages, messageCount: messages.length, digest };

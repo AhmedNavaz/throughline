@@ -1,3 +1,4 @@
+import { runGemini } from './gemini.mjs';
 import { spawn } from 'node:child_process';
 import { runCodex, runClaude, classifyError } from './providers.mjs';
 let running = false;
@@ -30,7 +31,7 @@ process.on('message', async message => {
       cancelled: () => cancelled,
       approval: request => new Promise(resolve => { const id = String(request.id); pending.set(id, resolve); send({ type: 'approval', request: { ...request, id } }); }),
     };
-    await (config.transport === 'app-server' ? runCodex(config, callbacks) : runClaude(config, callbacks));
+    await (config.transport === 'acp' ? runGemini(config, callbacks) : config.transport === 'app-server' ? runCodex(config, callbacks) : runClaude(config, callbacks));
     await sendLast({ type: 'adapter-complete' });
   } catch (error) { await sendLast({ type: 'failure', message: error.message, category: classifyError(error) }); process.exitCode = 1; }
   finally { if (config.transport !== 'cli') { finished = true; process.disconnect(); } }

@@ -96,6 +96,7 @@
 .connection-card[data-provider] .connection-heading h3::before { content: ""; width: 14px; height: 14px; background: currentColor; -webkit-mask: var(--icon-codex) center / contain no-repeat; mask: var(--icon-codex) center / contain no-repeat; }
 .connection-card[data-provider="codex"] .connection-heading h3::before { color: var(--codex); }
 .connection-card[data-provider="claude"] .connection-heading h3::before { color: var(--claude); -webkit-mask-image: var(--icon-claude); mask-image: var(--icon-claude); }
+.connection-card[data-provider="gemini"] .connection-heading h3::before { color: var(--gemini); -webkit-mask-image: var(--icon-gemini); mask-image: var(--icon-gemini); }
 .connection-facts { margin: 14px 0 16px; }
 .connection-fact { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 8px; margin: 6px 0; font-size: 12px; line-height: 1.6; }
 .connection-fact dt { color: var(--muted); }

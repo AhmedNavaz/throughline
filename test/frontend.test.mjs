@@ -62,7 +62,7 @@ const response=(data,status=200)=>({ok:status>=200&&status<300,status,text:async
 async function flush(){for(let index=0;index<12;index++)await new Promise(resolve=>setImmediate(resolve));}
 function deferred(){let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};}
 
-async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,updatesUI=setup,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,reviewsUI=false,launch=null,theme=false,systemDark=true}={}){
+async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,updatesUI=setup,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,reviewsUI=false,localUI=false,launch=null,theme=false,systemDark=true}={}){
   const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[],updateAcknowledgements=[],externalLinks=[];let timerId=0,intercept=null;
   let preferences=clone(savedPreferences);
   window.innerWidth=1280;window.innerHeight=800;
@@ -78,8 +78,8 @@ async function browser({existing=true,available=true,providers={},authenticated=
     {id:'codex-one',provider:'codex',title:'Build the API',folder:'frontend',cwd:'/workspace/example/frontend',updatedAt:'2026-10-20T09:03:00.000Z',messages:[{sourceId:'x1',role:'user',text:'Build the API',timestamp:'2026-10-20T09:01:00.000Z'},{sourceId:'x2',role:'assistant',text:'Codex built it',timestamp:'2026-10-20T09:03:00.000Z'}]},
     {id:'codex-new',provider:'codex',title:'Start new app',folder:'new-app',cwd:'/workspace/new-app',updatedAt:'2026-10-19T09:00:00.000Z',messages:[{sourceId:'n1',role:'user',text:'Start new app',timestamp:'2026-10-19T09:00:00.000Z'}]}];
   const ensureChat=project=>{if(!canonical.has(project.id)){const conversation=newConversation();canonical.set(project.id,conversation);conversations.push(conversation);project.conversationId=conversation.id;chatCreations++;}return canonical.get(project.id);};
-  const providerStatus=provider=>({available,...providers[provider]});
-  const providerAccount=provider=>({installed:providerStatus(provider).available,authenticated:typeof authenticated==='object'?authenticated[provider]:authenticated,billingSource,usage:'unknown'});
+  const providerStatus=provider=>({available:provider==='gemini'?false:available,...providers[provider]});
+  const providerAccount=provider=>({installed:providerStatus(provider).available,authenticated:typeof authenticated==='object'?authenticated[provider]??'unknown':provider==='gemini'?'unknown':authenticated,billingSource:typeof billingSource==='object'?billingSource[provider]??'unknown':provider==='gemini'?'unknown':billingSource,usage:'unknown',...(provider==='gemini'?{message:'Configure authentication in Gemini CLI.'}:{})});
   if(existing)for(const project of projects)ensureChat(project);
   async function fetch(url,options={}){
     const address=new URL(url,'http://127.0.0.1:4318');const request={path:address.pathname,projectId:address.searchParams.get('projectId'),params:Object.fromEntries(address.searchParams),method:options.method||'GET',body:options.body?JSON.parse(options.body):null};requests.push(request);
@@ -88,6 +88,8 @@ async function browser({existing=true,available=true,providers={},authenticated=
       if(request.path==='/api/attachments'&&request.method==='POST'){const id=(snapshots.size+1).toString(16).padStart(64,'0'), file={id,name:request.body.name,kind:'text',mime:'text/plain',bytes:10};snapshots.set(id,file);return response(file,201);}
       if(request.path==='/api/attachments/preview')return response({...snapshots.get(request.params.id),text:'snapshot'});
       if(request.path==='/api/preferences'){if(request.method==='POST')preferences={...preferences,...preferencePatch(request.body,preferences)};return response(publicPreferences(preferences,projects.length>0));}
+      if(request.path==='/api/local-models') { const target=projects.find(item=>item.id===request.projectId);assert(target);return response({installed:true,endpoint:'http://127.0.0.1:11434',models:[{id:'fixture-local:8b',model:'fixture-local:8b',digest:'a'.repeat(64),parameterSize:'8B',contextWindow:65536}],context:{conversationId:ensureChat(target).id,workspaceSignature:'fixture-scope',mode:ensureChat(target).mode}}); }
+      if(request.path==='/api/local-models/start') { const target=projects.find(item=>item.id===request.projectId);assert(target);if(submissions.has(request.body.requestId))return response({...submissions.get(request.body.requestId),duplicate:true},202);submissions.set(request.body.requestId,{runId:'local-run',requestId:request.body.requestId});const conversation=ensureChat(target);conversation.messages.push({id:'local-reply',role:'assistant',provider:'codex',connection:'local',model:request.body.model,text:'Local task complete.'});conversation.lastRun={provider:'codex',connection:'local',model:request.body.model,status:'complete'};conversation.status='complete';return response({runId:'local-run',requestId:request.body.requestId},202); }
       if(request.path==='/api/appearance'){if(request.method==='POST'){try{preferences={...preferences,...preferencePatch({theme:request.body.theme},preferences)};}catch(error){return response({error:error.message},400);}return response({theme:request.body.theme});}return response({theme:publicPreferences(preferences,true).theme});}
       if(request.path==='/api/sharing/config')return response({baseUrl:null});
       const rename=request.path.match(/^\/api\/projects\/([^/]+)$/);if(rename&&request.method==='POST'){const project=projects.find(item=>item.id===rename[1]);if(request.body.name!==undefined)project.name=request.body.name;if(request.body.previousConversationsDismissed!==undefined)project.previousConversationsDismissed=request.body.previousConversationsDismissed;return response(clone(project));}
@@ -96,8 +98,8 @@ async function browser({existing=true,available=true,providers={},authenticated=
         assert(Array.isArray(request.body.folders),'Workspace creation must explicitly list its folders.');
         const paths=request.body.folders;const added={id:'project-'+(projects.length+1),name:request.body.name||paths[0].split('/').pop(),path:paths[0],available:true,folders:paths.map((folderPath,index)=>folder('folder-'+index,folderPath.split('/').pop(),folderPath))};projects.push(added);return response(clone(added),201);
       }
-      const account=request.path.match(/^\/api\/providers\/(codex|claude)\/account$/);
-      const usageRead=request.path.match(/^\/api\/providers\/(codex|claude)\/usage$/);
+      const account=request.path.match(/^\/api\/providers\/(codex|claude|gemini)\/account$/);
+      const usageRead=request.path.match(/^\/api\/providers\/(codex|claude|gemini)\/usage$/);
       if(request.path==='/api/import-sources'){const {scope,provider}=request.params;const project=projects.find(project=>project.id===request.projectId);if(scope==='workspace')assert(project,'Workspace-scoped discovery names its workspace.');return response({sessions:importSources.filter(row=>row.provider===provider&&(scope!=='workspace'||project.folders.some(folder=>folder.path===row.cwd))).map(({messages,...row})=>clone(row)),nextCursor:null});}
       if(request.path==='/api/import-sources/preview'){const source=importSources.find(row=>row.provider===request.body.provider&&row.id===request.body.sessionId);return response({provider:source.provider,sessionId:source.id,title:source.title,cwd:source.cwd,digest:'digest-'+source.id,messageCount:source.messages.length,clipped:false,messages:clone(source.messages)});}
       if(request.path==='/api/import-sources/file-preview'){const shared=request.body.package;assert.equal(shared.schema,'ai-relay.conversation');return response({provider:'file',sessionId:shared.id,title:shared.workspace.name,cwd:null,folders:shared.workspace.folders,exportedAt:shared.exportedAt,context:null,clipped:false,messages:shared.messages.map(message=>({sourceId:message.id,role:message.role,text:message.text,provider:message.provider,timestamp:message.createdAt})),messageCount:shared.messages.length,digest:'digest-'+shared.id});}
@@ -117,6 +119,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
       if(workspaceAction){assert.equal(request.method,'POST');const id=workspaceAction[1];if(workspaceAction[2]==='remove'){const index=projects.findIndex(project=>project.id===id);if(index>=0)removedProjects.set(id,projects.splice(index,1)[0]);return response({id,removed:true});}const restored=removedProjects.get(id)||projects.find(project=>project.id===id);assert(restored);if(!projects.some(project=>project.id===id))projects.push(restored);removedProjects.delete(id);return response(clone(restored));}
       const membership=request.path.match(/^\/api\/projects\/([^/]+)\/folders(?:\/([^/]+)\/remove)?$/);
       if(membership){const selected=projects.find(project=>project.id===membership[1]);assert(selected);if(membership[2]){if(selected.folders.length<=1)return response({error:'A workspace needs a folder.'},400);selected.folders=selected.folders.filter(folder=>folder.id!==membership[2]);}else{const folderPath=request.body.path;selected.folders.push(folder(randomUUID(),folderPath.split('/').pop(),folderPath));}selected.path=selected.folders[0].path;return response(clone(selected));}
+      if (request.path==='/api/providers/gemini/models') return response({models:[],source:'native-cli',manualSelection:true});
       if (/^\/api\/providers\/(codex|claude)\/models$/.test(request.path)) return response({models:[{id:'model-one',value:'model-one',displayName:'Model One',isDefault:true,defaultReasoningEffort:'medium',supportedReasoningEfforts:[{reasoningEffort:'low'},{reasoningEffort:'high'}]},{id:'model-two',value:'model-two',displayName:'Model Two',supportedEffortLevels:['low','medium']}]});
       const selected=projects.find(project=>project.id===request.projectId);assert(selected,'Project-owned requests need an explicit valid project ID.');
 
@@ -129,7 +132,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
       }
 
       if(request.path==='/api/conversation/export'){const redacted=request.params.redact!=='0';return response({package:{schema:'ai-relay.conversation',version:1,id:'export-one',workspace:{name:selected.name,folders:['frontend']},messages:clone(ensureChat(selected).messages).map(message=>({id:message.id,role:message.role,text:message.text})),digest:'exported'},stats:{messages:ensureChat(selected).messages.length,omitted:0,bytes:420,from:null,to:null,providers:[]},findings:{secrets:1,localPaths:0},redacted});}
-      if(request.path==='/api/status')return response({workspace:selected.path,projectId:selected.id,project:clone(selected),providers:{codex:providerStatus('codex'),claude:providerStatus('claude')},runningConversationId:canonical.get(selected.id)?.status==='running'?canonical.get(selected.id).id:null});
+      if(request.path==='/api/status')return response({workspace:selected.path,projectId:selected.id,project:clone(selected),providers:{codex:providerStatus('codex'),claude:providerStatus('claude'),gemini:providerStatus('gemini')},runningConversationId:canonical.get(selected.id)?.status==='running'?canonical.get(selected.id).id:null});
       if(request.path==='/api/conversation')return response(clone(ensureChat(selected)));
       if(request.path==='/api/collaboration/handoffs/prepare'){const body=request.body;const outgoing=body.draft?sealPackage(body.draft):sealPackage({schema:'ai-relay.handoff',version:1,id:randomUUID(),createdAt:'2026-10-20T00:00:00.000Z',mode:body.mode||'context',goal:body.goal||'',problem:body.problem||'',expectedOutcome:body.expectedOutcome||'',decisions:body.decisions||[],tasks:body.tasks||[],messages:[],files:[],baseline:[]});return response({package:outgoing,warnings:[]});}
       if(request.path==='/api/collaboration/handoffs/approve'){const record={id:request.body.package.id,package:request.body.package,direction:'outgoing',status:'approved'};handoffs.push(record);return response(clone(record));}
@@ -158,6 +161,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   if(desktopControls)vm.runInContext(fs.readFileSync(new URL('../public/desktop-controls.js',import.meta.url),'utf8'),context,{filename:'public/desktop-controls.js'});
   if(setup)vm.runInContext(fs.readFileSync(new URL('../public/setup.js',import.meta.url),'utf8'),context,{filename:'public/setup.js'});
   if(updatesUI)vm.runInContext(fs.readFileSync(new URL('../public/updates.js',import.meta.url),'utf8'),context,{filename:'public/updates.js'});
+  if(localUI)vm.runInContext(fs.readFileSync(new URL('../public/local-models.js',import.meta.url),'utf8'),context,{filename:'public/local-models.js'});
   if(filesUI)vm.runInContext(fs.readFileSync(new URL('../public/files.js',import.meta.url),'utf8'),context,{filename:'public/files.js'});
   if(searchUI)vm.runInContext(fs.readFileSync(new URL('../public/conversation-search.js',import.meta.url),'utf8'),context,{filename:'public/conversation-search.js'});
   if(reviewsUI)vm.runInContext(fs.readFileSync(new URL('../public/agent-review.js',import.meta.url),'utf8'),context,{filename:'public/agent-review.js'});
@@ -263,7 +267,7 @@ test('Settings is available before any workspace and account discovery is global
   assert.equal(ui.$('relay-settings').disabled,false);assert.equal(ui.$('ask-friend').disabled,true);
   ui.$('relay-settings').click();await flush();
   assert.equal(ui.$('workbench').open,true);assert.equal(ui.$('workbench-title').textContent,'Connections');assert.equal(ui.$('workbench-error').hidden,true);
-  const requests=ui.requests.filter(request=>/^\/api\/providers\/[^/]+\/account$/.test(request.path));assert.equal(requests.length,2);assert(requests.every(request=>request.projectId===null));
+  const requests=ui.requests.filter(request=>/^\/api\/providers\/[^/]+\/account$/.test(request.path));assert.deepEqual(requests.map(request=>request.path.split('/')[3]).sort(),['claude','codex','gemini']);assert(requests.every(request=>request.projectId===null));
   assert.equal(ui.requests.filter(request=>/\/(?:messages|continue|connect|models)$/.test(request.path)).length,0);
 });
 
@@ -1070,10 +1074,10 @@ test('Find in Conversation, Find Next and Find Previous do what ⌘F, Enter and 
 
 test('the menu bar follows the page: the workspace, a run, the agent, Continue, Files, Git activity and the first nine workspaces',async()=>{
   const web=await browser({desktopControls:true,insights:true,historyUI:true,filesUI:true});assert.equal(web.menuStates.length,0,'The browser has no menu bar.');
-  const none=await browser({empty:true,existing:false,desktop:true,desktopControls:true,historyUI:true});assert.deepEqual(none.menuStates.at(-1),{workspace:false,running:false,agent:'codex',codex:false,claude:false,continue:null,files:true,git:false,imports:false,export:false,workspaces:[]});
+  const none=await browser({empty:true,existing:false,desktop:true,desktopControls:true,historyUI:true});assert.deepEqual(none.menuStates.at(-1),{workspace:false,running:false,agent:'codex',codex:false,claude:false,gemini:false,continue:null,files:true,git:false,imports:false,export:false,workspaces:[]});
   const ui=await browser({desktop:true,desktopControls:true,moreProjects:true,insights:true,historyUI:true,filesUI:true}),shown=()=>ui.menuStates.at(-1);
   const workspaces=[{name:'Example workspace',current:true},{name:'Other workspace',current:false}];
-  assert.deepEqual(shown(),{workspace:true,running:false,agent:'codex',codex:true,claude:true,continue:null,files:true,git:false,imports:true,export:false,workspaces});
+  assert.deepEqual(shown(),{workspace:true,running:false,agent:'codex',codex:true,claude:true,gemini:false,continue:null,files:true,git:false,imports:true,export:false,workspaces});
   const reported=ui.menuStates.length;ui.window.dispatchEvent(new UIEvent('relay-state'));await flush();assert.equal(ui.menuStates.length,reported,'An unchanged state is not sent again.');
   ui.$('select-claude').click();await flush();assert.equal(shown().agent,'claude');
   ui.$('toggle-explorer').click();await flush();assert.equal(shown().files,false);
@@ -1220,4 +1224,71 @@ test('late attachment uploads stay with their original workspace and block prema
   ui.$('message-input').value='Review';ui.fire('message-input','input');assert.equal(ui.$('send-button').disabled,true);
   await ui.switchProject('project-two');gate.resolve();await adding;await flush();assert.equal(ui.window.relayFiles.ids().length,0);
   await ui.switchProject('project-one');assert.equal(ui.window.relayFiles.ids().length,1);assert.equal(ui.$('send-button').disabled,false);
+});
+
+test('Continue locally works without cloud sign-in and requires a model choice and explicit start',async()=>{
+  const ui=await browser({localUI:true,authenticated:false});ui.$('select-claude').click();await flush();
+  await ui.window.relayUI.setConfiguration({model:'saved-cloud-model',effort:'high'});await flush();
+  ui.$('message-input').value='Finish the saved project';ui.fire('message-input','input');const id=ui.state().conversation.id;
+  ui.$('open-local').click();await flush();assert.equal(ui.$('local-dialog').open,true);assert.equal(ui.$('local-start').disabled,true);
+  assert.equal(ui.$('local-task').value,'Finish the saved project');assert.equal(ui.requests.some(request=>request.path==='/api/local-models/start'),false);
+  ui.$('local-model').value='fixture-local:8b';ui.fire('local-model','change');assert.equal(ui.$('local-start').disabled,false);
+  ui.$('local-start').click();ui.$('local-start').click();await flush();
+  const requests=ui.requests.filter(request=>request.path==='/api/local-models/start');assert.equal(requests.length,1);assert.equal(requests[0].projectId,'project-one');assert.equal(requests[0].body.digest,'a'.repeat(64));
+  assert.equal(ui.$('local-dialog').open,false);assert.equal(ui.state().conversation.id,id);assert.equal(ui.state().provider,'claude');assert.equal(ui.state().model,'saved-cloud-model');assert.equal(ui.state().effort,'high');
+  assert.equal(ui.$('message-input').value,'Finish the saved project');assert(ui.document.querySelectorAll('.message-author').some(item=>item.textContent==='Local · Ollama'));
+});
+
+test('missing local prerequisites leave setup usable and never start inference',async()=>{
+  const ui=await browser({localUI:true});
+  ui.setIntercept((request,next)=>request.path==='/api/local-models'?response({installed:false,models:[],context:{mode:'read'}}):next());
+  ui.$('open-local').click();await flush();assert.match(ui.$('local-status').textContent,/Install Codex CLI/);assert.equal(ui.$('local-start').disabled,true);
+  ui.$('local-close').click();await flush();assert.equal(ui.$('local-dialog').open,false);assert.equal(ui.requests.some(request=>request.path==='/api/local-models/start'),false);
+});
+
+test('late local model discovery cannot follow the user into another workspace',async()=>{
+  const ui=await browser({localUI:true,moreProjects:true}),held=deferred();
+  ui.setIntercept((request,next)=>request.path==='/api/local-models'?held.promise.then(next):next());
+  ui.$('open-local').click();await flush();ui.$('local-task').value='First workspace task';
+  await ui.switchProject('project-two');assert.equal(ui.$('local-dialog').open,false);held.resolve();await flush();
+  assert.equal(ui.state().projectId,'project-two');assert.equal(ui.requests.some(request=>request.path==='/api/local-models/start'),false);
+  ui.setIntercept(null);ui.$('open-local').click();await flush();assert.notEqual(ui.$('local-task').value,'First workspace task');
+});
+
+test('a lost local-start response retries the same request ID and preserves the composer draft',async()=>{
+  const ui=await browser({localUI:true});ui.$('message-input').value='Keep my draft';ui.fire('message-input','input');
+  ui.$('open-local').click();await flush();ui.$('local-model').value='fixture-local:8b';ui.fire('local-model','change');let lost=false;
+  ui.setIntercept((request,next)=>{const result=next();if(request.path==='/api/local-models/start'&&!lost){lost=true;throw Error('Response lost');}return result;});
+  ui.$('local-start').click();await flush();assert.equal(ui.$('local-dialog').open,true);assert.match(ui.$('local-error').textContent,/cannot reach/i);
+  ui.$('local-start').click();await flush();const requests=ui.requests.filter(request=>request.path==='/api/local-models/start');
+  assert.equal(requests.length,2);assert.equal(requests[0].body.requestId,requests[1].body.requestId);assert.equal(ui.conversations[0].messages.filter(item=>item.connection==='local').length,1);assert.equal(ui.$('message-input').value,'Keep my draft');
+});
+
+test('Gemini requires explicit unverified-billing confirmation, supports custom model IDs and receives quota handoffs',async()=>{
+  const ui=await browser({providers:{codex:{available:true},claude:{available:false},gemini:{available:true}},workbench:true,insights:true});
+  ui.$('select-gemini').click();await flush();
+  assert.equal(ui.state().provider,'gemini');assert.equal(ui.$('effort-select').disabled,true,'Gemini reasoning effort stays disabled until a model reports levels.');
+  ui.$('message-input').value='Implement the Gemini handoff';ui.fire('message-input','input');
+  assert.equal(ui.$('send-button').disabled,true,'Unverified Gemini billing blocks sending until reviewed.');
+  assert.match(ui.$('connection-notice-text').textContent,/Billing could not be confirmed/);
+  ui.$('relay-settings').click();await flush();
+  const billingCheck=ui.$('workbench-content').querySelector('input');billingCheck.checked=true;billingCheck.dispatchEvent(new UIEvent('change'));
+  ui.$('workbench').close();await flush();assert.equal(ui.$('send-button').disabled,false);
+  ui.$('model-select').value='__custom__';ui.fire('model-select','change');
+  ui.$('custom-model-input').value='gemini-2.5-pro';ui.$('save-custom-model').click();await flush();
+  assert.equal(ui.state().model,'gemini-2.5-pro');
+  ui.fire('composer','submit');await flush();
+  const sent=ui.requests.find(request=>request.path.endsWith('/messages'));
+  assert.equal(sent.body.provider,'gemini');assert.equal(sent.body.model,'gemini-2.5-pro');assert.equal(sent.body.billingConfirmed,true);
+  const chat=ui.canonical.get('project-one');
+  chat.messages.push({id:'gemini-reply',role:'assistant',provider:'gemini',model:'gemini-2.5-pro',text:'Gemini completed the task.'});
+  chat.lastRun={provider:'gemini',effectiveModel:'gemini-2.5-pro',status:'complete',startedAt:'2026-10-31T10:00:00Z',endedAt:'2026-10-31T10:00:08Z',usage:{used:4200,size:1000000}};
+  await ui.window.relayUI.refresh();await flush();
+  assert(ui.document.querySelectorAll('.message-author').some(item=>item.textContent==='Gemini'));
+  assert.match(ui.$('run-metrics').textContent,/4,200.*context tokens/);
+  // Quota exhaustion on Codex offers Gemini when Claude is unavailable and Gemini billing is confirmed.
+  ui.$('select-codex').click();await flush();
+  Object.assign(chat,{provider:'codex',status:'incomplete',lastRun:{provider:'codex',status:'incomplete',errorCategory:'quota'}});
+  await ui.window.relayUI.refresh();await flush();
+  assert.match(ui.$('continue-button').textContent,/Continue with Gemini/);
 });

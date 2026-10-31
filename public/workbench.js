@@ -7,7 +7,7 @@
     request: ['Ask a friend', 'Ask another person for help. They work in their own workspace and send back changes for you to review.'],
     solutions: ['Returned solutions', 'Manage shared requests and review the changes your friend sends back.'],
     friend: ['Help someone', 'Open a request in your workspace and return your proposed changes.'],
-    accounts: ['Connections', 'Manage your Codex and Claude accounts and model preferences.'],
+    accounts: ['Connections', 'Manage your Codex, Claude and Gemini accounts and model preferences.'],
   };
   const node = (tag, text, cls) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (cls) n.className = cls; return n; };
   const field = (label, type = 'input', value = '') => { const l = node('label', label), i = node(type); i.value = value; l.append(i); return { l, i }; };
@@ -16,7 +16,7 @@
   const describe = value => JSON.stringify(value, null, 2);
   const post = (path, value = {}, projectId) => api().post('/api/collaboration' + path, value, projectId ?? projectScope);
   const get = (path, projectId) => api().api('/api/collaboration' + path, {}, projectId ?? projectScope);
-  const providerName = provider => provider === 'codex' ? 'Codex' : 'Claude';
+  const providerName = provider => provider === 'gemini' ? 'Gemini' : provider === 'codex' ? 'Codex' : 'Claude';
   const bytes = count => count < 1024 ? `${count} B` : `${(count / 1024).toFixed(count < 10240 ? 1 : 0)} KB`;
   const date = value => { if (!value) return ''; const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
   const download = (name, value) => { const a = node('a'), url = URL.createObjectURL(new Blob([describe(value)], { type: 'application/json' })); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
@@ -210,7 +210,7 @@
     const state = api().getState(), cards = node('div', undefined, 'connection-grid'); content.append(cards);
     // The app owns account checks. Each card shows its last result or progress at once and redraws when an answer arrives.
     api().refreshAccounts({ force }).catch(() => {}); accountSignature = accountState();
-    for (const provider of ['codex', 'claude']) {
+    for (const provider of ['codex', 'claude', 'gemini']) {
       const card = node('section', undefined, 'connection-card'); card.dataset.provider = provider; cards.append(card);
       const account = state.accounts?.[provider], check = state.accountChecks?.[provider] || {}, checking = Boolean(state.accountsChecking?.[provider]);
       if (!account) { card.append(node('h3', providerName(provider)), badge(checking ? 'Checking…' : check.failure === 'timeout' ? 'Check timed out' : 'Status unavailable', checking ? '' : 'warning')); if (!checking) { card.append(node('p', check.failure === 'timeout' ? `${providerName(provider)} did not answer in time.` : check.error || 'This connection has not been checked yet.')); actions(card, button('Try again', () => render(true))); } continue; }
@@ -219,7 +219,8 @@
       const selected = state.conversation?.models?.[provider] || (state.provider === provider ? state.model : '') || ''; fact(facts, 'Selected model', selected || 'Provider default');
       if (state.conversation?.lastRun?.provider === provider && state.conversation.lastRun.effectiveModel) fact(facts, 'Last used', state.conversation.lastRun.effectiveModel); fact(facts, 'Last checked', date(check.checkedAt) || 'Not yet'); card.append(facts);
       if (check.failure) notice(card, `The latest check ${check.failure === 'timeout' ? 'timed out' : 'failed'} at ${date(check.failedAt)}, so this shows the result from ${date(check.checkedAt)}.`, 'info');
-      if (!account.installed) card.append(node('p', `Install ${provider === 'codex' ? 'Codex CLI' : 'Claude Code'} on this computer, then refresh the connection.`, 'muted'));
+      if (!account.installed) card.append(node('p', `Install ${provider === 'gemini' ? 'Gemini CLI 0.66.0 or newer' : provider === 'codex' ? 'Codex CLI' : 'Claude Code'} on this computer, then refresh the connection.`, 'muted'));
+      if (provider === 'gemini') card.append(node('p', account.message || 'Configure authentication in Gemini CLI. Quotas and charges depend on your Google account.', 'muted'));
       const controls = [button('Refresh status', () => render(true)), button('Usage & reset times', () => { modal.close(); window.relayUsage?.open(provider); })];
       if (account.installed && account.authenticated !== true) controls.unshift(button('Connect account', async () => { const result = await api().post(`/api/providers/${provider}/connect`), url = result.authUrl || result.url; notice(card, result.message || (url ? 'Open the provider sign-in page to finish connecting, then refresh status.' : 'Complete sign-in in the provider’s browser window, then refresh status.'), 'info'); if (url) actions(card, button('Open provider sign-in', async () => { if (window.relayDesktop) await window.relayDesktop.openExternal(url); else window.open(url, '_blank', 'noopener,noreferrer'); }, 'primary')); }, 'primary'));
       if (account.installed && account.authenticated === true) controls.push(button('Disconnect account', async () => { await api().post(`/api/providers/${provider}/disconnect`); await render(true); }, 'quiet-danger'));
@@ -231,8 +232,8 @@
     for (const [value, label] of [['system', 'System'], ['graphite', 'Dark'], ['light', 'Light']]) { const choice = node('button', label); choice.type = 'button'; choice.setAttribute('data-appearance', value); choice.setAttribute('aria-pressed', String(window.relayTheme?.preference() === value)); choice.addEventListener('click', () => window.relayTheme?.choose(value)); choices.append(choice); }
     const setup = section('App preferences', 'Choose your default assistant, model, theme and starting workspace.'); actions(setup, button('Open setup checklist', () => { modal.close(); window.relaySetup?.open(); }));
     const billing = section('Usage and billing', 'Provider runs use your own connected account. Subscription allowances and API charges are managed by the provider.');
-    const acceptance = check('For explicit provider runs in this app session, I accept the displayed API or unknown billing source.'); acceptance.i.checked = window.relayBillingConfirmed === true; acceptance.i.addEventListener('change', () => { window.relayBillingConfirmed = acceptance.i.checked; }); billing.append(acceptance.l);
-    const permissions = details(content, 'Permissions and account details'); permissions.append(node('p', 'Codex read-only uses its native sandbox. Claude read-only restricts available tools and is not an operating-system sandbox. Managed runs disable project hooks where supported; administrator policy may still apply. Tool approval requests appear in the workspace chat.')); permissions.append(node('p', 'Sign-in uses the installed provider’s own flow. Account credentials stay with the provider. There is no automatic switch to API billing.'));
+    const acceptance = check('For explicit provider runs in this app session, I accept the displayed API or unknown billing source.'); acceptance.i.checked = window.relayBillingConfirmed === true; acceptance.i.addEventListener('change', () => { window.relayBillingConfirmed = acceptance.i.checked; window.dispatchEvent(new CustomEvent('relay-billing')); }); billing.append(acceptance.l);
+    const permissions = details(content, 'Permissions and account details'); permissions.append(node('p', 'Codex read-only uses its native sandbox. Claude and Gemini read-only restrict available tools and is not an operating-system sandbox. Managed runs disable project hooks where supported; administrator policy may still apply. Tool approval requests appear in the workspace chat.')); permissions.append(node('p', 'Sign-in uses the installed provider’s own flow. Account credentials stay with the provider. There is no automatic switch to API billing.'));
   }
   function approvals() {
     let host = $('pending-approvals'); if (!host) { host = node('section', undefined, 'pending-approvals'); host.id = 'pending-approvals'; $('composer-region').prepend(host); }

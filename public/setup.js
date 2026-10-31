@@ -4,12 +4,12 @@
   // First run: a welcome, three short steps and a summary, then the app.
   // Existing profiles open normally after updates. The step number is saved so setup can resume.
   const steps = ['Agents', 'Preferences', 'Project'], titles = ['Connect your agents', 'Make it yours', 'Start your first project'], last = steps.length - 1;
-  const installGuides = { claude: 'https://code.claude.com/docs/en/overview', codex: 'https://github.com/openai/codex' };
+  const installGuides = { claude: 'https://code.claude.com/docs/en/overview', codex: 'https://github.com/openai/codex', gemini: 'https://geminicli.com/docs/get-started/' };
   const node = (tag, text, cls) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (cls) el.className = cls; return el; };
   const button = (text, fn, cls = 'secondary-button') => { const el = node('button', text, cls); el.type = 'button'; el.addEventListener('click', () => perform(fn)); return el; };
   const field = (label, tag, value = '') => { const wrap = node('label',label), input = node(tag); input.value = value; wrap.append(input); return {wrap,input}; };
   const option = (select, text, value) => { const el = node('option',text); el.value = value; select.append(el); };
-  const providerName = p => p === 'claude' ? 'Claude Code' : 'Codex';
+  const providerName = p => p === 'gemini' ? 'Gemini' : p === 'claude' ? 'Claude Code' : 'Codex';
   const titleCase = text => String(text).replace(/[_-]/g,' ').replace(/\b\w/g, letter => letter.toUpperCase());
   const computer = desktop?.platform === 'darwin' ? 'this Mac' : 'this computer';
   let connectionSignature = '';
@@ -55,7 +55,7 @@
       const points = node('ul',undefined,'onboarding-points');
       for (const text of ['Shared project context','Your own agent accounts','One conversation per project']) points.append(node('li',text));
       const start = button('Get started',()=>{ reviewing = false; show('flow'); },'primary-button onboarding-cta');
-      host.append(node('p','Your workspace for AI coding agents. Work with Claude Code and Codex using your own accounts.','onboarding-tagline'),points,start,node('p','Takes about a minute.','onboarding-note'));
+      host.append(node('p','Your workspace for AI coding agents. Work with Claude Code, Codex and Gemini using your own accounts.','onboarding-tagline'),points,start,node('p','Takes about a minute.','onboarding-note'));
       start.focus();
     }
     if (screen === 'done') {
@@ -85,9 +85,9 @@
   }
   function agents(host) {
     connectionSignature = connectionState();
-    host.append(node('p',`Throughline works with Claude Code and Codex on ${computer}, signed in with your own accounts. Choose which one starts the conversation; you can switch at any time without losing the thread.`,'setup-description'));
+    host.append(node('p',`Throughline works with Claude Code, Codex and Gemini on ${computer}, signed in with your own accounts. Choose which one starts the conversation; you can switch at any time without losing the thread.`,'setup-description'));
     const cards = node('div',undefined,'setup-agent-grid'); host.append(cards);
-    for (const provider of ['claude','codex']) {
+    for (const provider of ['claude','codex','gemini']) {
       const account = api.getState().accounts?.[provider], check = api.getState().accountChecks?.[provider], selected = draft.provider === provider, plan = account?.planType || account?.subscriptionType;
       const card = node('section',undefined,'setup-agent'); card.dataset.provider = provider; card.dataset.selected = String(selected);
       const select = button('',()=>{draft.provider=provider;draft.model=null;draft.effort=null;render();},'setup-agent-select'); select.setAttribute('aria-pressed',String(selected));

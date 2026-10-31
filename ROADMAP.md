@@ -34,12 +34,15 @@ The fastest way to make Throughline better is to use it on your real projects an
 | Quiet background agent checks that preserve verified connection status | [0.7.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.7.0) |
 | Native desktop menus for workspace, conversation, agent, appearance and Help controls | [0.8.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.8.0) |
 | Cross-agent review of selected Git changes, with saved findings and explicit fix drafts | [0.9.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.9.0) |
+| Gemini CLI (0.66.0+) in the shared project conversation, with ACP approvals, access controls and verified model selection | [0.10.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.0) |
+| Continue locally with downloaded Ollama models, shared task context and Codex workspace tools | [0.10.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.0) |
+| In-app release notes after updates, with saved workspaces opening directly | [0.10.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.10.0) |
 
 ## Now
 
 | Feature | Status | Issue |
 | --- | --- | --- |
-| More agents and models, including Google's supported coding-agent integration, free cloud tiers and local models, on your own accounts | Next development priority, ahead of automatic routing; validate authentication, tools, permissions and quota handling | [#4](https://github.com/AhmedNavaz/throughline/issues/4) |
+| More agents and models, including Google's supported coding-agent integration, free cloud tiers and local models, on your own accounts | First milestones shipped in 0.10.0: Gemini CLI over ACP and explicit Ollama local-model handoffs through Codex tools; further provider adapters remain ahead of automatic routing | [#4](https://github.com/AhmedNavaz/throughline/issues/4) |
 | Compact workspace activity with clear actions, results and expandable details | Planned, help wanted | [#45](https://github.com/AhmedNavaz/throughline/issues/45) |
 | Persistent approval indicators and desktop notifications that open the right request | Planned | [#46](https://github.com/AhmedNavaz/throughline/issues/46) |
 | Notarized macOS builds, so downloads open without a security prompt | Waiting on an Apple Developer account | [#1](https://github.com/AhmedNavaz/throughline/issues/1) |

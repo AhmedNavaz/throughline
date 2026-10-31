@@ -13,7 +13,7 @@ flowchart TD
   Server --> Registry[Project registry]
   Registry --> Broker[Workspace conversation broker]
   Broker <-->|IPC| Worker[Provider worker]
-  Worker --> Agents[Installed Claude Code or Codex]
+  Worker --> Agents[Installed Claude Code, Codex or Gemini]
   Server --> Collaboration[Collaboration and patch services]
   Collaboration --> Files[Workspace file access and mutation locks]
   Server --> Client[Optional sharing client]
@@ -26,11 +26,12 @@ flowchart TD
 | --- | --- |
 | Desktop lifecycle, native dialogs and trusted IPC | `desktop/main.mjs`, `desktop/preload.cjs` |
 | App-version announcements and bundled changelog entries | `desktop/updates.mjs` |
+| Downloaded local-model discovery, validation and scoped launch routes | `local-models.mjs` |
 | Temporary development profiles and data migration | `desktop/launch.mjs`, `desktop/storage.mjs` |
 | Workspace identity, folders and one permanent conversation | `projects.mjs` |
 | Conversation journal, accepted submissions, approvals and run lifecycle | `broker.mjs` |
 | Shared prompt context | `context.mjs` |
-| Agent protocol adapters and worker entry point | `providers.mjs`, `provider-worker.mjs`, `resolve-binary.mjs` |
+| Agent protocol adapters and worker entry point | `gemini.mjs`, `providers.mjs`, `provider-worker.mjs`, `resolve-binary.mjs` |
 | Review snapshots, validated findings, freshness and review HTTP routes | `agent-review.mjs`, `agent-review-routes.mjs` |
 | History discovery, reviewed imports and portable exports | `conversation-routes.mjs`, `conversation-import.mjs`, `conversation-export.mjs` |
 | File, attachment and Git HTTP routes | `workspace-routes.mjs` |
@@ -50,6 +51,7 @@ The backend modules stay at the repository root while this remains a small appli
 | `conversation-history.js` | Previous-chat discovery, selection, review, merge and export |
 | `setup.js` | Onboarding and saved preferences; announces `relay-setup-ready` after initial setup state loads |
 | `updates.js` | In-app release notes after updates and from Help; waits for setup and workspace loading |
+| `local-models.js` | Explicit local-model selection, task handoff and setup guidance |
 | `files.js` | File explorer, previews and attachments |
 | `conversation-search.js` | Find in the conversation: match highlights, the match count and moving between matches |
 | `agent-review.js` | Cross-agent review selection, explicit preview/start, findings and fix drafts |
@@ -63,6 +65,10 @@ The deferred scripts in `index.html` load the core API before its features, and 
 Each workspace has a stable ID, attached folder records and one permanent conversation ID in `projects.json`. Conversation events live in per-workspace JSONL journals; reopening a workspace replays those events. Preferences live in `settings.json`. Electron keeps this data under its user-data directory; browser-only development uses `.data/` by default. CLI credentials remain managed by the installed agents. The guide describes the user-facing storage and migration behavior.
 
 A submitted message carries a request ID so retrying after a lost response does not run the same task twice. The broker records the submission, starts a provider worker and turns worker events into journal entries and live updates. The UI refreshes the corresponding workspace and rejects stale responses after selection changes.
+
+Gemini runs use Gemini CLI's Agent Client Protocol (`--acp`) with a fresh session reconstructed from Throughline's canonical history on each turn. `gemini.mjs` creates an isolated temporary per-run policy and system settings file (`GEMINI_CLI_SYSTEM_SETTINGS_PATH`) that disables extensions, hooks, MCP, skills, telemetry and auto-memory, restricts read-only runs to read/search tools, requires `allow_once` GUI approvals for edits and shell commands, validates workspace boundaries and file hashes for ACP text-file reads and writes, verifies requested model IDs before sending the prompt, and refuses to start if managed system-wide Gemini settings or policies are present.
+
+Continue locally uses Codex as the tool harness and Ollama as the model provider. Its dedicated route validates the approved workspace, access mode and downloaded-model digest. Internal broker options select a fresh local run without changing cloud settings or sessions; ordinary message bodies cannot enable them. The adapter rechecks local model metadata, pins the loopback Responses endpoint, requires the native client to confirm the local provider before sending a task, disables hosted search/MCP and provider telemetry for this invocation, and retains native approvals, cancellation and mutation leases. The application journal remains canonical; local Codex threads are ephemeral. Reply metadata and conversation exports retain local-model attribution.
 
 Cross-agent reviews reuse that same run lifecycle, workspace mutation lease, billing gate, cancellation and provider adapters. Review requests are created by the dedicated route module; ordinary message bodies cannot enable the broker's internal review options. A review forces read-only access and a fresh provider session, preserves coding preferences, and never stores or advances the provider's normal coding session. The journal stores the selected diffs and their file-content/Git-base identities with the review submission, then a validated result record. Snapshot validation is repeated after acquiring the mutation lease. Review callbacks deny write/command approvals; existing native provider read-only policies remain in force.
 

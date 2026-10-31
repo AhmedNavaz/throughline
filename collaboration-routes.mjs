@@ -9,7 +9,7 @@ export async function collaborationRoute({req,res,url,registry,collaboration:c,s
   const input=method==='POST'?await body(req):{};
   const projectId=url.searchParams.get('projectId');
   if(url.pathname==='/api/sharing/config') {json(res,200,method==='POST'?configureSharing(input):{baseUrl:sharing?.baseUrl||null});return true;}
-  const providerMatch=url.pathname.match(/^\/api\/providers\/(codex|claude)\/(account|models|connect|disconnect|usage)$/);
+  const providerMatch=url.pathname.match(/^\/api\/providers\/(codex|claude|gemini)\/(account|models|connect|disconnect|usage)$/);
   if(providerMatch) {
     const [,provider,action]=providerMatch;
     const workspace=projectId?registry.get(projectId).path:undefined;

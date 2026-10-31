@@ -2,7 +2,7 @@
   'use strict';
   const $ = id => document.getElementById(id), api = window.relayUI;
   const el = (tag, text, cls) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (cls) node.className = cls; return node; };
-  const name = provider => provider === 'claude' ? 'Claude' : 'Codex';
+  const name = provider => provider === 'gemini' ? 'Gemini' : provider === 'claude' ? 'Claude' : 'Codex';
   const title = value => value ? value[0].toUpperCase() + value.slice(1) : 'Provider default';
   const duration = ms => { const seconds = Math.max(0, Math.floor(ms / 1000)); return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`; };
   const date = value => !value || Number.isNaN(new Date(value).getTime()) ? 'Date unavailable' : new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -87,16 +87,19 @@
     $('run-phase').className = `run-phase ${running ? quiet ? 'quiet' : phase === 'approval' ? 'approval' : 'active' : run.status === 'complete' ? 'complete' : 'quiet'}`;
     $('run-elapsed').textContent = `${running ? 'Elapsed ' : ''}${Number.isFinite(elapsed) ? duration(elapsed) : 'Duration not recorded'}`;
     const model = run.effectiveModel && run.effectiveModel !== 'unknown' ? run.effectiveModel : run.model || 'Provider default';
+    const agent = run.connection === 'local' ? 'Local · Ollama' : name(run.provider);
     const effort = run.effectiveEffort || run.effort;
     $('run-detail').textContent = running ? state.streamConnected === false ? 'The app connection was interrupted. The agent may still be running; reconnecting to restore its live status.' : phase === 'approval' ? 'Review the permission request below to let the agent continue.' : quiet ? `No provider activity for ${duration(silence)}. This can happen during a long request; you can wait or stop the run.` : phase === 'reasoning' ? `${name(run.provider)} reported reasoning activity. Its private reasoning stays private.` : phase === 'tool' ? `${name(run.provider)} is using workspace tools. Open workspace activity to see commands and file changes.` : phase === 'responding' ? 'The response is arriving live.' : 'The agent is running. New activity appears here as it arrives.' : `${name(run.provider)} · ${model}${effort ? ' · ' + title(effort) + ' effort' : ''}`;
     const metrics = [];
-    if (running) metrics.push(`${name(run.provider)} · ${model}${effort ? ' · ' + title(effort) : ''}`, `${state.streamConnected === false ? 'Reconnecting to app' : 'Live updates'}`, `Last activity ${duration(silence)} ago`);
+    if (run.connection === 'local') $('run-detail').textContent = running ? `${agent} · ${model} · No cloud model charges` : `${agent} · ${model}`;
+    if (running) metrics.push(`${agent} · ${model}${effort ? ' · ' + title(effort) : ''}`, `${state.streamConnected === false ? 'Reconnecting to app' : 'Live updates'}`, `Last activity ${duration(silence)} ago`);
     if (run.toolCount) metrics.push(`${run.toolCount} tool step${run.toolCount === 1 ? '' : 's'}`);
     // Codex's inputTokens include its cached input; Claude reports the input it read from and wrote to its cache apart from input_tokens.
     const usage = run.usage?.total || run.usage, output = usage?.outputTokens ?? usage?.output_tokens;
     const input = usage?.inputTokens ?? (typeof usage?.input_tokens === 'number' ? usage.input_tokens + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0) : undefined);
     if (typeof input === 'number') metrics.push(`${input.toLocaleString()} input tokens`);
     if (typeof output === 'number') metrics.push(`${output.toLocaleString()} output tokens`);
+    if (typeof usage?.used === 'number') metrics.push(`${usage.used.toLocaleString()}${typeof usage.size === 'number' ? ' / ' + usage.size.toLocaleString() : ''} context tokens`);
     $('run-metrics').replaceChildren(...metrics.map(value => el('span', value)));
     if (run.purpose === 'review') {
       const report = c.reviews?.find(review => review.id === run.reviewId);
@@ -203,7 +206,7 @@
   }
   function renderUsage() {
     const state = api.getState();
-    for (const provider of ['codex', 'claude']) {
+    for (const provider of ['codex', 'claude', 'gemini']) {
       const meter = $(`${provider}-usage`), rows = usageWindows(provider);
       meter.closest('.provider-status')?.classList.toggle('selected', state.provider === provider);
       const tightest = rows.reduce((low, row) => !low || remaining(row) < remaining(low) ? row : low, null);
@@ -223,7 +226,7 @@
     catch (error) { usageErrors[provider] = error.message; }
     finally { usageLoading[provider] = false; renderUsage(); renderUsageDetails(); }
   }
-  for (const provider of ['codex', 'claude']) $(`${provider}-usage`).addEventListener('click', event => openUsage(provider, event.currentTarget || $(`${provider}-usage`)));
+  for (const provider of ['codex', 'claude', 'gemini']) $(`${provider}-usage`).addEventListener('click', event => openUsage(provider, event.currentTarget || $(`${provider}-usage`)));
   $('usage-chip').addEventListener('click', () => openUsage(api.getState().provider, $('usage-chip')));
   function resetCountdown(value) {
     const at = new Date(value || ''); if (Number.isNaN(at.getTime())) return 'Reset time not reported';
@@ -283,7 +286,7 @@
     renderUsageDetails(); positionUsage(); loadUsage(provider,true);
   }
   window.relayUsage = { open: openUsage };
-  for (const trigger of [$('codex-usage'), $('claude-usage'), $('usage-chip')]) { trigger.setAttribute('aria-controls','usage-dialog'); trigger.setAttribute('aria-haspopup','dialog'); trigger.setAttribute('aria-expanded','false'); }
+  for (const trigger of [$('codex-usage'), $('claude-usage'), $('gemini-usage'), $('usage-chip')]) { trigger.setAttribute('aria-controls','usage-dialog'); trigger.setAttribute('aria-haspopup','dialog'); trigger.setAttribute('aria-expanded','false'); }
   usagePopover.addEventListener('toggle',() => { if (!usageIsOpen()) usageAnchor?.setAttribute('aria-expanded','false'); });
   $('close-usage').addEventListener('click',()=>closeUsage(true));
   document.addEventListener('keydown',event=>{if(event.key==='Escape' && usageIsOpen()){event.preventDefault();closeUsage(true);}});
@@ -297,10 +300,10 @@
   function render() {
     if (lastFolder !== api.selectedFolderId?.()) { lastFolder = api.selectedFolderId?.(); if (gitData) renderGit(); }
     const state = api.getState(); modelControls(); progress();
-    for (const provider of ['codex', 'claude']) if (state.accounts?.[provider]?.authenticated === true && !usageAttempted[provider]) loadUsage(provider);
+    for (const provider of ['codex', 'claude', 'gemini']) if (state.accounts?.[provider]?.authenticated === true && !usageAttempted[provider]) loadUsage(provider);
     // A finished run changes files and consumes usage.
     const running = state.conversation?.status === 'running' ? state.projectId : null;
-    if (runningProject && runningProject === state.projectId && !running) { if (!$('git-panel').hidden) loadGit(); for (const provider of ['codex', 'claude']) loadUsage(provider, true); }
+    if (runningProject && runningProject === state.projectId && !running) { if (!$('git-panel').hidden) loadGit(); for (const provider of ['codex', 'claude', 'gemini']) loadUsage(provider, true); }
     runningProject = running;
     renderUsage();
     if (state.ready && state.status?.providers?.[state.provider]?.available && state.accounts?.[state.provider]?.authenticated === true && !catalog[state.provider] && !attemptedModels[state.provider] && !loadingModels[state.provider]) loadModels();
@@ -318,6 +321,6 @@
   window.addEventListener('relay-account', event => { const provider = event.detail?.provider || api.getState().provider; delete catalog[provider]; delete attemptedModels[provider]; modelSignature = ''; modelControls(); });
   setInterval(() => { if (!document.hidden) progress(); }, 1000);
   setInterval(() => { if (!document.hidden && !$('git-panel').hidden && !gitBusy && gitScope === api.getState().projectId) loadGit(); }, 15000);
-  setInterval(() => { if (!document.hidden) for (const provider of ['codex', 'claude']) if (Date.now() - (usage[provider]?.fetchedAt || 0) > 300000) loadUsage(provider); }, 60000);
+  setInterval(() => { if (!document.hidden) for (const provider of ['codex', 'claude', 'gemini']) if (Date.now() - (usage[provider]?.fetchedAt || 0) > 300000) loadUsage(provider); }, 60000);
   render();
 })();

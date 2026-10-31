@@ -2,10 +2,10 @@
 // Menu.buildFromTemplate and rebuilds it when the page, the saved appearance or Keep Awake changes. Items that
 // act on the page send it a command, so each runs the same code as the shortcut or button it stands for.
 const repository = 'https://github.com/AhmedNavaz/throughline';
-const agents = ['codex', 'claude'], names = { codex: 'Codex', claude: 'Claude Code' };
-const flags = ['workspace', 'running', 'codex', 'claude', 'files', 'git', 'imports', 'export'];
+const agents = ['codex', 'claude', 'gemini'], names = { codex: 'Codex', claude: 'Claude Code', gemini: 'Gemini' };
+const flags = ['workspace', 'running', 'codex', 'claude', 'gemini', 'files', 'git', 'imports', 'export'];
 // What the menu offers until the page reports: nothing that needs a workspace.
-const initial = { workspace: false, running: false, agent: 'codex', codex: false, claude: false, continue: null, files: false, git: false, imports: false, export: false, workspaces: [] };
+const initial = { workspace: false, running: false, agent: 'codex', codex: false, claude: false, gemini: false, continue: null, files: false, git: false, imports: false, export: false, workspaces: [] };
 
 // The page reports what it shows. Anything not in exactly this shape is ignored.
 export function menuState(input) {
@@ -65,6 +65,7 @@ export function menuTemplate({ platform, packaged, version, osVersion, arch, sta
   ] };
   const agent = { label: 'Agent', submenu: [
     ...agents.map(name => command(`Use ${names[name]}`, ['agent', name], { type: 'radio', checked: page.agent === name, enabled: page[name] })),
+    command('Continue Locally…', ['local-models'], { enabled: page.workspace && !page.running }),
     separator(),
     command('Stop Run', ['stop'], { accelerator: 'CmdOrCtrl+.', enabled: page.running }),
     // The page's Continue button continues with the same agent unless a usage limit stopped the run.

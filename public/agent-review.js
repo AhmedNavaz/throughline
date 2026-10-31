@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id), api = window.relayUI, dialog = $('review-dialog');
-  const name = provider => provider === 'claude' ? 'Claude Code' : 'Codex';
+  const name = provider => provider === 'gemini' ? 'Gemini' : provider === 'claude' ? 'Claude Code' : 'Codex';
   const node = (tag, text, cls) => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; if (cls) value.className = cls; return value; };
   const button = (text, callback, cls = 'secondary-button') => { const value = node('button', text, cls); value.type = 'button'; value.addEventListener('click', callback); return value; };
   const selected = new Map(), findings = new Set(), freshness = new Map();
@@ -79,7 +79,7 @@
     const titles = { running: 'Review in progress', complete: report.findings.length ? `${report.findings.length} finding${report.findings.length === 1 ? '' : 's'} to consider` : 'No actionable findings reported', unstructured: 'Review response needs attention', failed: 'Review did not finish', interrupted: 'Review interrupted' };
     const heading = node('div', undefined, 'review-result-heading'); heading.append(node('h3', titles[report.status] || 'Code review'));
     if (report.status === 'running') heading.append(button('Stop review', () => perform(async () => { await api.post(`/api/conversations/${api.getState().conversation.id}/stop`, {}, scope); if (current()) await api.refresh(); })));
-    host.append(heading, node('p', `${name(report.builder)} → ${name(report.provider)} · Read only · ${new Date(report.startedAt).toLocaleString()}`, 'review-result-meta'));
+    host.append(heading, node('p', `${report.builderConnection === 'local' ? 'Local · ' + (report.builderModel || 'Ollama') : name(report.builder)} → ${name(report.provider)} · Read only · ${new Date(report.startedAt).toLocaleString()}`, 'review-result-meta'));
     host.append(node('p', `Goal: ${report.goal}`, 'review-result-summary'));
     if (report.stale) host.append(node('p', `Outdated review. ${report.staleReason} Run a new review before preparing fixes.`, 'review-stale'));
     if (report.summary) host.append(node('p', report.summary, 'review-result-summary'));
@@ -130,7 +130,7 @@
     tab(id ? 'result' : 'new'); if (!dialog.open) dialog.showModal();
     await perform(async token => {
       const result = await api.api('/api/reviews', {}, scope); if (token !== generation || !current()) return;
-      data = result; $('review-goal').value = result.goal; $('review-pair').textContent = `${name(result.builder)} builds  →  ${name(result.reviewer)} reviews`;
+      data = result; $('review-goal').value = result.goal; $('review-pair').textContent = `${result.builderConnection === 'local' ? 'Local · ' + (result.builderModel || 'Ollama') : name(result.builder)} builds  →  ${name(result.reviewer)} reviews`;
       renderFiles(); if (id || result.reviews.length && active()) { tab('result'); await loadReport(id || result.reviews[0].id, token); } else renderReport();
     });
   }

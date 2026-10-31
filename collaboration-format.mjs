@@ -45,7 +45,7 @@ export function validateRelativePath(value) {
   assert(!/[\\\x00-\x1f\x7f:]/.test(value) && !value.startsWith('/') && !value.startsWith('~') && !/%(?:2e|2f|5c)/i.test(value), 'Unsafe file path: ' + value);
   const parts = value.split('/');
   assert(parts.every(part => part && part !== '.' && part !== '..'), 'Path traversal is not supported: ' + value);
-  const denied = /^(?:\.git|\.data|\.ai-relay|\.codex|\.claude|\.aws|\.ssh|\.gnupg|node_modules|\.env(?:\..*)?|credentials(?:\..*)?|secrets?(?:\..*)?|sessions?(?:\..*)?|auth(?:\.json)?|\.npmrc|\.netrc)$/i;
+  const denied = /^(?:\.git|\.data|\.ai-relay|\.codex|\.claude|\.gemini|\.aws|\.ssh|\.gnupg|node_modules|\.env(?:\..*)?|credentials(?:\..*)?|secrets?(?:\..*)?|sessions?(?:\..*)?|auth(?:\.json)?|\.npmrc|\.netrc)$/i;
   assert(!parts.some(part => denied.test(part) || /\.(?:pem|key|p12|pfx|keystore)$/i.test(part)), 'Private, credential, provider-session, or runtime paths cannot be shared: ' + value);
   return value;
 }
@@ -93,7 +93,7 @@ export function validatePublicPackage(input) {
   assert(['context','source'].includes(value.mode),'Choose context-only or selected-source sharing.');
   ['goal','problem','expectedOutcome'].forEach(field=>text(value[field],field)); texts(value.decisions,'decisions'); texts(value.tasks,'tasks');
   list(value.messages,'messages',500);
-  value.messages.forEach((m,i)=>{keys(m,['role','text','provider'],'message');assert(['user','assistant','activity','error','system'].includes(m.role),'Unsupported message role.');text(m.text,'message '+i,MAX_FILE_BYTES);if(m.provider!==undefined)assert(['codex','claude'].includes(m.provider),'Unsupported message provider.');});
+  value.messages.forEach((m,i)=>{keys(m,['role','text','provider'],'message');assert(['user','assistant','activity','error','system'].includes(m.role),'Unsupported message role.');text(m.text,'message '+i,MAX_FILE_BYTES);if(m.provider!==undefined)assert(['codex','claude','gemini'].includes(m.provider),'Unsupported message provider.');});
   list(value.files,'files',128); list(value.baseline,'baseline',128);
   if(value.folderLayout!==undefined){
     keys(value.folderLayout,['style','folders'],'folder layout');assert(value.folderLayout.style==='namespaced','Unsupported folder layout.');list(value.folderLayout.folders,'folder aliases',128);assert(value.folderLayout.folders.length>0,'Declare a shared folder alias.');
@@ -125,7 +125,7 @@ export function validateSolution(input, { handoffId } = {}) {
 const detectors = [
   ['private-key', /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/g],
   ['credential', /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g],
-  ['credential', /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:ant-)?[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{16,})\b/g],
+  ['credential', /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:ant-)?[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{35}|xox[baprs]-[A-Za-z0-9-]{16,})\b/g],
   ['credential', /\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|password|authorization)\s*[:=]\s*["']?(?:Bearer\s+)?[A-Za-z0-9_./+=-]{16,}/gi],
   ['absolute-path', /(?:\/(?:Users|home|private|tmp|var\/folders)\/[^\s"'<>]+|[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/][^\r\n"'<>]+)/g],
 ];

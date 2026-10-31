@@ -1,9 +1,11 @@
+import { geminiSetup } from './gemini.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import readline from 'node:readline';
 import os from 'node:os';
 import { probeCli } from './cli-probe.mjs';
 import { resolveBinary } from './resolve-binary.mjs';
+import { localEndpoint, verifyLocalModel } from './local-models.mjs';
 
 export function classifyError(error) {
   const text = typeof error === 'string' ? error : `${error?.code || ''} ${error?.message || ''} ${JSON.stringify(error?.data || error || {})}`;
@@ -17,17 +19,28 @@ export function classifyError(error) {
 }
 export function capabilities(provider, transport = 'auto') {
   const native = transport !== 'cli';
-  return { approvals: native, nativeResume: true, models: native,
+  return { approvals: native, nativeResume: provider !== 'gemini', models: native,
     readOnly: provider === 'codex' ? 'native-sandbox' : 'restricted-tools',
     hooks: 'User/project hooks disabled for this invocation; administrator policy may remain active.',
     readOnlyLimit: 'Access settings govern provider tools. They are not a host-wide guarantee against administrator hooks or external processes.' };
 }
 
+export function localCodexConfig(local) {
+  return { model_provider: 'throughline_ollama', model: local.model,
+    'model_providers.throughline_ollama': { name: 'Ollama (local)', base_url: localEndpoint(local.endpoint) + '/v1', wire_api: 'responses', requires_openai_auth: false, supports_websockets: false, request_max_retries: 0, stream_max_retries: 0, capabilities: { external_web_access: false, remote_compaction: 'unsupported' } },
+    mcp_servers: {}, web_search: 'disabled', 'analytics.enabled': false, 'otel.exporter': 'none', 'otel.metrics_exporter': 'none', 'otel.trace_exporter': 'none',
+    model_context_window: Math.min(local.contextWindow || 32768, 65536) };
+}
+const toml = value => typeof value === 'object' && value !== null ? '{' + Object.entries(value).map(([key, entry]) => JSON.stringify(key) + '=' + toml(entry)).join(',') + '}' : JSON.stringify(value);
 export class CodexClient extends EventEmitter {
-  constructor({ bin, cwd = os.homedir(), spawnImpl = spawn } = {}) {
+  constructor({ bin, cwd = os.homedir(), spawnImpl = spawn, local } = {}) {
     super();
     this.pending = new Map(); this.counter = 0; this.closed = false;
-    this.child = spawnImpl(bin, ['-c', 'features.hooks=false', '-c', 'notify=[]', 'app-server'], { cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+    const args = ['-c', 'features.hooks=false', '-c', 'notify=[]'];
+    if (local) for (const [key, value] of Object.entries(localCodexConfig(local))) args.push('-c', key + '=' + toml(value));
+    const env = { ...process.env };
+    if (local) for (const key of Object.keys(env)) if (/^(?:OPENAI|CODEX_API|OLLAMA|ANTHROPIC)_/.test(key)) delete env[key];
+    this.child = spawnImpl(bin, [...args, 'app-server'], { cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: false, ...(local ? { env } : {}) });
     let diagnostic = '';
     this.child.stderr.on('data', chunk => { diagnostic = (diagnostic + chunk).slice(-16000); });
     const lines = readline.createInterface({ input: this.child.stdout });
@@ -69,8 +82,9 @@ export class CodexClient extends EventEmitter {
   close() { if (!this.closed) { this.child.stdin.end(); this.child.kill('SIGTERM'); } }
 }
 
-export async function runCodex(config, { event, approval, metadata, cancelled = () => false, clientFactory = options => new CodexClient(options) }) {
-  const client = clientFactory({ bin: config.bin, cwd: config.workspace });
+export async function runCodex(config, { event, approval, metadata, cancelled = () => false, clientFactory = options => new CodexClient(options), verifyLocal = verifyLocalModel }) {
+  if (config.local) config.local = { ...config.local, ...await verifyLocal(config.local.model, config.local.digest, { endpoint: config.local.endpoint }) };
+  const client = clientFactory({ bin: config.bin, cwd: config.workspace, ...(config.local ? { local: config.local } : {}) });
   let threadId, turnId, resolveEnd, rejectEnd;
   const ended = new Promise((resolve, reject) => { resolveEnd = resolve; rejectEnd = reject; });
   // Initialization failures may happen before awaiting the terminal promise.
@@ -110,7 +124,7 @@ export async function runCodex(config, { event, approval, metadata, cancelled = 
     await client.initialize();
     if (cancelled()) throw new Error('Run interrupted.');
     let selectedEffort = config.effort || null, selectedModel = config.model || null;
-    if (!selectedEffort || !selectedModel) {
+    if (!config.local && (!selectedEffort || !selectedModel)) {
       try {
         const { data } = await client.request('model/list', { limit: 100, includeHidden: false }, 2500);
         const model = data.find(row => selectedModel ? [row.id, row.model].includes(selectedModel) : row.isDefault);
@@ -119,11 +133,13 @@ export async function runCodex(config, { event, approval, metadata, cancelled = 
       } catch { /* Older clients may not expose defaults; do not invent one. */ }
     }
     const roots = [...new Set([config.workspace, ...(config.workspaces || [])])];
-    const options = { cwd: config.workspace, approvalPolicy: config.mode === 'read' ? 'never' : 'on-request', approvalsReviewer: 'user', sandbox: config.mode === 'read' ? 'read-only' : 'workspace-write', config: { 'sandbox_workspace_write.writable_roots': config.mode === 'read' ? [] : roots, ...(selectedEffort ? { model_reasoning_effort: selectedEffort } : {}) }, ...(selectedModel ? { model: selectedModel } : {}) };
+    const options = { cwd: config.workspace, approvalPolicy: config.mode === 'read' ? 'never' : 'on-request', approvalsReviewer: 'user', sandbox: config.mode === 'read' ? 'read-only' : 'workspace-write', config: { 'sandbox_workspace_write.writable_roots': config.mode === 'read' ? [] : roots, ...(selectedEffort ? { model_reasoning_effort: selectedEffort } : {}), ...(config.local ? localCodexConfig(config.local) : {}) }, ...(selectedModel ? { model: selectedModel } : {}), ...(config.local ? { modelProvider: 'throughline_ollama', ephemeral: true } : {}) };
+    if (config.local && (!selectedModel || config.sessionId)) throw new Error('Local runs require an explicit model and a fresh session.');
     const started = await client.request(config.sessionId ? 'thread/resume' : 'thread/start', { ...options, ...(config.sessionId ? { threadId: config.sessionId } : {}) });
+    if (config.local && (started.thread.modelProvider !== 'throughline_ollama' || started.model && started.model !== selectedModel || started.thread.model && started.thread.model !== selectedModel)) throw new Error('The native client did not confirm the selected local provider and model. No task was sent.');
     threadId = started.thread.id;
     event({ type: 'thread.started', thread_id: threadId });
-    metadata({ effectiveModel: started.model || started.thread.model || selectedModel || 'unknown', transport: 'app-server', effectiveEffort: started.reasoningEffort || selectedEffort || null });
+    metadata({ effectiveModel: started.model || started.thread.model || selectedModel || 'unknown', transport: 'app-server', effectiveEffort: started.reasoningEffort || selectedEffort || null, ...(config.local ? { connection: 'local', account: { authenticated: true, authMode: 'local', billingSource: 'local' } } : {}) });
     const turn = await client.request('turn/start', { threadId, ...(selectedEffort ? { effort: selectedEffort } : {}), input: [{ type: 'text', text: config.prompt }, ...(config.images || []).flatMap(image => [{ type: 'text', text: 'Attached image: ' + image.name }, { type: 'localImage', path: image.path }])], cwd: config.workspace,
       approvalPolicy: options.approvalPolicy, approvalsReviewer: 'user', sandboxPolicy: config.mode === 'read' ? { type: 'readOnly', networkAccess: false } : { type: 'workspaceWrite', writableRoots: roots, networkAccess: false }, ...(selectedModel ? { model: selectedModel } : {}) });
     turnId = turn.turn.id;
@@ -178,6 +194,7 @@ export async function accountStatus(provider, { bin = resolveBinary(provider), w
   if (version.timedOut) return { ...base, installed: true, errorCategory: 'timeout' };
   if (version.status !== 0) return { ...base, errorCategory: 'installation' };
   base.installed = base.available = true; base.version = version.stdout.trim().slice(0, 200);
+  if (provider === 'gemini') return { ...base, authMode: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api-key-present' : 'native-cli', billingSource: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api' : 'unknown', message: geminiSetup };
   if (provider === 'claude') {
     const result = await probeCli(bin, ['auth', 'status', '--json'], 5000);
     if (result.timedOut) return { ...base, errorCategory: 'timeout' };
@@ -215,6 +232,7 @@ export function providerUsage(provider, { bin = resolveBinary(provider), workspa
   return promise;
 }
 async function readUsage(provider, bin, workspace) {
+  if (provider === 'gemini') return { available: false, reason: 'Gemini CLI does not expose account quota metadata through this connection. Check your Google account for usage and reset times.' };
   if (!bin) return { available: false, reason: 'Install the provider CLI first.' };
   if (provider === 'claude') {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
@@ -239,6 +257,7 @@ async function readUsage(provider, bin, workspace) {
   } finally { client.close(); }
 }
 export async function listModels(provider, options = {}) {
+  if (provider === 'gemini') return { models: [], source: 'native-cli', manualSelection: true, message: 'Use the Gemini CLI default or enter a model ID available to your account. The selected model is verified before sending a prompt.' };
   if (provider === 'claude') {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
     const controller = new AbortController();
@@ -253,6 +272,7 @@ export async function listModels(provider, options = {}) {
   finally { client.close(); }
 }
 export async function connectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir() } = {}) {
+  if (provider === 'gemini') return { started: false, nativeFlow: true, message: geminiSetup };
   if (!bin) throw Object.assign(new Error('Install the provider CLI first.'), { status: 503 });
   if (provider === 'claude') {
     const child = spawn(bin, ['auth', 'login'], { stdio: ['ignore', 'pipe', 'pipe'], cwd: workspace, shell: false });
@@ -273,6 +293,7 @@ export async function connectAccount(provider, { bin = resolveBinary(provider), 
   } catch (error) { client.close(); throw error; }
 }
 export async function disconnectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir() } = {}) {
+  if (provider === 'gemini') throw Object.assign(new Error('Manage Gemini authentication in the native Gemini CLI. Throughline stores no Gemini credentials.'), { status: 400 });
   if (!bin) throw Object.assign(new Error('Install the provider CLI first.'), { status: 503 });
   if (provider === 'claude') { const result = spawnSync(bin, ['auth', 'logout'], { cwd: workspace, encoding: 'utf8', timeout: 5000, shell: false }); if (result.status !== 0) throw new Error(result.stderr || 'Claude logout failed.'); return { disconnected: true }; }
   const client = new CodexClient({ bin, cwd: workspace }); try { await client.initialize(); await client.request('account/logout'); return { disconnected: true }; } finally { client.close(); }

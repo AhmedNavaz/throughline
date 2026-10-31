@@ -28,7 +28,7 @@ export function createReviewRoutes({ registry, body, json }) {
       if (typeof input.approvedDigest !== 'string' || !/^[a-f0-9]{64}$/.test(input.approvedDigest)) fail('Preview the selected changes before starting.');
       const snapshot = captureReview(project.folders, input.files);
       if (snapshot.digest !== input.approvedDigest) fail('The selected changes have changed. Preview them again.', 409);
-      const review = { snapshot, goal: input.goal.trim(), builder: agents.builder, provider: agents.reviewer, model: c.models[agents.reviewer] || null };
+      const review = { snapshot, goal: input.goal.trim(), builder: agents.builder, ...(agents.builderConnection ? { builderConnection: agents.builderConnection, builderModel: agents.builderModel } : {}), provider: agents.reviewer, model: c.models[agents.reviewer] || null };
       const result = broker.start(c, { text: `Review selected changes: ${review.goal}`, provider: agents.reviewer, model: review.model, mode: 'read', requestId: input.requestId, billingConfirmed: input.billingConfirmed === true }, { review, verifyReview: () => {
         if (captureReview(registry.get(projectId).folders, input.files).digest !== input.approvedDigest) fail('The selected changes have changed. Preview them again.', 409);
       } });

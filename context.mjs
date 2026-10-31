@@ -14,7 +14,7 @@ export function validateContext(input = {}, current = emptyContext()) {
   if (Buffer.byteLength(JSON.stringify(next)) > 64000) throw fail('Manual context exceeds 64 KB. Shorten the summary or task fields.');
   return next;
 }
-export function prepareContext(c, text, { workspace, workspaces, workspaceFolders, fresh = false, provider = c.provider, mode = c.mode, maxBytes = 192000, attachments = [], readAttachment } = {}) {
+export function prepareContext(c, text, { workspace, workspaces, workspaceFolders, fresh = false, provider = c.provider, mode = c.mode, maxBytes = 192000, attachments = [], readAttachment, includeImages = true } = {}) {
   const cursor = fresh ? 0 : c.sessions[provider]?.cursor || 0;
   const source = c.messages.filter(message => message.seq > cursor);
   const attachmentText = files => (files || []).filter(f => f.kind === 'text').map(file => {
@@ -33,6 +33,7 @@ export function prepareContext(c, text, { workspace, workspaces, workspaceFolder
   for (let index = source.length - 1; index >= 0; index--) {
     const { role, provider: author, text: content, status } = source[index];
     const item = { role, provider: author, text: content + attachmentText(source[index].attachments), ...(source[index].attachments?.length ? { attachments: source[index].attachments } : {}), ...(status ? { status } : {}) };
+    if (source[index].connection === 'local') { item.connection = 'local'; item.model = source[index].model || null; }
     if (Buffer.byteLength(JSON.stringify(item)) > 24000) {
       const original = item.text;
       item.text = original.slice(0, 8000) + '\n[Middle omitted from this context envelope; original remains saved.]\n' + original.slice(-8000);
@@ -44,6 +45,7 @@ export function prepareContext(c, text, { workspace, workspaces, workspaceFolder
   const images = [], seen = new Set(); let imageBytes = 0;
   const candidates = [...attachments, ...envelope.context.slice().reverse().flatMap(item => item.attachments || [])].filter(file => file.kind === 'image');
   for (const file of candidates) {
+    if (!includeImages) continue;
     if (seen.has(file.id)) continue;
     seen.add(file.id);
     if (images.length >= 6 || imageBytes + file.bytes > 20 * 1024 * 1024) continue;
