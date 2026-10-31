@@ -89,11 +89,17 @@
     if (focusComposer) $('message-input').focus();
   }
 
+  // Dialogs and the file preview cover the conversation, so the browser keeps its own find there.
+  const covered = () => document.querySelector('dialog[open]') || document.body.classList.contains('file-preview-open');
+  // The menu bar's Find items; Find Next and Find Previous open a closed search again with its last text.
+  Object.assign(api.commands, {
+    find: () => { if (covered()) return false; open(); return true; },
+    'find-next': () => { if (covered()) return false; if (bar.hidden) open(); else move(1); return true; },
+    'find-previous': () => { if (covered()) return false; if (bar.hidden) open(); else move(-1); return true; },
+  });
   document.addEventListener('keydown', event => {
     if (!(mac ? event.metaKey : event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'f') return;
-    // Dialogs and the file preview cover the conversation, so the browser keeps its own find there.
-    if (document.querySelector('dialog[open]') || document.body.classList.contains('file-preview-open')) return;
-    event.preventDefault(); open();
+    if (api.commands.find()) event.preventDefault();
   });
   input.addEventListener('input', () => find());
   input.addEventListener('keydown', event => {

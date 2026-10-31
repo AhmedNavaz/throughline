@@ -849,14 +849,34 @@
   $("workspace-search").placeholder = `Filter workspaces  ${shortcut("K")}`;
   $("open-git").title = `Git activity (${shortcut("G", true)})`;
   ui.input.title = `Focus with ${shortcut("L")}`;
+  // Shortcuts and the desktop menu bar run these commands. Each returns whether the page handled it, and a shortcut
+  // is only claimed when it did, so a key the page leaves alone goes on to the menu, whose item makes the same check.
+  // A command that stands in for a button waits while a dialog covers it.
+  const covered = () => Boolean(document.querySelector("dialog[open]"));
+  const press = id => () => { const control = $(id); if (covered() || !control || control.disabled || control.hidden) return false; control.click(); return true; };
+  const commands = {
+    "filter-workspaces": () => { $("workspace-search").focus(); $("workspace-search").select(); return true; },
+    "focus-message": () => { if (!ui.input.disabled) ui.input.focus(); return true; },
+    git: () => { $("open-git").click(); return true; },
+    stop: () => { if (!isRunning()) return false; stop(); return true; },
+    workspace: number => { const project = filteredProjects()[number - 1]; if (!project) return false; selectProject(project.id); return true; },
+    settings: press("relay-settings"), "setup-guide": press("open-setup-guide"), "new-workspace": press("create-workspace"),
+    "previous-chats": press("open-import"), export: press("open-export"), files: press("toggle-explorer"), "keep-awake": press("keep-awake"),
+    "add-folder": () => { if (covered()) return false; toggleFolderForm(true); return true; },
+    agent: provider => ["codex", "claude"].includes(provider) && press("select-" + provider)(),
+    continue: () => !ui.continuation.hidden && press("continue-button")(),
+    appearance: value => { if (!["system", "graphite", "light"].includes(value)) return false; window.relayTheme?.choose(value); return true; },
+    "workspace-settings": () => { if (covered() || !state.projectId) return false; openWorkspaceOptions(state.projectId); return true; },
+    "remove-workspace": () => { if (covered() || !state.projectId) return false; confirmRemoveWorkspace(state.projectId); return true; },
+  };
   document.addEventListener("keydown", (event) => {
     if (!(mac ? event.metaKey : event.ctrlKey) || event.altKey) return;
-    const key = event.key.toLowerCase();
-    if (key === "k" && !event.shiftKey) { event.preventDefault(); $("workspace-search").focus(); $("workspace-search").select(); }
-    else if (key === "l" && !event.shiftKey) { event.preventDefault(); if (!ui.input.disabled) ui.input.focus(); }
-    else if (key === "g" && event.shiftKey) { event.preventDefault(); $("open-git").click(); }
-    else if (key === "." && isRunning()) { event.preventDefault(); stop(); }
-    else if (/^[1-9]$/.test(event.key) && !event.shiftKey) { const project = filteredProjects()[Number(event.key) - 1]; if (project) { event.preventDefault(); selectProject(project.id); } }
+    const key = event.key.toLowerCase(), run = (name, value) => { if (commands[name](value)) event.preventDefault(); };
+    if (key === "k" && !event.shiftKey) run("filter-workspaces");
+    else if (key === "l" && !event.shiftKey) run("focus-message");
+    else if (key === "g" && event.shiftKey) run("git");
+    else if (key === ".") run("stop");
+    else if (/^[1-9]$/.test(event.key) && !event.shiftKey) run("workspace", Number(event.key));
   });
   ui.scroll.addEventListener("scroll", updateJump, { passive: true });
   $("jump-latest").addEventListener("click", () => { ui.scroll.scrollTo({ top: ui.scroll.scrollHeight, behavior: "smooth" }); ui.input.focus(); });
@@ -900,6 +920,7 @@
   window.addEventListener("beforeunload", saveDraft);
   window.relayUI = {
     getState: () => state, api, post, refresh, renderControls, showNotice, selectProject, refreshAccounts, refreshProjects, announce, selectedFolderId: () => selectedFolderId(), selectFolder, highlightLines,
+    commands, isRunning, filteredProjects,
     ensureConversation: ensureCanonicalConversation,
     async setModel(model) { return window.relayUI.setConfiguration({ model, effort: null }); },
     async setConfiguration({model = state.model, effort = null}) {
