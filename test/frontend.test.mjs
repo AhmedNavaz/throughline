@@ -1782,3 +1782,25 @@ test('after a usage limit the task can wait for a reset without raising access, 
   assert.equal(ui.requests.filter(request => request.path.endsWith('/resume')).at(-1).body.cancel, true);
   assert.equal(ui.$('resume-waiting').hidden, true); assert.equal(ui.$('continuation').hidden, false);
 });
+
+test('after a usage limit any agent and model can continue the task, including the one that stopped', async () => {
+  const ui = await browser({ insights: true, modelPickerUI: true }), conversation = ui.canonical.get('project-one');
+  conversation.status = 'incomplete'; conversation.lastRun = { provider: 'codex', errorCategory: 'quota' };
+  await ui.window.relayUI.refresh(); await flush();
+  assert.match(ui.$('continue-button').textContent, /^Continue with Claude/, 'The suggestion avoids the agent that stopped.');
+  assert.equal(ui.$('continue-choose').disabled, false);
+
+  ui.$('continue-choose').click(); await flush();
+  assert.equal(ui.$('picker-title').hidden, false); assert.equal(ui.$('picker-title').textContent, 'Continue with…');
+  assert(!ui.$('picker-models').querySelectorAll('.picker-section').some(section => section.textContent.includes('Local')), 'Local models keep their own Continue locally flow.');
+  const sections = ui.$('picker-models').querySelectorAll('.picker-section').map(section => section.textContent);
+  assert.match(sections[0], /Claude/, 'The suggested agent is listed first.');
+
+  // Choosing Codex and a specific model continues with exactly that, even though Codex reached the limit.
+  const codexHeader = ui.$('picker-models').querySelectorAll('.picker-section').find(section => section.textContent.includes('Codex'));
+  const children = ui.$('picker-models').children, start = children.indexOf(codexHeader), next = children.findIndex((child, index) => index > start && child.classList.contains('picker-section'));
+  const choice = children.slice(start + 1, next < 0 ? undefined : next).find(child => child.textContent.includes('Model One'));
+  assert(choice, 'Codex lists its models in its own section.'); choice.click(); await flush(); await flush();
+  const continued = ui.requests.filter(request => request.path.endsWith('/continue'));
+  assert.equal(continued.length, 1); assert.equal(continued[0].body.provider, 'codex'); assert.equal(continued[0].body.model, 'model-one');
+});

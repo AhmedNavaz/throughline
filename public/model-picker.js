@@ -6,6 +6,8 @@
   const names = { codex: 'Codex', claude: 'Claude', gemini: 'Gemini', local: 'Local · Ollama' }, cache = new Map(), loadingAgents = new Set(), failures = new Map();
   const shortList = 4;
   let scope = null, saving = false, failure = '', query = '', active = -1;
+  // Another control can open the same menu for its own purpose, such as choosing who continues a stopped task.
+  let purpose = null;
   let preloadedProject = null;
   const expanded = new Set();
 
@@ -18,7 +20,7 @@
 
   function position() {
     if (!open()) return;
-    const anchor = trigger.getBoundingClientRect(), width = Math.min(320, window.innerWidth - 24);
+    const anchor = (purpose?.anchor || trigger).getBoundingClientRect(), width = Math.min(320, window.innerWidth - 24);
     popup.style.width = width + 'px';
     popup.style.left = Math.max(12, Math.min(anchor.left, window.innerWidth - width - 12)) + 'px';
     popup.style.bottom = Math.max(12, window.innerHeight - anchor.top + 8) + 'px';
@@ -26,7 +28,7 @@
     popup.style.setProperty?.('--picker-list-max', Math.max(160, Math.min(360, anchor.top - 150)) + 'px');
   }
 
-  function close() { if (open()) popup.hidePopover(); trigger.setAttribute('aria-expanded', 'false'); }
+  function close() { if (open()) popup.hidePopover(); (purpose?.anchor || trigger).setAttribute('aria-expanded', 'false'); purpose = null; }
 
   function selectedRow(provider) {
     const state = api.getState(), rows = cache.get(state.projectId + ':' + provider)?.models || [];
@@ -53,8 +55,8 @@
 
   // Agents in menu order: the one in use first, then the others, then local models.
   function agentOrder() {
-    const state = api.getState(), current = state.localSelections?.[scope] ? 'local' : state.provider;
-    return [current, ...['codex', 'claude', 'gemini', 'local'].filter(value => value !== current)];
+    const state = api.getState(), current = purpose?.first || (state.localSelections?.[scope] ? 'local' : state.provider);
+    return [current, ...['codex', 'claude', 'gemini', 'local'].filter(value => value !== current)].filter(value => !(purpose?.excludeLocal && value === 'local'));
   }
   function installed(provider) {
     const state = api.getState();
@@ -261,7 +263,11 @@
     try {
       if (provider === 'local') api.selectLocalModel({ model: modelId(row), digest: row.digest });
       else await api.selectAgentModel(provider, modelId(row) || null);
-      if (projectId === api.getState().projectId) { close(); $('message-input')?.focus(); }
+      if (projectId === api.getState().projectId) {
+        const chosen = purpose?.onChoose;
+        close();
+        if (chosen) await chosen(provider); else $('message-input')?.focus();
+      }
     } catch (error) {
       failure = error.message;
     } finally {
@@ -269,20 +275,23 @@
     }
   }
 
-  trigger.addEventListener('click', () => {
-    if (open()) { close(); return; }
+  function show(anchor = trigger, options = {}) {
+    if (open()) { const same = (purpose?.anchor || trigger) === anchor; close(); if (same) return; }
     const state = api.getState();
+    purpose = anchor === trigger ? null : { ...options, anchor };
     scope = state.projectId; query = ''; active = -1; failure = ''; expanded.clear();
     if ($('picker-search')) $('picker-search').value = '';
     if ($('picker-custom')) $('picker-custom').hidden = true;
+    if ($('picker-title')) { $('picker-title').textContent = purpose?.title || ''; $('picker-title').hidden = !purpose?.title; }
     popup.showPopover();
-    trigger.setAttribute('aria-expanded', 'true');
+    anchor.setAttribute('aria-expanded', 'true');
     position(); render();
     const selected = navRows().findIndex(row => row.getAttribute('aria-selected') === 'true');
     highlight(selected >= 0 ? selected : 0);
     $('picker-search')?.focus();
     refreshStale();
-  });
+  }
+  trigger.addEventListener('click', () => show(trigger));
 
   $('picker-search')?.addEventListener('input', () => { query = $('picker-search').value.trim().toLowerCase(); active = 0; render(); });
   $('picker-search')?.addEventListener('keydown', event => {
@@ -302,10 +311,16 @@
   $('picker-custom-save')?.addEventListener('click', saveCustom);
   $('picker-custom-id')?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); saveCustom(); } });
 
-  popup.addEventListener('toggle', () => trigger.setAttribute('aria-expanded', String(open())));
+  popup.addEventListener('toggle', () => { (purpose?.anchor || trigger).setAttribute('aria-expanded', String(open())); if (!open()) purpose = null; });
   window.addEventListener('resize', position);
   window.addEventListener('relay-state', label);
   label();
   document.documentElement.classList.add('rich-model-picker');
-  window.relayModelPicker = { open: () => trigger.click(), close };
+  window.relayModelPicker = {
+    open: () => show(trigger), close,
+    // Opens the menu from another control; choosing selects the agent and model, then calls onChoose.
+    openFor: (anchor, options) => show(anchor, options),
+    // The model's display name when the agent has reported it.
+    modelName: (provider, id) => id ? modelName((cache.get(api.getState().projectId + ':' + provider)?.models || []).find(row => modelId(row) === id) || { id }) : '',
+  };
 })();

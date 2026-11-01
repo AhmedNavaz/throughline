@@ -61,6 +61,9 @@
 .rich-model-picker .composer .effort-picker {
   display: none;
 }
+/* A menu opened for a purpose, such as continuing a stopped task, says so above the search. */
+.picker-title { margin: 0; padding: 10px 14px 2px; color: var(--text-strong); font-size: 12.5px; font-weight: 600; }
+.picker-title[hidden] { display: none; }
 /* Menu: search, a section per agent with compact rows, then Effort with its submenu. */
 .model-popover {
   position: fixed;

@@ -733,7 +733,11 @@
     const alternative=['codex','claude','gemini'].find(provider=>provider!==state.provider&&!connection(provider).blocked) || state.provider;
     const continuationProvider=previous?.errorCategory==='quota' && previous.provider===state.provider && !connection(alternative).blocked ? alternative : state.provider;
     state.continuationProvider=continuationProvider;
-    ui.continueButton.replaceChildren(document.createTextNode(state.pending === "continue" ? "Continuing…" : `Continue with ${label(continuationProvider)} `), element("span", "", "→"));
+    // The suggestion names its model too; the menu beside it continues with any agent and model.
+    const continuationModel = continuationProvider === state.provider ? state.model : state.conversation?.models?.[continuationProvider];
+    const modelLabel = continuationModel ? window.relayModelPicker?.modelName?.(continuationProvider, continuationModel) || continuationModel : "";
+    ui.continueButton.replaceChildren(document.createTextNode(state.pending === "continue" ? "Continuing…" : `Continue with ${label(continuationProvider)}${modelLabel ? ` · ${modelLabel}` : ""} `), element("span", "", "→"));
+    $("continue-choose").disabled = busy || otherRunning;
     ui.continueButton.disabled = busy || otherRunning || connection(continuationProvider).blocked;
     // After a usage limit, the task can wait for a reset and continue on whichever agent has room first.
     const quotaStop = canContinue && previous?.errorCategory === 'quota', choosing = quotaStop && state.resumeChoice === state.conversation?.id;
@@ -1219,6 +1223,8 @@
   ui.approval?.addEventListener("change", () => changeSettings(state.provider, state.mode, ui.approval.value));
   ui.stop.addEventListener("click", stop);
   ui.continueButton.addEventListener("click", () => {const target=state.continuationProvider||state.provider;if(target!==state.provider)changeSettings(target,state.mode,state.approvalPolicy);run(true);});
+  // Any agent and model can continue: choosing one in this menu selects it and continues at once.
+  $("continue-choose").addEventListener("click", () => window.relayModelPicker?.openFor($("continue-choose"), { title: "Continue with…", excludeLocal: true, first: state.continuationProvider, onChoose: () => run(true) }));
   // Waiting never raises access: with full auto-approval on, the person chooses whether it applies while they are away.
   $("resume-button").addEventListener("click", () => {
     if (state.mode === "edit" && state.approvalPolicy === "auto") { state.resumeChoice = state.conversation?.id; renderControls(); return; }
