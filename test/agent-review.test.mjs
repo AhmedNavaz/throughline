@@ -40,7 +40,7 @@ if(scenario.hang)setInterval(()=>{},1000);else emit({type:'result',subtype:scena
   const apps = [];
   const launch = async (accessToken) => { const app = createRelayServer({ workspace, dataRoot: path.join(root, 'history'), bins, accessToken }); app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening'); apps.push(app); return app; };
   t.after(async () => { for (const app of apps) await app.close(); fs.rmSync(root, { recursive: true, force: true }); });
-  return { root, workspace, git, bins, launch, scenario: value => fs.writeFileSync(configuration, JSON.stringify(value)), captures: () => fs.existsSync(capture) ? fs.readFileSync(capture, 'utf8').trim().split('\n').map(JSON.parse) : [] };
+  return { root, workspace, git, bins, launch, scenario: value => fs.writeFileSync(configuration, JSON.stringify(value)), captures: () => fs.existsSync(capture) ? fs.readFileSync(capture, 'utf8').trim().split('\n').filter(Boolean).flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } }) : [] };
 }
 function client(app, token) {
   const project = app.registry.list()[0], broker = app.registry.broker(project.id), c = broker.get(app.registry.mainConversation(project.id).id);

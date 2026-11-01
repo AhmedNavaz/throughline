@@ -348,3 +348,42 @@ test('command construction preserves CLI permissions and passes paths without a 
   assert.equal(claude.args.some(arg => /dangerously|skip-permissions|bypass/.test(arg)), false);
   assert.throws(() => commandFor('unknown', { mode: 'edit' }), { status: 400 });
 });
+
+test('approval policy enforces permission scope, rejects incompatible read-only auto-approval and persists per workspace', async t => {
+  const env = setup(t);
+  const broker = env.open();
+  const c = conversation(broker);
+
+  // New conversation defaults to 'ask'
+  assert.equal(c.approvalPolicy, 'ask');
+  assert.equal(broker.view(c).approvalPolicy, 'ask');
+
+  // Incompatible combination: read-only with auto-approval is rejected
+  assert.throws(() => commandFor('codex', { mode: 'read', approvalPolicy: 'auto' }), { status: 400, category: 'permission' });
+  assert.throws(() => broker.settings(c, { mode: 'read', approvalPolicy: 'auto' }), { status: 400, category: 'permission' });
+  assert.throws(() => broker.start(c, { text: 'Hello', mode: 'read', approvalPolicy: 'auto', provider: 'codex' }), { status: 400, category: 'permission' });
+  assert.throws(() => broker.settings(c, { approvalPolicy: 'unsupported' }), { status: 400 });
+
+  // Update approvalPolicy to auto in edit mode
+  broker.settings(c, { approvalPolicy: 'auto' });
+  assert.equal(c.approvalPolicy, 'auto');
+  assert.equal(broker.view(c).approvalPolicy, 'auto');
+
+  // Reopen broker and verify approvalPolicy is restored from journal
+  const reopened = env.open();
+  const restored = reopened.get(c.id);
+  assert.equal(restored.approvalPolicy, 'auto');
+  assert.equal(reopened.view(restored).approvalPolicy, 'auto');
+
+  // Importing external transcript never imports or changes approvalPolicy
+  const preview = {
+    provider: 'codex',
+    sessionId: 'session-xyz',
+    digest: 'abc123',
+    approvalPolicy: 'ask',
+    messages: [{ sourceId: 'msg-1', text: 'External task', role: 'user', timestamp: new Date().toISOString() }],
+  };
+  restored.imports = {};
+  reopened.importTranscript(restored, preview);
+  assert.equal(restored.approvalPolicy, 'auto');
+});

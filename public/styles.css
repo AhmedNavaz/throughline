@@ -360,6 +360,9 @@ summary::-webkit-details-marker { display: none; }
 .next-actions .icon-button { width: 24px; height: 24px; }
 .effort-picker { --picker-icon: var(--icon-effort); }
 .mode-control { --picker-icon: var(--icon-access); }
+.approval-control { --picker-icon: var(--icon-approval); }
+.import-filter { --picker-icon: var(--icon-filter); }
+.import-filter select { max-width: 140px; height: 28px; }
 .refresh-button { width: 24px; height: 24px; margin-left: -2px; }
 .refresh-button .icon { width: 14px; height: 14px; }
 .composer-actions { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }

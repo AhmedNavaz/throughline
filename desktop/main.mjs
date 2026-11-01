@@ -66,6 +66,8 @@ else {
       result.review=await win.webContents.executeJavaScript(`typeof window.relayReviews?.open==='function'&&!!document.getElementById('review-dialog')`);
       result.local=await win.webContents.executeJavaScript(`typeof window.relayLocal?.open==='function'&&!!document.getElementById('local-dialog')&&!!document.getElementById('open-local')`);
       result.modelPicker=await win.webContents.executeJavaScript(`typeof window.relayModelPicker?.open==='function'&&!!document.getElementById('model-picker-popover')`);
+      result.permissions=await win.webContents.executeJavaScript(`['ask','auto'].every(value=>!!document.querySelector('#approval-select option[value="'+value+'"]'))`);
+      result.geminiImports=await win.webContents.executeJavaScript(`!!document.querySelector('#import-provider-select option[value="gemini"]')`);
       // The menu bar is Throughline's. The page reports its state to it, and an item's command reaches the page and comes back as a tick.
       const settled=async done=>{for(let tries=0;!done()&&tries<250;tries++)await new Promise(resolve=>setTimeout(resolve,20));return done();};
       const reported=await settled(()=>page!==null);
@@ -79,7 +81,7 @@ else {
       for(let tries=0;tries<100;tries++){result.updates=await win.webContents.executeJavaScript(`({open:document.getElementById('updates-dialog').open,notes:!!document.querySelector('#updates-content .updates-release')})`);if(result.updates.open)break;await new Promise(resolve=>setTimeout(resolve,20));}
       await win.webContents.executeJavaScript(`document.getElementById('updates-dismiss').click()`);
       for(let tries=0;tries<100;tries++){if(await win.webContents.executeJavaScript(`!document.getElementById('updates-dialog').open`)){result.updates.dismissed=true;break;}await new Promise(resolve=>setTimeout(resolve,20));}
-      if(!result.isolated||!result.bridge||!result.launchBridge||!result.keepAwakeBridge||!result.usagePopover||!result.ui||!result.configuration||!result.models||!result.modelPicker||!result.git||!result.imports||!result.setupHeader||!result.review||!result.local||!result.updates.open||!result.updates.notes||!result.updates.dismissed||!['File','Edit','View','Agent','Workspace','Window','Help'].every(label=>result.menu.labels.includes(label))||!result.menu.reported||!result.menu.ticked||result.menu.theme!=='light')throw Error('Desktop smoke check failed: '+JSON.stringify(result));
+      if(!result.isolated||!result.bridge||!result.launchBridge||!result.keepAwakeBridge||!result.usagePopover||!result.ui||!result.configuration||!result.models||!result.modelPicker||!result.permissions||!result.geminiImports||!result.git||!result.imports||!result.setupHeader||!result.review||!result.local||!result.updates.open||!result.updates.notes||!result.updates.dismissed||!['File','Edit','View','Agent','Workspace','Window','Help'].every(label=>result.menu.labels.includes(label))||!result.menu.reported||!result.menu.ticked||result.menu.theme!=='light')throw Error('Desktop smoke check failed: '+JSON.stringify(result));
       console.log('AI_RELAY_DESKTOP_SMOKE '+JSON.stringify(result));app.quit();
     }
   }).catch(error=>{console.error(error);if(!smoke)dialog.showErrorBox('Throughline could not start',error.message);app.exit(1);});

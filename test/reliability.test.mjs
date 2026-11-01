@@ -365,3 +365,108 @@ test('invalid Codex JSON-RPC fails before later valid responses can hide dropped
   const client = new CodexClient({ bin: executable, cwd: f.workspace });
   try { await assert.rejects(client.initialize(), /protocol/); } finally { client.close(); }
 });
+
+test('Broker full auto-approval handles Codex tool requests without manual clicks and logs activity', async t => {
+  const f = setup(t); const log = path.join(f.root, 'rpc-auto.jsonl');
+  fs.writeFileSync(f.bins.codex, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';
+if(process.argv.includes('--version')){console.log('auto-approval-fixture 1');process.exit(0);}
+const send=value=>console.log(JSON.stringify(value));
+readline.createInterface({input:process.stdin}).on('line',line=>{const message=JSON.parse(line);fs.appendFileSync(${JSON.stringify(log)},JSON.stringify(message)+'\\n');
+if(message.method==='initialize')send({id:message.id,result:{}});
+if(message.method==='model/list')send({id:message.id,result:{data:[]}});
+if(message.method==='thread/start')send({id:message.id,result:{thread:{id:'auto-thread'},model:'auto-model'}});
+if(message.method==='turn/start'){send({id:message.id,result:{turn:{id:'auto-turn'}}});send({id:88,method:'item/commandExecution/requestApproval',params:{threadId:'auto-thread',turnId:'auto-turn',command:'auto-command',cwd:process.cwd()}});}
+if(message.id===88&&message.result){send({method:'item/completed',params:{threadId:'auto-thread',item:{id:'answer',type:'agentMessage',text:message.result.decision==='accept'?'Auto-approved action finished':'Action declined'}}});send({method:'turn/completed',params:{threadId:'auto-thread',turn:{status:'completed'}}});}
+});\n`);
+  const broker = f.broker(); const c = broker.get(broker.create().id);
+  broker.settings(c, { approvalPolicy: 'auto' });
+  assert.equal(c.approvalPolicy, 'auto');
+  const { runId } = broker.start(c, { text: 'Auto run', provider: 'codex', transport: 'app-server', approvalPolicy: 'auto', requestId: 'real-auto-approval' });
+  const active = broker.running;
+  assert.equal(active.approvalPolicy, 'auto');
+
+  await active.done;
+  assert.equal(c.status, 'complete');
+  assert.ok(c.messages.some(m => m.text === 'Auto-approved action finished'));
+  assert.ok(c.messages.some(m => m.role === 'activity' && /auto-approved by policy/.test(m.text)));
+  const messages = fs.readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(messages.find(message => message.id === 88).result, { decision: 'accept' });
+});
+
+test('Claude official SDK routes tool approvals to approval handler', async () => {
+  let captured; let approvals = 0;
+  async function* queryImpl(input) {
+    captured = input.options;
+    const allowed = await input.options.canUseTool('Bash', { command: 'npm test' }, { toolUseID: 'auto-one' });
+    assert.equal(allowed.behavior, 'allow');
+    assert.deepEqual(allowed.updatedInput, { command: 'npm test' });
+    yield { type: 'system', subtype: 'init', model: 'effective-claude' };
+    yield { type: 'result', subtype: 'success', is_error: false, result: 'Done' };
+  }
+  await runClaude({ bin: '/installed/unmodified/claude', workspace: '/project', mode: 'edit', approvalPolicy: 'auto', prompt: 'Run tests' }, {
+    queryImpl, event() {}, metadata() {}, approval: async request => { approvals++; assert.equal(request.id, 'auto-one'); return true; },
+  });
+  assert.equal(approvals, 1);
+});
+
+test('changing preference during a run preserves in-flight policy and existing pending requests', async t => {
+  const f = setup(t); const log = path.join(f.root, 'rpc-pending.jsonl');
+  fs.writeFileSync(f.bins.codex, `#!${process.execPath}\nimport fs from 'node:fs';import readline from 'node:readline';
+if(process.argv.includes('--version')){console.log('pending-retention-fixture 1');process.exit(0);}
+const send=value=>console.log(JSON.stringify(value));
+readline.createInterface({input:process.stdin}).on('line',line=>{const message=JSON.parse(line);fs.appendFileSync(${JSON.stringify(log)},JSON.stringify(message)+'\\n');
+if(message.method==='initialize')send({id:message.id,result:{}});
+if(message.method==='model/list')send({id:message.id,result:{data:[]}});
+if(message.method==='thread/start')send({id:message.id,result:{thread:{id:'pending-thread'},model:'test-model'}});
+if(message.method==='turn/start'){send({id:message.id,result:{turn:{id:'pending-turn'}}});send({id:55,method:'item/commandExecution/requestApproval',params:{threadId:'pending-thread',turnId:'pending-turn',command:'pending-command',cwd:process.cwd()}});}
+if(message.id===55&&message.result){send({method:'item/completed',params:{threadId:'pending-thread',item:{id:'answer',type:'agentMessage',text:'Done'}}});send({method:'turn/completed',params:{threadId:'pending-thread',turn:{status:'completed'}}});}
+});\n`);
+  const broker = f.broker(); const c = broker.get(broker.create().id);
+  const { runId } = broker.start(c, { text: 'Start with ask', provider: 'codex', transport: 'app-server', approvalPolicy: 'ask', requestId: 'pending-retention' });
+  const active = broker.running;
+  assert.equal(active.approvalPolicy, 'ask');
+
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { broker.off('update', check); reject(new Error('No approval arrived.')); }, 5000);
+    const check = () => { if (broker.view(c).pendingApprovals.length) { clearTimeout(timer); broker.off('update', check); resolve(); } };
+    broker.on('update', check); check();
+  });
+
+  const pending = broker.view(c).pendingApprovals[0];
+  assert.equal(pending.id, '55');
+
+  // Change conversation settings while run is active - must fail because run is active
+  assert.throws(() => broker.settings(c, { approvalPolicy: 'auto' }), { status: 409 });
+
+  // Manually approve the pending request
+  broker.approve(runId, pending.id, true);
+  await active.done;
+  assert.equal(c.status, 'complete');
+
+  // Now change settings for subsequent runs
+  broker.settings(c, { approvalPolicy: 'auto' });
+  assert.equal(c.approvalPolicy, 'auto');
+});
+
+test('auto-approved run cancellation cleanly interrupts child and releases mutation lease', async t => {
+  const f = setup(t);
+  fs.writeFileSync(f.bins.codex, `#!${process.execPath}\nimport readline from 'node:readline';
+if(process.argv.includes('--version')){console.log('cancel-fixture 1');process.exit(0);}
+const send=value=>console.log(JSON.stringify(value));
+readline.createInterface({input:process.stdin}).on('line',line=>{const message=JSON.parse(line);
+if(message.method==='initialize')send({id:message.id,result:{}});
+if(message.method==='model/list')send({id:message.id,result:{data:[]}});
+if(message.method==='thread/start')send({id:message.id,result:{thread:{id:'hang-thread'},model:'test-model'}});
+if(message.method==='turn/start'){send({id:message.id,result:{turn:{id:'hang-turn'}}});setInterval(()=>{},1000);}
+});\n`);
+  const broker = f.broker(); const c = broker.get(broker.create().id);
+  broker.start(c, { text: 'Hanging task', provider: 'codex', transport: 'app-server', approvalPolicy: 'auto', requestId: 'cancel-test' });
+  const active = broker.running;
+  assert.equal(active.approvalPolicy, 'auto');
+
+  await new Promise(resolve => setTimeout(resolve, 300));
+  broker.stop(c.id);
+  await active.done;
+  assert.equal(c.status, 'interrupted');
+  assert.equal(broker.running, null);
+});

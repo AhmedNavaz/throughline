@@ -66,7 +66,13 @@ function recoverGuard(guard, claim) {
     const marker = fs.lstatSync(source);
     if (!marker.isFile() || marker.isSymbolicLink()) return false;
     fs.renameSync(source, path.join(guard, claim));
-  } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  } catch (error) {
+    // On macOS, a parent directory retired by another recovery process can
+    // yield EINVAL instead of ENOENT. Retry only when the exact old marker is
+    // gone; an unexplained rename failure still leaves the guard protected.
+    if (error.code === 'ENOENT' || error.code === 'EINVAL' && !fs.existsSync(source)) return false;
+    throw error;
+  }
   // The marker now names this live recovery process. Other recoverers wait;
   // if this process crashes here, its successor can claim this marker instead.
   discardGuard(guard, claim);

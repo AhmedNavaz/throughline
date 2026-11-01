@@ -70,7 +70,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   const folder=(id,name,folderPath)=>({id,name,displayName:name,path:folderPath,available:true});
   const project={id:'project-one',name:'Example workspace',path:'/workspace/example/frontend',available:true,folders:[folder('frontend','Frontend','/workspace/example/frontend'),folder('backend','Backend','/workspace/example/backend')]};
   const projects=empty?[]:[project],removedProjects=new Map();if(moreProjects)projects.push({id:'project-two',name:'Other workspace',path:'/workspace/other/api',available:true,folders:[folder('api','API','/workspace/other/api')]});
-  const newConversation=()=>({id:randomUUID(),title:'Conversation',provider:'codex',mode:'edit',models:{},status:'idle',messages:[],context:{goal:'',decisions:[],tasks:[]},updatedAt:'2026-10-20T00:00:00.000Z'});
+  const newConversation=()=>({id:randomUUID(),title:'Conversation',provider:'codex',mode:'edit',approvalPolicy:'ask',models:{},status:'idle',messages:[],context:{goal:'',decisions:[],tasks:[]},updatedAt:'2026-10-20T00:00:00.000Z'});
   const conversations=[],canonical=new Map(),submissions=new Map();let chatCreations=0;
   const snapshots=new Map();
   const importSources=[
@@ -137,7 +137,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
       if(request.path==='/api/collaboration/handoffs/prepare'){const body=request.body;const outgoing=body.draft?sealPackage(body.draft):sealPackage({schema:'ai-relay.handoff',version:1,id:randomUUID(),createdAt:'2026-10-20T00:00:00.000Z',mode:body.mode||'context',goal:body.goal||'',problem:body.problem||'',expectedOutcome:body.expectedOutcome||'',decisions:body.decisions||[],tasks:body.tasks||[],messages:[],files:[],baseline:[]});return response({package:outgoing,warnings:[]});}
       if(request.path==='/api/collaboration/handoffs/approve'){const record={id:request.body.package.id,package:request.body.package,direction:'outgoing',status:'approved'};handoffs.push(record);return response(clone(record));}
       const match=request.path.match(/^\/api\/conversations\/([^/]+)(?:\/(provider|messages|continue))?$/);
-      if(match){const conversation=canonical.get(selected.id);assert(conversation&&conversation.id===match[1],'The browser must target this workspace’s permanent conversation.');if(request.method==='GET')return response(clone(conversation));if(match[2]==='provider'){const provider=request.body.provider,model=request.body.model===undefined?conversation.models[provider]||null:request.body.model;conversation.efforts ||= {};const effort=request.body.effort===undefined?conversation.efforts[provider]?.[model||'default']??null:request.body.effort;Object.assign(conversation,{provider,mode:request.body.mode,model,effort});conversation.models[provider]=model;conversation.efforts[provider] ||= {};conversation.efforts[provider][model||'default']=effort;return response(clone(conversation));}if(['messages','continue'].includes(match[2])){if(!submissions.has(request.body.requestId)){submissions.set(request.body.requestId,{runId:randomUUID()});conversation.messages.push({id:randomUUID(),role:'user',text:request.body.text||'Continue',createdAt:'2026-10-20T00:00:00.000Z'});}conversation.status='complete';return response(submissions.get(request.body.requestId),202);}}
+      if(match){const conversation=canonical.get(selected.id);assert(conversation&&conversation.id===match[1],'The browser must target this workspace’s permanent conversation.');if(request.method==='GET')return response(clone(conversation));if(match[2]==='provider'){const provider=request.body.provider,mode=request.body.mode,approvalPolicy=request.body.approvalPolicy||'ask',model=request.body.model===undefined?conversation.models[provider]||null:request.body.model;conversation.efforts ||= {};const effort=request.body.effort===undefined?conversation.efforts[provider]?.[model||'default']??null:request.body.effort;Object.assign(conversation,{provider,mode,approvalPolicy,model,effort});conversation.models[provider]=model;conversation.efforts[provider] ||= {};conversation.efforts[provider][model||'default']=effort;return response(clone(conversation));}if(['messages','continue'].includes(match[2])){if(!submissions.has(request.body.requestId)){submissions.set(request.body.requestId,{runId:randomUUID()});conversation.messages.push({id:randomUUID(),role:'user',text:request.body.text||'Continue',createdAt:'2026-10-20T00:00:00.000Z'});}conversation.status='complete';return response(submissions.get(request.body.requestId),202);}}
       throw new Error('Unexpected browser request: '+request.method+' '+request.path);
     };return intercept?intercept(request,next):next();
   }
@@ -751,6 +751,65 @@ test('previous chats require an open workspace, with other projects available on
   const session=ui.document.querySelectorAll('.import-session').find(button=>/Start new app/.test(button.textContent));assert(session);assert.equal(session.getAttribute('aria-checked'),'false');assert.equal(ui.$('confirm-import').disabled,true);
   session.click();await flush();ui.$('import-confirm').checked=true;ui.fire('import-confirm','change');ui.$('confirm-import').click();await flush();
   const sent=ui.requests.find(row=>row.path==='/api/import-sources/import');assert.equal(sent.body.projectId,'project-one');assert.equal(ui.projects.length,1);assert.equal(ui.state().projectId,'project-one');
+});
+
+test('import dialog filters conversations by agent using dropdown selector',async()=>{
+  const ui=await browser({insights:true});
+  ui.setIntercept((request,next)=>{
+    if(request.path==='/api/import-sources'&&request.params.provider==='gemini'){
+      return response({
+        sessions:[{
+          id:'gemini-one',
+          provider:'gemini',
+          title:'Review security findings',
+          folder:'frontend',
+          cwd:'/workspace/example/frontend',
+          updatedAt:'2026-10-20T09:05:00.000Z'
+        }],
+        nextCursor:null
+      });
+    }
+    return next();
+  });
+  ui.$('open-import').click();
+  await flush();
+
+  assert.equal(ui.$('import-provider-select').value,'all');
+  assert.equal(ui.document.querySelectorAll('.import-session').length,3);
+
+  ui.$('import-provider-select').value='codex';
+  ui.fire('import-provider-select','change');
+  await flush();
+  let sessions=ui.document.querySelectorAll('.import-session');
+  assert.equal(sessions.length,1);
+  assert.match(sessions[0].textContent,/Build the API/);
+
+  ui.$('import-provider-select').value='claude';
+  ui.fire('import-provider-select','change');
+  await flush();
+  sessions=ui.document.querySelectorAll('.import-session');
+  assert.equal(sessions.length,1);
+  assert.match(sessions[0].textContent,/Plan the API/);
+
+  ui.$('import-provider-select').value='gemini';
+  ui.fire('import-provider-select','change');
+  await flush();
+  sessions=ui.document.querySelectorAll('.import-session');
+  assert.equal(sessions.length,1);
+  assert.match(sessions[0].textContent,/Review security findings/);
+
+  ui.$('import-provider-select').value='all';
+  ui.fire('import-provider-select','change');
+  await flush();
+  assert.equal(ui.document.querySelectorAll('.import-session').length,3);
+
+  ui.$('import-provider-select').value='gemini';
+  ui.fire('import-provider-select','change');
+  ui.$('close-import').click();
+  await flush();
+  ui.$('open-import').click();
+  await flush();
+  assert.equal(ui.$('import-provider-select').value,'all');
 });
 
 test('run indicators distinguish reasoning, quiet providers, approvals, and real token counts',async()=>{
@@ -1406,4 +1465,27 @@ test('prepared sharing exposes privacy warnings and requires reviewing them befo
   const consent = ui.labelledInput('I reviewed the privacy warnings in this preview.'); consent.checked=true; consent.dispatchEvent(new UIEvent('change'));
   assert.equal(ui.findButton('Export request file').disabled,false); ui.findButton('Export request file').click(); await flush();
   assert.equal(ui.requests.filter(request=>request.path.endsWith('/approve')).length,1); assert(!ui.requests.some(request=>request.path.endsWith('/publish')));
+});
+
+test('permission controls offer Ask for permission and Full auto-approval and enforce read-only compatibility', async () => {
+  const ui = await browser({ insights: true });
+  assert.equal(ui.$('approval-select').value, 'ask');
+  assert.equal(ui.state().approvalPolicy, 'ask');
+  assert.equal(ui.$('approval-select').disabled, false);
+
+  ui.$('approval-select').value = 'auto';
+  ui.fire('approval-select', 'change');
+  await flush();
+  assert.equal(ui.state().approvalPolicy, 'auto');
+  const providerPost = ui.requests.find(r => r.path.endsWith('/provider') && r.body.approvalPolicy === 'auto');
+  assert(providerPost);
+  assert.equal(providerPost.body.mode, 'edit');
+
+  ui.$('mode-select').value = 'read';
+  ui.fire('mode-select', 'change');
+  await flush();
+  assert.equal(ui.state().mode, 'read');
+  assert.equal(ui.state().approvalPolicy, 'ask');
+  assert.equal(ui.$('approval-select').value, 'ask');
+  assert.equal(ui.$('approval-select').disabled, true);
 });

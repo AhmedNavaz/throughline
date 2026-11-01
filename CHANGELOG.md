@@ -2,6 +2,20 @@
 
 Notable changes to Throughline. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] - 2026-11-01
+
+### Added
+
+- Workspace permission controls offer **Ask for permission** and **Full auto-approval**, with the selected policy saved per workspace and recorded for each run.
+- Native Gemini conversation discovery, previews and imports join Claude Code and Codex in the shared workspace history. The conversation picker can filter by agent.
+
+### Fixed
+
+- Read-only work and background reviews cannot inherit full auto-approval, and imported conversations never change the workspace’s permission policy.
+- Native Gemini history databases are opened read-only with bounded queries; transcript previews are size-limited and reject paths outside the native store or conversations not linked to the selected workspace.
+- Conversations attached through a secondary workspace folder remain previewable. Truncated previews are explicitly marked.
+- Guard recovery retries a lost-ownership rename race on macOS while preserving guards after unexplained filesystem failures.
+
 ## [0.11.3] - 2026-11-01
 
 ### Fixed
@@ -209,6 +223,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.12.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.12.0
 [0.11.3]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.3
 [0.11.2]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.2
 [0.11.1]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.1

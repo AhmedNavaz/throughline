@@ -65,6 +65,73 @@ test('workspace discovery matches attached folder paths and excludes Throughline
   assert.deepEqual((await importer.list('codex',f.folders)).sessions.map(session=>session.id),['codex-match']);
 });
 
+test('gemini discovery reads Antigravity summaries and parses transcripts into review previews', async t => {
+  const f = fixture(t);
+  const geminiDir = path.join(f.root, '.gemini', 'antigravity');
+  const brainDir = path.join(geminiDir, 'brain', 'gemini-chat-1');
+  const logsDir = path.join(brainDir, '.system_generated', 'logs');
+  fs.mkdirSync(logsDir, { recursive: true });
+
+  const dbPath = path.join(geminiDir, 'conversation_summaries.db');
+  const fileUri = 'file://' + f.workspace;
+  spawnSync('sqlite3', [
+    dbPath,
+    `CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, title TEXT, preview TEXT, last_modified_time TEXT, workspace_uris TEXT);
+     INSERT INTO conversation_summaries VALUES ('gemini-chat-1', 'Implement OAuth flow', 'Implement OAuth flow preview', '2026-10-20T10:00:00.000Z', '${JSON.stringify([fileUri])}');`
+  ]);
+
+  const transcript = [
+    JSON.stringify({ step_index: 1, source: 'USER_EXPLICIT', type: 'USER_INPUT', created_at: '2026-10-20T10:00:00.000Z', content: '<USER_REQUEST>Implement OAuth flow</USER_REQUEST>' }),
+    JSON.stringify({ step_index: 2, source: 'MODEL', type: 'PLANNER_RESPONSE', created_at: '2026-10-20T10:00:05.000Z', content: 'OAuth flow implemented with PKCE.' }),
+  ].join('\n') + '\n';
+  fs.writeFileSync(path.join(logsDir, 'transcript.jsonl'), transcript, 'utf8');
+
+  const importer = new ConversationImporter({
+    geminiHome: () => f.root,
+  });
+
+  const workspaceSessions = await importer.list('gemini', f.folders);
+  assert.equal(workspaceSessions.sessions.length, 1);
+  assert.equal(workspaceSessions.sessions[0].id, 'gemini-chat-1');
+  assert.equal(workspaceSessions.sessions[0].title, 'Implement OAuth flow');
+  assert.equal(workspaceSessions.sessions[0].provider, 'gemini');
+
+  const allSessions = await importer.discover('gemini');
+  assert.equal(allSessions.sessions.length, 1);
+  assert.equal(allSessions.sessions[0].id, 'gemini-chat-1');
+
+  const preview = await importer.preview('gemini', 'gemini-chat-1', f.folders);
+  assert.equal(preview.provider, 'gemini');
+  assert.equal(preview.sessionId, 'gemini-chat-1');
+  assert.equal(preview.title, 'Implement OAuth flow');
+  assert.equal(preview.messageCount, 2);
+  assert.deepEqual(preview.messages, [
+    { sourceId: 'step-1-user', role: 'user', text: 'Implement OAuth flow', timestamp: '2026-10-20T10:00:00.000Z' },
+    { sourceId: 'step-2-model', role: 'assistant', text: 'OAuth flow implemented with PKCE.', provider: 'gemini', timestamp: '2026-10-20T10:00:05.000Z' },
+  ]);
+  assert.ok(preview.digest);
+});
+
+test('Gemini previews bound large transcripts and require known workspace membership',async t=>{
+  const f=fixture(t),logs=path.join(f.root,'.gemini/antigravity/brain/unlinked/.system_generated/logs');fs.mkdirSync(logs,{recursive:true});
+  const first=JSON.stringify({type:'USER_INPUT',source:'USER_EXPLICIT',step_index:1,content:'<USER_REQUEST>Keep this visible request</USER_REQUEST>'});
+  const large=JSON.stringify({type:'PLANNER_RESPONSE',step_index:2,content:'x'.repeat(3*1024*1024)});fs.writeFileSync(path.join(logs,'transcript.jsonl'),first+'\n'+large+'\n');
+  const importer=new ConversationImporter({geminiHome:()=>f.root});
+  await assert.rejects(importer.preview('gemini','unlinked',f.folders),error=>error.status===403);
+  const preview=await importer.preview('gemini','unlinked');assert.equal(preview.clipped,true);assert.equal(preview.messages.length,1);assert.equal(preview.messages[0].text,'Keep this visible request');
+});
+
+test('Gemini transcript symlinks cannot read outside the native conversation store',async t=>{
+  const f=fixture(t),logs=path.join(f.root,'.gemini/antigravity/brain/linked/.system_generated/logs');fs.mkdirSync(logs,{recursive:true});const outside=path.join(f.root,'outside.jsonl');fs.writeFileSync(outside,JSON.stringify({type:'USER_INPUT',source:'USER_EXPLICIT',content:'private'}));fs.symlinkSync(outside,path.join(logs,'transcript.jsonl'));
+  const importer=new ConversationImporter({geminiHome:()=>f.root});await assert.rejects(importer.preview('gemini','linked'),error=>error.status===403);assert.equal(fs.readFileSync(outside,'utf8').includes('private'),true);
+});
+
+test('Gemini conversations linked through a secondary folder remain previewable',async t=>{
+  const f=fixture(t),native=path.join(f.root,'.gemini/antigravity'),logs=path.join(native,'brain/multiple/.system_generated/logs');fs.mkdirSync(logs,{recursive:true});fs.writeFileSync(path.join(logs,'transcript.jsonl'),JSON.stringify({type:'USER_INPUT',source:'USER_EXPLICIT',content:'<USER_REQUEST>Secondary workspace</USER_REQUEST>'})+'\n');
+  const uris=JSON.stringify(['file://'+path.join(f.root,'another-project'),'file://'+f.workspace]);const db=path.join(native,'conversation_summaries.db');const result=spawnSync('sqlite3',[db,`CREATE TABLE conversation_summaries(conversation_id TEXT,title TEXT,preview TEXT,last_modified_time TEXT,workspace_uris TEXT); INSERT INTO conversation_summaries VALUES('multiple','Multiple folders','','2026-11-01T00:00:00Z','${uris}');`]);assert.equal(result.status,0);
+  const before=fs.statSync(db).mtimeMs,importer=new ConversationImporter({geminiHome:()=>f.root}),listed=await importer.list('gemini',f.folders);assert.equal(listed.sessions[0].cwd,f.workspace);assert.equal((await importer.preview('gemini','multiple',f.folders)).messages[0].text,'Secondary workspace');assert.equal(fs.statSync(db).mtimeMs,before);
+});
+
 test('a previous chat from a subfolder typed in another letter case stays inside the workspace folder',async t=>{
   const f=fixture(t),workspace=fs.realpathSync(f.workspace);fs.mkdirSync(path.join(workspace,'Backend'));
   const typed=path.join(path.dirname(workspace),path.basename(workspace).toUpperCase(),'backend');

@@ -45,6 +45,15 @@ test('concurrent crash recovery serializes every subsequent filesystem transacti
   const results = await Promise.all(workers.map(async worker => { let error = ''; worker.stderr.on('data', chunk => { error += chunk; }); const [code] = await once(worker, 'exit'); assert.equal(code, 0, error); }));
   assert.equal(results.length, 8); assert.equal(fs.readFileSync(counter, 'utf8'), '64'); assert(!fs.existsSync(filename + '.guard'));
 });
+test('a lost recovery claim retries macOS rename races without hiding other rename failures',async t=>{
+  for(const disappeared of [true,false]) {
+    const {filename}=fixture(t),child=await holder(t,filename),exited=once(child,'exit');child.kill('SIGKILL');await exited;
+    const rename=fs.renameSync;let injected=false;
+    fs.renameSync=(source,destination)=>{if(!injected&&String(source).includes(filename+'.guard/owner-')){injected=true;if(disappeared){fs.unlinkSync(source);fs.rmdirSync(filename+'.guard');}throw Object.assign(new Error('Directory changed during rename'),{code:'EINVAL'});}return rename.call(fs,source,destination);};
+    try {if(disappeared)withFileGuard(filename,()=>{});else assert.throws(()=>withFileGuard(filename,()=>assert.fail()),{code:'EINVAL'});}finally{fs.renameSync=rename;}
+    assert(injected);if(!disappeared){assert(fs.existsSync(filename+'.guard'));withFileGuard(filename,()=>{});}assert(!fs.existsSync(filename+'.guard'));
+  }
+});
 test('legacy empty guards and unknown guard contents stay protected for manual inspection', t => {
   const { filename } = fixture(t), guard = filename + '.guard'; fs.mkdirSync(guard);
   assert.throws(() => withFileGuard(filename, () => assert.fail()), /only after all Throughline instances are stopped/);

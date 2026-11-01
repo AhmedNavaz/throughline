@@ -23,7 +23,7 @@
     const state = api.getState(), notice = $('previous-chats-notice'), project = state.projects.find(project => project.id === state.projectId);
     notice.hidden = true;
     if (!setupReady || $('setup-dialog').open || !state.ready || !project || project.previousConversationsDismissed || dismissingDiscovery.has(project.id)) return;
-    const providers = ['claude', 'codex'].filter(provider => state.status?.providers?.[provider]?.available !== false && state.accounts?.[provider]?.installed !== false);
+    const providers = ['claude', 'codex', 'gemini'].filter(provider => state.status?.providers?.[provider]?.available !== false && state.accounts?.[provider]?.installed !== false);
     const signature = JSON.stringify([project.folders.map(folder => folder.path).sort(), providers]);
     let entry = discoveries.get(project.id);
     if (entry?.signature !== signature) {
@@ -76,16 +76,16 @@
       }
       list.append(group);
     }
-    if (!list.children.length) list.append(el('p', imports.loading ? 'Finding conversations…' : query ? 'No matching conversations.' : imports.scope === 'workspace' ? 'No earlier conversations were found for this workspace’s folders. You can start a new conversation here, browse other projects, or open a conversation file.' : 'No Claude Code or Codex chats were found on this computer.', 'inspector-empty'));
+    if (!list.children.length) list.append(el('p', imports.loading ? 'Finding conversations…' : query ? 'No matching conversations.' : imports.scope === 'workspace' ? 'No earlier conversations were found for this workspace’s folders. You can start a new conversation here, browse other projects, or open a conversation file.' : 'No Claude Code, Codex or Gemini chats were found on this computer.', 'inspector-empty'));
     $('import-more').hidden = !Object.values(imports.cursors).some(Boolean);
   }
   function renderPreview() {
     const entries = [...imports.selected.values()], pane = $('import-preview');
-    if (!entries.length) { const empty = el('div', undefined, 'import-placeholder'); empty.append(el('h3', 'Choose conversations'), el('p', 'Select one or more chats to review them here. Chats from Claude Code and Codex merge in the order they happened.')); pane.replaceChildren(empty); return; }
+    if (!entries.length) { const empty = el('div', undefined, 'import-placeholder'); empty.append(el('h3', 'Choose conversations'), el('p', 'Select one or more chats to review them here. Chats from Claude Code, Codex and Gemini merge in the order they happened.')); pane.replaceChildren(empty); return; }
     const ready = entries.filter(entry => entry.preview).map(entry => entry.preview), heading = el('div', undefined, 'import-preview-heading'), sources = el('ul', undefined, 'import-sources');
     heading.append(el('h3', entries.length === 1 ? entries[0].preview?.title || entries[0].session.title : `${entries.length} conversations, merged by time`), el('p', `${ready.reduce((sum, preview) => sum + preview.messageCount, 0)} text message${ready.reduce((sum, preview) => sum + preview.messageCount, 0) === 1 ? '' : 's'}${ready.length < entries.length ? ' · loading…' : ''}`));
     for (const entry of entries) { const item = el('li'); item.append(agentIcon(entry.session.provider), el('span', entry.preview?.title || entry.session.title, 'import-source-title'), el('span', entry.error || (entry.preview ? `${entry.preview.messageCount} message${entry.preview.messageCount === 1 ? '' : 's'}${entry.preview.clipped ? ', most recent only' : ''}` : 'Loading…'), entry.error ? 'import-source-error' : 'import-source-meta')); sources.append(item); }
-    heading.append(sources, el('p', 'Only the visible text of each chat is imported. Tool runs and private reasoning stay out, and nothing runs until you send a message with your own Claude or Codex account.', 'muted'));
+    heading.append(sources, el('p', 'Only the visible text of each chat is imported. Tool runs and private reasoning stay out, and nothing runs until you send a message with your own Claude, Codex or Gemini account.', 'muted'));
     if (entries.some(isFile)) heading.append(el('p', 'Conversation files come from other people. Their messages become context for your assistant, so import files only from people you trust.', 'import-trust-note'));
     pane.replaceChildren(heading);
     const merged = mergedMessages(ready), shown = merged.slice(-300);
@@ -111,6 +111,8 @@
     $('import-confirm-text').textContent = !entries.length ? 'Select conversations to merge.' : `I reviewed ${entries.length === 1 ? 'this conversation' : `these ${entries.length} conversations`}. Merge the selected messages without running an agent.`;
     $('refresh-imports').disabled = imports.busy; $('refresh-imports').setAttribute('aria-busy', String(imports.loading)); $('import-more').disabled = imports.busy || imports.loading;
     $('import-scope').hidden = !api.getState().projectId;
+    const providerSelect = $('import-provider-select');
+    if (providerSelect && providerSelect.value !== imports.filter) providerSelect.value = imports.filter;
     for (const button of document.querySelectorAll('[data-import-provider]')) button.setAttribute('aria-pressed', String(button.dataset.importProvider === imports.filter));
     for (const button of document.querySelectorAll('[data-import-scope]')) button.setAttribute('aria-pressed', String(button.dataset.importScope === imports.scope));
   }
@@ -130,7 +132,7 @@
     const request = ++imports.request, projectId = imports.projectId, scope = imports.scope, errors = [];
     if (!more) { imports.sessions = imports.sessions.filter(row => row.provider === 'file'); imports.cursors = {}; }
     imports.loading = true; importError(''); renderSessions(); importControls();
-    await Promise.all(['claude', 'codex'].map(async provider => {
+    await Promise.all(['claude', 'codex', 'gemini'].map(async provider => {
       if (more && !imports.cursors[provider]) return;
       const query = `provider=${provider}&scope=${scope}&projectId=${encodeURIComponent(projectId)}${more ? `&cursor=${encodeURIComponent(imports.cursors[provider])}` : ''}`;
       try {
@@ -146,6 +148,8 @@
     if (importBlocked(state)) return;
     imports.projectId = state.projectId;
     imports.scope = 'workspace'; imports.filter = 'all'; imports.selected.clear(); imports.files.clear(); imports.sessions = []; imports.cursors = {};
+    const providerSelect = $('import-provider-select');
+    if (providerSelect) providerSelect.value = 'all';
     $('import-search').value = ''; $('import-confirm').checked = false; $('import-result').textContent = '';
     if (!dialog.open) dialog.showModal();
     renderPreview(); renderDestination();
@@ -158,6 +162,7 @@
   $('dismiss-previous-chats').addEventListener('click', dismissPreviousConversations);
   $('close-import').addEventListener('click', () => { if (!imports.busy) dialog.close(); });
   dialog.addEventListener('cancel', event => { if (imports.busy) event.preventDefault(); });
+  $('import-provider-select')?.addEventListener('change', () => { imports.filter = $('import-provider-select').value; renderSessions(); importControls(); });
   for (const button of document.querySelectorAll('[data-import-provider]')) button.addEventListener('click', () => { imports.filter = button.dataset.importProvider; renderSessions(); importControls(); });
   for (const button of document.querySelectorAll('[data-import-scope]')) button.addEventListener('click', () => { if (imports.scope !== button.dataset.importScope) { imports.scope = button.dataset.importScope; loadSessions(); } });
   $('refresh-imports').addEventListener('click', () => loadSessions()); $('import-more').addEventListener('click', () => loadSessions(true)); $('import-search').addEventListener('input', renderSessions);

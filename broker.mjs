@@ -18,15 +18,22 @@ import { parseReviewResult, publicReview, reviewPrompt } from './agent-review.mj
 export const PROVIDERS = ['codex', 'claude', 'gemini'];
 const transportFor = (provider, transport, configured) => transport === 'auto' ? provider === 'gemini' ? 'acp' : configured ? 'cli' : provider === 'codex' ? 'app-server' : 'sdk' : transport;
 const MODES = ['edit', 'read'];
+export const APPROVAL_POLICIES = ['ask', 'auto'];
 // macOS reports EPERM, not ESRCH, for a process group whose remaining members have exited but are not yet reaped.
 const groupGone = error => error.code === 'ESRCH' || (error.code === 'EPERM' && process.platform === 'darwin');
 const clip = (text, max = 16000) => String(text ?? '').length > max
   ? `${String(text).slice(0, max)}\n[Output shortened; inspect project files for the full state.]`
   : String(text ?? '');
 
-function checkSettings(provider, mode) {
+function checkSettings(provider, mode, approvalPolicy = 'ask') {
   if (!PROVIDERS.includes(provider) || !MODES.includes(mode)) {
     throw Object.assign(new Error('Choose Codex, Claude or Gemini and an edit or read mode.'), { status: 400 });
+  }
+  if (!APPROVAL_POLICIES.includes(approvalPolicy)) {
+    throw Object.assign(new Error('Choose Ask for permission or Full auto-approval.'), { status: 400 });
+  }
+  if (mode === 'read' && approvalPolicy === 'auto') {
+    throw Object.assign(new Error('Full auto-approval requires edit access and cannot be enabled in read-only mode.'), { status: 400, category: 'permission' });
   }
 }
 
@@ -38,8 +45,8 @@ function savedWorkspace(directory) {
   }
 }
 
-export function commandFor(provider, { mode, sessionId, bin, workspace, workspaces = [], effort }) {
-  checkSettings(provider, mode);
+export function commandFor(provider, { mode, approvalPolicy = 'ask', sessionId, bin, workspace, workspaces = [], effort }) {
+  checkSettings(provider, mode, approvalPolicy);
   if (provider === 'gemini') return { bin: bin || 'gemini', args: [] };
   if (provider === 'codex') {
     const args = ['--ask-for-approval', 'never', '--sandbox', mode === 'edit' ? 'workspace-write' : 'read-only'];
@@ -123,7 +130,7 @@ export class Broker extends EventEmitter {
   }
 
   empty(id) {
-    return { id, title: 'New conversation', provider: 'codex', mode: 'edit', status: 'idle', messages: [],
+    return { id, title: 'New conversation', provider: 'codex', mode: 'edit', approvalPolicy: 'ask', status: 'idle', messages: [],
       sessions: {}, models: {}, efforts: {}, effort: null, imports: {}, transports: {}, requests: {}, reviewRequests: {}, reviews: [], context: emptyContext(), model: null, transport: 'auto', settingsRevision: 0, lastRun: null, records: 0, activeRun: null, createdAt: null, updatedAt: null };
   }
 
@@ -131,7 +138,7 @@ export class Broker extends EventEmitter {
     c.records = record.seq;
     c.updatedAt = record.at;
     if (record.type === 'created') Object.assign(c, { createdAt: record.at, title: record.title });
-    if (record.type === 'settings') { Object.assign(c, { provider: record.provider, mode: record.mode, model: record.model ?? null, transport: record.transport || c.transport, settingsRevision: record.seq }); c.models[record.provider] = record.model ?? null; c.transports[record.provider] = record.transport || c.transport; }
+    if (record.type === 'settings') { Object.assign(c, { provider: record.provider, mode: record.mode, approvalPolicy: record.approvalPolicy || 'ask', model: record.model ?? null, transport: record.transport || c.transport, settingsRevision: record.seq }); c.models[record.provider] = record.model ?? null; c.transports[record.provider] = record.transport || c.transport; }
     if (record.type === 'context') c.context = record.context;
     if (['settings', 'submission'].includes(record.type) && !record.review && !record.local) {
       c.effort = record.effort ?? null;
@@ -151,13 +158,13 @@ export class Broker extends EventEmitter {
     if (record.type === 'submission') {
       if (!record.review && !record.local) {
         if (record.resetSession) delete c.sessions[record.provider];
-        Object.assign(c, { provider: record.provider, mode: record.mode, model: record.model, transport: record.transport, settingsRevision: record.seq });
+        Object.assign(c, { provider: record.provider, mode: record.mode, approvalPolicy: record.approvalPolicy || 'ask', model: record.model, transport: record.transport, settingsRevision: record.seq });
         c.models[record.provider] = record.model; c.transports[record.provider] = record.transport;
       } else if (record.review) c.reviews = [{ ...record.review, id: record.id, startedAt: record.at, status: 'running', findings: [] }, ...c.reviews].slice(0, 10);
       if (record.title) c.title = record.title;
       c.messages.push({ ...record.message, seq: record.seq });
       c.requests[record.requestId] = { runId: record.id, requestId: record.requestId, fingerprint: record.fingerprint };
-      c.activeRun = { id: record.id, provider: record.provider, model: record.model, transport: record.effectiveTransport || record.transport, baseline: record.baseline, context: record.context, ...(record.local ? { connection: 'local', local: record.local } : {}), ...(record.review ? { purpose: 'review', reviewId: record.id } : {}), effort: record.effort ?? null, phase: 'starting', lastEventAt: record.at, toolCount: 0, startedAt: record.at }; c.status = 'running';
+      c.activeRun = { id: record.id, provider: record.provider, mode: record.mode, approvalPolicy: record.approvalPolicy || 'ask', model: record.model, transport: record.effectiveTransport || record.transport, baseline: record.baseline, context: record.context, ...(record.local ? { connection: 'local', local: record.local } : {}), ...(record.review ? { purpose: 'review', reviewId: record.id } : {}), effort: record.effort ?? null, phase: 'starting', lastEventAt: record.at, toolCount: 0, startedAt: record.at }; c.status = 'running';
     }
     if (record.type === 'background_review') { c.reviews = [record.review, ...c.reviews].slice(0, 10); c.reviewRequests[record.review.requestId] = { reviewId: record.review.id, requestId: record.review.requestId, fingerprint: record.review.fingerprint }; }
     if (record.type === 'review_process') { const review = c.reviews.find(item => item.id === record.id); if (review) Object.assign(review, { pid: record.pid, pidStart: record.pidStart }); }
@@ -219,7 +226,7 @@ export class Broker extends EventEmitter {
 
   list() {
     return [...this.conversations.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .map(({ id, title, provider, mode, status, updatedAt }) => ({ id, title, provider, mode, status, updatedAt }));
+      .map(({ id, title, provider, mode, approvalPolicy, status, updatedAt }) => ({ id, title, provider, mode, approvalPolicy: approvalPolicy || 'ask', status, updatedAt }));
   }
 
   create() {
@@ -229,11 +236,11 @@ export class Broker extends EventEmitter {
     return this.view(c);
   }
 
-  settings(c, { provider = c.provider, mode = c.mode, model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', effort = c.efforts[provider]?.[model || 'default'] ?? null }) {
-    checkSettings(provider, mode);
+  settings(c, { provider = c.provider, mode = c.mode, approvalPolicy = c.approvalPolicy || 'ask', model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', effort = c.efforts[provider]?.[model || 'default'] ?? null }) {
+    checkSettings(provider, mode, approvalPolicy);
     this.validateSelection(model, transport, effort);
     if (c.activeRun) throw Object.assign(new Error('Stop the current run before switching assistants.'), { status: 409 });
-    this.record(c, { type: 'settings', provider, mode, model, transport, effort });
+    this.record(c, { type: 'settings', provider, mode, approvalPolicy, model, transport, effort });
     return this.view(c);
   }
 
@@ -310,17 +317,17 @@ export class Broker extends EventEmitter {
 
   prompt(c, text, fresh = false) { return prepareContext(c, text, { workspace: this.workspace, workspaceFolders: this.workspaceFolders, fresh: fresh || c.sessions[c.provider]?.workspaceSignature !== this.workspaceSignature }).prompt; }
 
-  start(c, { text, attachments: attachmentIds = [], provider = c.provider, mode = c.mode, fresh = false, model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', requestId = randomUUID(), billingConfirmed = false, effort = c.efforts[provider]?.[model || 'default'] ?? null }, { review, verifyReview, local, verifyLocal } = {}) {
-    if (review) { mode = 'read'; fresh = true; attachmentIds = []; }
+  start(c, { text, attachments: attachmentIds = [], provider = c.provider, mode = c.mode, approvalPolicy = c.approvalPolicy || 'ask', fresh = false, model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', requestId = randomUUID(), billingConfirmed = false, effort = c.efforts[provider]?.[model || 'default'] ?? null }, { review, verifyReview, local, verifyLocal } = {}) {
+    if (review) { mode = 'read'; approvalPolicy = 'ask'; fresh = true; attachmentIds = []; }
     if (local) { if (review || typeof verifyLocal !== 'function') throw Object.assign(new Error('Invalid local run.'), { status: 400 }); provider = 'codex'; model = local.model; transport = 'app-server'; effort = null; fresh = true; }
-    checkSettings(provider, mode);
+    checkSettings(provider, mode, approvalPolicy);
     this.validateSelection(model, transport, effort);
     if (typeof text !== 'string' || !text.trim() || text.length > 100000) throw Object.assign(new Error('Enter a message between 1 and 100,000 characters.'), { status: 400 });
     if (typeof requestId !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(requestId)) throw Object.assign(new Error('Invalid request ID.'), { status: 400 });
     const attachments = this.attachments.select(attachmentIds);
     if (local && attachments.some(file => file.kind !== 'text')) throw Object.assign(new Error('This local connection supports text and code attachments. Remove image attachments or choose a cloud agent; your draft stays saved.'), { status: 400 });
     text = text.trim(); model = model || null;
-    const fingerprint = createHash('sha256').update(JSON.stringify({ text, ...(local ? { local } : {}), ...(review ? { review: review.snapshot.digest } : {}), ...(attachments.length ? { attachments: attachmentIds } : {}), provider, mode, fresh, model, ...(effort ? { effort } : {}), transport: transportFor(provider, transport, this.configuredBins[provider]) })).digest('hex');
+    const fingerprint = createHash('sha256').update(JSON.stringify({ text, ...(local ? { local } : {}), ...(review ? { review: review.snapshot.digest } : {}), ...(attachments.length ? { attachments: attachmentIds } : {}), provider, mode, approvalPolicy, fresh, model, ...(effort ? { effort } : {}), transport: transportFor(provider, transport, this.configuredBins[provider]) })).digest('hex');
     const accepted = c.requests[requestId];
     if (accepted) { if (accepted.fingerprint !== fingerprint) throw Object.assign(new Error('This request ID was already used for another message.'), { status: 409 }); return { runId: accepted.runId, requestId, duplicate: true }; }
     if (this.running) throw Object.assign(new Error('An assistant is already working in this workspace. Stop it before starting another run.'), { status: 409 });
@@ -349,12 +356,12 @@ export class Broker extends EventEmitter {
     let baseline;
     try { if (review) verifyReview(); baseline = review ? { kind: 'review', git: true, digest: review.snapshot.digest, capturedAt: new Date().toISOString() } : workspaceBaseline(this.workspace, this.workspaceFolders); } catch (error) { lease.release(); throw error; }
     const runId = randomUUID();
-    const run = { id: runId, c, provider, child: null, terminalSuccess: false, failed: false, stopped: false,
+    const run = { id: runId, c, provider, mode, approvalPolicy, child: null, terminalSuccess: false, failed: false, stopped: false,
       stderr: '', tools: new Map(), approvals: new Map(), currentClaudeMessage: null, killTimer: null, done: null, lease, review, local, errorCategory: null, workspaceSignature: this.workspaceSignature };
     let finish;
     run.done = new Promise(resolve => { finish = resolve; });
     try {
-      this.record(c, { type: 'submission', id: runId, requestId, fingerprint, provider, mode, model, effort, transport, effectiveTransport: actualTransport, baseline, context: prepared.metadata, resetSession, workspaceSignature: this.workspaceSignature,
+      this.record(c, { type: 'submission', id: runId, requestId, fingerprint, provider, mode, approvalPolicy, model, effort, transport, effectiveTransport: actualTransport, baseline, context: prepared.metadata, resetSession, workspaceSignature: this.workspaceSignature,
         ...(local ? { local } : {}), ...(review ? { review } : {}), ...(c.messages.every(m => m.role !== 'user') ? { title: text.slice(0, 64) } : {}),
         message: { id: randomUUID(), role: 'user', text, ...(local ? { connection: 'local' } : {}), ...(review ? { reviewId: runId } : {}), ...(attachments.length ? { attachments } : {}), provider, createdAt: new Date().toISOString(), runId } });
     } catch (error) { lease.release(); throw error; }
@@ -391,7 +398,7 @@ export class Broker extends EventEmitter {
           if (account.billingSource !== 'subscription' && !billingConfirmed) throw Object.assign(new Error(`Billing source is ${account.billingSource}. Explicitly confirm this provider run before it may consume usage.`), { category: 'permission' });
         }
         if (run.stopped) return complete(null, null, new Error('Run stopped.'));
-        const command = commandFor(provider, { mode, sessionId, bin, workspace: this.workspace, workspaces: this.workspaces, effort });
+        const command = commandFor(provider, { mode, approvalPolicy, sessionId, bin, workspace: this.workspace, workspaces: this.workspaces, effort });
         if (provider === 'codex') {
           command.args.unshift('-c', 'features.hooks=false', '-c', 'notify=[]');
           if (model) command.args.unshift('--model', model);
@@ -421,6 +428,11 @@ export class Broker extends EventEmitter {
             if (message.type === 'failure') { run.failed = true; run.errorCategory = message.category; run.stderr = clip(run.stderr + '\n' + message.message); }
             if (message.type === 'approval') {
               if (review && !['Read', 'Glob', 'Grep'].includes(message.request.kind)) { run.child.send({ type: 'approval-result', id: message.request.id, allow: false }); return; }
+              if (run.approvalPolicy === 'auto') {
+                run.child.send({ type: 'approval-result', id: message.request.id, allow: true });
+                this.message(c, 'activity', `Tool ${message.request.kind || message.request.title || 'use'} auto-approved by policy.`, run.provider);
+                return;
+              }
               const approval = { ...message.request, runId, provider }; run.approvals.set(approval.id, approval); this.emit('update', { conversationId: c.id });
             }
           } catch (error) { run.failed = true; run.errorCategory = classifyError(error); run.stderr = error.message; this.cancel(run); }
@@ -429,7 +441,7 @@ export class Broker extends EventEmitter {
         const pidStart = processStart(run.child.pid);
         this.record(c, { type: 'run_process', pid: run.child.pid, pidStart });
         lease.setProcess(run.child.pid, pidStart);
-        run.child.send({ type: 'start', config: { bin, googleRoot: this.googleRoot, args: command.args, workspace: this.workspace, workspaces: this.workspaces, workspaceFolders: this.workspaceFolders, prompt: prepared.prompt, images, transport: actualTransport, provider, mode, model, effort, sessionId, ...(local ? { local } : {}), ...(review ? { reviewSnapshot: true } : {}) } });
+        run.child.send({ type: 'start', config: { bin, googleRoot: this.googleRoot, args: command.args, workspace: this.workspace, workspaces: this.workspaces, workspaceFolders: this.workspaceFolders, prompt: prepared.prompt, images, transport: actualTransport, provider, mode, approvalPolicy, model, effort, sessionId, ...(local ? { local } : {}), ...(review ? { reviewSnapshot: true } : {}) } });
       } catch (error) { run.errorCategory = error.category || classifyError(error); complete(null, null, error); }
     };
     launch();

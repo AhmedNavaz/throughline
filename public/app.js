@@ -8,7 +8,7 @@
     workspace: $("workspace-name"), breadcrumb: $("workspace-breadcrumb"),
     messages: $("messages"), scroll: $("messages-scroll"), empty: $("empty-state"),
     form: $("composer"), input: $("message-input"), send: $("send-button"), stop: $("stop-button"),
-    agent: $("agent-select"), mode: $("mode-select"), codex: $("select-codex"), claude: $("select-claude"), gemini: $("select-gemini"),
+    agent: $("agent-select"), mode: $("mode-select"), approval: $("approval-select"), codex: $("select-codex"), claude: $("select-claude"), gemini: $("select-gemini"),
     continuation: $("continuation"), continueText: $("continuation-text"), continueButton: $("continue-button"),
     otherRunning: $("other-running"), viewRunning: $("view-running"),
     notice: $("notice"), noticeText: $("notice-text"), retry: $("notice-retry"), dismiss: $("notice-dismiss"),
@@ -21,7 +21,7 @@
     removeDialog: $("remove-workspace-dialog"), removeName: $("remove-workspace-name"), removeConfirm: $("confirm-remove-workspace"), removeCancel: $("cancel-remove-workspace"), removeError: $("remove-workspace-error"),
   };
   const state = {
-    localSelections: {}, accounts: {}, accountsChecking: {}, accountChecks: {}, accountCheck: 0, accountsCheckedAt: 0, accountRefresh: null, connectionAction: null, model: "", effort: null, workspaceFilter: "", streamConnected: null, retrySubmission: null, status: null, conversation: null, provider: "codex", mode: "edit",
+    localSelections: {}, accounts: {}, accountsChecking: {}, accountChecks: {}, accountCheck: 0, accountsCheckedAt: 0, accountRefresh: null, connectionAction: null, model: "", effort: null, workspaceFilter: "", streamConnected: null, retrySubmission: null, status: null, conversation: null, provider: "codex", mode: "edit", approvalPolicy: "ask",
     pending: null, loading: false, selectionVersion: 0, refreshPromise: null, refreshAgain: false,
     settingsRevision: 0, settingsPending: 0, settingsPromise: Promise.resolve(),
     noticeRetry: null, eventTimer: null, messagesSignature: "", listSignature: "", ready: false,
@@ -201,7 +201,7 @@
       text=name+' is not installed.';
       state.installUrl=installGuides[state.provider]||null;
       if(install&&state.installUrl){install.hidden=false;install.textContent='How to install '+name+' ↗';}
-      if(available(other)){action='Use '+label(other);state.connectionAction=()=>changeSettings(other,state.mode);}
+      if(available(other)){action='Use '+label(other);state.connectionAction=()=>changeSettings(other,state.mode,state.approvalPolicy);}
       else {action='Open settings';state.connectionAction=()=>$('relay-settings').click();}
     } else if(info.needsSignIn){text=name+' is not signed in.';action='Connect account';state.connectionAction=()=>$('relay-settings').click();}
     else if(info.needsBilling){text=info.account.billingSource==='api'?'This connection uses API billing. Review it before sending.':'Billing could not be confirmed. Review this connection before sending.';action='Review connection';state.connectionAction=()=>$('relay-settings').click();}
@@ -461,6 +461,10 @@
     for (const option of ui.agent.querySelectorAll("option")) option.disabled = option.value !== "local" && !available(option.value);
     ui.mode.value = state.mode;
     ui.mode.disabled = !state.ready || busy || running;
+    if (ui.approval) {
+      ui.approval.value = state.approvalPolicy || "ask";
+      ui.approval.disabled = !state.ready || busy || running || state.mode === "read";
+    }
     ui.input.disabled = !state.ready || state.loading || state.pending === "new";
     ui.input.placeholder = running ? "Draft your next message…" : "Describe the task or ask a question…";
     ui.send.hidden = running;
@@ -512,6 +516,7 @@
     if (adoptSettings && !state.settingsPending) {
       state.provider = ['codex','claude','gemini'].includes(conversation.provider) ? conversation.provider : 'codex';
       state.mode = conversation.mode === "read" ? "read" : "edit";
+      state.approvalPolicy = conversation.approvalPolicy === "auto" ? "auto" : "ask";
       state.model = conversation.models?.[state.provider] || conversation.model || "";
       state.effort = conversation.effort ?? conversation.efforts?.[state.provider]?.[state.model || "default"] ?? null;
     }
@@ -557,11 +562,13 @@
     state.eventTimer = setTimeout(() => { state.eventTimer = null; refresh(); }, 120);
   }
 
-  function changeSettings(provider, mode) {
+  function changeSettings(provider, mode, approvalPolicy = state.approvalPolicy || 'ask') {
     if (!state.ready || state.loading || state.projectSaving || isRunning() || state.pending) return;
     if (provider !== state.provider) { state.model = state.conversation?.models?.[provider] || ""; state.effort = state.conversation?.efforts?.[provider]?.[state.model || "default"] ?? null; }
+    if (mode === "read") approvalPolicy = "ask";
     state.provider = provider;
     state.mode = mode;
+    state.approvalPolicy = approvalPolicy;
     renderControls();
     window.dispatchEvent(new CustomEvent("relay-state"));
     if (!state.conversation) return;
@@ -574,10 +581,10 @@
     renderWorkspaceList();
     state.settingsPromise = state.settingsPromise.catch(() => {}).then(async () => {
       try {
-        const conversation = await post(endpoint(id, "provider"), { provider, mode }, projectId);
+        const conversation = await post(endpoint(id, "provider"), { provider, mode, approvalPolicy }, projectId);
         if (sameProject(projectId, projectVersion) && state.conversation?.id === id && revision === state.settingsRevision) applyConversation(conversation, { adoptSettings: false });
       } catch (error) {
-        if (sameProject(projectId, projectVersion)) showNotice(`Could not save the assistant selection. ${error.message}`, () => changeSettings(provider, mode));
+        if (sameProject(projectId, projectVersion)) showNotice(`Could not save the assistant selection. ${error.message}`, () => changeSettings(provider, mode, approvalPolicy));
       } finally { state.settingsPending--; renderProjects(); renderWorkspaceList(); scheduleRefresh(); }
     });
   }
@@ -589,9 +596,10 @@
     if (state.pending || state.loading || state.projectSaving || isRunning() || isOtherRunning() || !state.ready || (!state.localSelections[state.projectId] && connection(state.provider).blocked) || (!continuing && !text)) return;
     const provider = state.provider;
     const mode = state.mode;
+    const approvalPolicy = state.approvalPolicy || 'ask';
     const originalDraft = ui.input.value;
     const localChoice = state.localSelections[state.projectId] || null;
-    const payloadKey = JSON.stringify([state.projectId,state.conversation?.id,continuing,text,provider,mode,state.model,state.effort,attachments,localChoice]);
+    const payloadKey = JSON.stringify([state.projectId,state.conversation?.id,continuing,text,provider,mode,approvalPolicy,state.model,state.effort,attachments,localChoice]);
     const requestId = state.retrySubmission?.key === payloadKey ? state.retrySubmission.id : crypto.randomUUID();
     state.retrySubmission = { ...(state.retrySubmission?.key === payloadKey ? state.retrySubmission : {}), key:payloadKey,id:requestId };
     const projectId = state.projectId;
@@ -603,7 +611,7 @@
       await state.settingsPromise;
       if (!state.conversation) await ensureCanonicalConversation();
       const id = state.conversation.id;
-      state.retrySubmission.key = JSON.stringify([state.projectId,id,continuing,text,provider,mode,state.model,state.effort,attachments,localChoice]);
+      state.retrySubmission.key = JSON.stringify([state.projectId,id,continuing,text,provider,mode,approvalPolicy,state.model,state.effort,attachments,localChoice]);
       if (localChoice) {
         if (!state.retrySubmission.localContext) {
           const catalog = await api('/api/local-models', {}, projectId);
@@ -612,7 +620,7 @@
           state.retrySubmission.localContext = catalog.context;
         }
         await post('/api/local-models/start', { model:localChoice.model, digest:localChoice.digest, task:continuing ? 'Continue the unfinished task from the saved conversation. Inspect current files first.' : text, attachments, requestId, context:state.retrySubmission.localContext }, projectId);
-      } else await post(endpoint(id, continuing ? "continue" : "messages"), continuing ? { provider, mode, requestId, model:state.model || undefined, effort:state.effort || null, billingConfirmed:window.relayBillingConfirmed === true } : { text, attachments, provider, mode, requestId, model:state.model || undefined, effort:state.effort || null, billingConfirmed:window.relayBillingConfirmed === true }, projectId);
+      } else await post(endpoint(id, continuing ? "continue" : "messages"), continuing ? { provider, mode, approvalPolicy, requestId, model:state.model || undefined, effort:state.effort || null, billingConfirmed:window.relayBillingConfirmed === true } : { text, attachments, provider, mode, approvalPolicy, requestId, model:state.model || undefined, effort:state.effort || null, billingConfirmed:window.relayBillingConfirmed === true }, projectId);
       state.retrySubmission = null;
       if (!continuing) window.relayFiles?.accepted(projectId, attachments);
       if (!continuing && ui.input.value === originalDraft) {
@@ -624,6 +632,7 @@
       state.conversation.status = "running";
       if (!localChoice) state.conversation.provider = provider;
       state.conversation.mode = mode;
+      state.conversation.approvalPolicy = approvalPolicy;
       if (state.status) state.status.runningConversationId = id;
       announce(`${localChoice ? "Local · Ollama" : label(provider)} is working.`);
       await refresh();
@@ -939,14 +948,15 @@
   ui.agent.addEventListener("change", () => {
     const selected = ui.agent.value;
     if (selected === "local") { ui.agent.value = state.provider; window.relayLocal?.open(); }
-    else if (["codex", "claude", "gemini"].includes(selected) && available(selected)) changeSettings(selected, state.mode);
+    else if (["codex", "claude", "gemini"].includes(selected) && available(selected)) changeSettings(selected, state.mode, state.approvalPolicy);
   });
-  ui.codex.addEventListener("click", () => { delete state.localSelections[state.projectId]; changeSettings("codex", state.mode); });
-  ui.claude.addEventListener("click", () => { delete state.localSelections[state.projectId]; changeSettings("claude", state.mode); });
-  ui.gemini.addEventListener("click", () => { delete state.localSelections[state.projectId]; changeSettings("gemini", state.mode); });
-  ui.mode.addEventListener("change", () => changeSettings(state.provider, ui.mode.value));
+  ui.codex.addEventListener("click", () => { delete state.localSelections[state.projectId]; changeSettings("codex", state.mode, state.approvalPolicy); });
+  ui.claude.addEventListener("click", () => { delete state.localSelections[state.projectId]; changeSettings("claude", state.mode, state.approvalPolicy); });
+  ui.gemini.addEventListener("click", () => { delete state.localSelections[state.projectId]; changeSettings("gemini", state.mode, state.approvalPolicy); });
+  ui.mode.addEventListener("change", () => changeSettings(state.provider, ui.mode.value, state.approvalPolicy));
+  ui.approval?.addEventListener("change", () => changeSettings(state.provider, state.mode, ui.approval.value));
   ui.stop.addEventListener("click", stop);
-  ui.continueButton.addEventListener("click", () => {const target=state.continuationProvider||state.provider;if(target!==state.provider)changeSettings(target,state.mode);run(true);});
+  ui.continueButton.addEventListener("click", () => {const target=state.continuationProvider||state.provider;if(target!==state.provider)changeSettings(target,state.mode,state.approvalPolicy);run(true);});
   ui.viewRunning.addEventListener("click",refresh);
   ui.dismiss.addEventListener("click", hideNotice);
   ui.retry.addEventListener("click", () => { const retry = state.noticeRetry; hideNotice(); if (retry) retry(); });
@@ -975,7 +985,7 @@
     async selectAgentModel(provider, model) {
       if (!available(provider)) throw Error('Connect this agent in Settings first.');
       const projectId = state.projectId, version = state.projectVersion;
-      changeSettings(provider, state.mode); await state.settingsPromise;
+      changeSettings(provider, state.mode, state.approvalPolicy); await state.settingsPromise;
       if (!sameProject(projectId,version)) return false;
       await window.relayUI.setConfiguration({model,effort:state.conversation?.efforts?.[provider]?.[model || 'default'] ?? null});
       if (!sameProject(projectId,version)) return false;
@@ -988,7 +998,7 @@
       const projectId = state.projectId, version = state.projectVersion, conversationId = state.conversation?.id, provider = state.provider;
       const revision = ++state.settingsRevision;
       state.settingsPending++; render();
-      const operation = state.settingsPromise.catch(() => {}).then(() => post(endpoint(conversationId,'provider'), {provider,mode:state.mode,model,effort},projectId));
+      const operation = state.settingsPromise.catch(() => {}).then(() => post(endpoint(conversationId,'provider'), {provider,mode:state.mode,approvalPolicy:state.approvalPolicy,model,effort},projectId));
       state.settingsPromise = operation;
       try {
         const conversation = await operation;

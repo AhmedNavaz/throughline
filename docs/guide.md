@@ -37,6 +37,19 @@ The application history is canonical. Native Claude, Codex and Gemini sessions r
 
 Codex normally uses its official app-server with GUI approval requests. Claude uses the official Agent SDK with its installed binary and GUI `canUseTool` approvals. The advanced Gemini CLI connection uses ACP (`--acp`) with an isolated per-run policy that disables extensions, hooks, MCP, skills, telemetry and auto-memory, restricts read-only runs to read/search tools, routes edits and shell commands through one-time approvals, proxies text files within attached folders, and refuses managed system configurations it cannot safely combine. Antigravity uses its official ACP runtime in the confirmed `default` approval mode, routing one-time permissions to Throughline. Interactive questions and workspace-trust requests are never automatically answered. Native workspace hooks and trust remain under Antigravity’s control. Its connection does not claim a read-only sandbox: choose Codex or Claude for read-only work and background reviews. No unrestricted execution flag is enabled. Read-only uses the provider's sandbox/restricted tools; Claude and Gemini restrictions are not an operating-system sandbox. User/project hooks are disabled for managed runs where supported; administrator provider policy can still apply. These controls do not isolate unrelated host processes.
 
+### Permission controls and tool approvals
+
+Throughline provides two distinct permission choices in the composer toolbar:
+- **Ask for permission** (the default): Permission requests from the native agent appear in the app before the requested action proceeds. Its safe read operations may already be allowed by the provider's tool policy.
+- **Full auto-approval**: Pending tool permission requests are approved automatically for that workspace. Approved actions remain visible in conversation activity and run progress. The selected access mode and native sandbox remain in place.
+
+Permission policies are strictly scoped to the workspace:
+- New workspaces always start with **Ask for permission** (`approvalPolicy: 'ask'`).
+- Importing a conversation (via native transcript discovery or shared file import) never imports or alters permission settings.
+- Reopening a saved workspace remembers its configured policy.
+- Changing the permission policy in the composer affects subsequent runs; in-flight runs and existing pending approvals retain their original policy.
+- Incompatible configurations are strictly rejected: a run cannot be marked read-only if writes are permitted, and combining **Read only** with **Full auto-approval** is blocked with an explicit error explaining that read-only access blocks edits while auto-approval requires edit mode.
+
 Automatic executable discovery checks absolute PATH entries, common install folders (including Homebrew, Volta, nvm, pnpm, Bun, mise, asdf and fnm), macOS app bundles and compatible Codex VS Code extensions. Overrides are explicit and do not silently fall back:
 
 ```sh

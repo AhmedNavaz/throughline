@@ -166,3 +166,15 @@ process.exit(1);
   assert.throws(() => broker.start(c, { text: 'Must not be accepted', provider: 'gemini' }), /interactive tool approvals/);
   assert.equal(c.messages.length, 0); assert.equal(broker.running, null);
 });
+
+test('Gemini auto-approves tool requests when approvalPolicy is auto', async () => {
+  let approvalCalls = 0;
+  const client = new Client(async c => {
+    const answer = await c.rpc('session/request_permission', request);
+    assert.equal(answer.result.outcome.optionId, 'once');
+    c.update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Gemini auto success' } });
+  });
+  const { events } = await run(client, { approvalPolicy: 'auto' }, { approval: async () => { approvalCalls++; return true; } });
+  assert.equal(approvalCalls, 1, 'Tool requests are routed to approval handler');
+  assert.equal(events.at(-1).type, 'turn.completed');
+});
