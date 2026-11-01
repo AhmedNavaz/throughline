@@ -22,7 +22,7 @@ function system(platform, osVersion, arch) {
   return `${name} ${osVersion}, ${platform === 'darwin' ? arch === 'arm64' ? 'Apple Silicon' : 'Intel' : arch}`;
 }
 
-export function menuTemplate({ platform, packaged, version, osVersion, arch, state, appearance, keepAwake, send, open }) {
+export function menuTemplate({ platform, packaged, version, osVersion, arch, state, appearance, keepAwake, notifications = { enabled: true, sound: false }, setNotifications = () => {}, send, open }) {
   const page = state || initial, mac = platform === 'darwin', separator = () => ({ type: 'separator' });
   const command = (label, name, options = {}) => ({ label, ...options, click: () => send(...name) });
   const link = (label, url) => ({ label, click: () => open(url) });
@@ -72,6 +72,9 @@ export function menuTemplate({ platform, packaged, version, osVersion, arch, sta
     command(page.continue ? `Continue with ${names[page.continue]}` : 'Continue with…', ['continue'], { id: 'continue', enabled: page.continue !== null }),
     separator(),
     command('Keep Awake', ['keep-awake'], { type: 'checkbox', checked: keepAwake }),
+    // Alerts when Throughline is not in front: a notification and Dock bounce, and an optional sound.
+    { label: 'Notify When Runs Finish or Need Approval', type: 'checkbox', checked: notifications.enabled, click: () => setNotifications({ enabled: !notifications.enabled }) },
+    { label: 'Play Notification Sound', type: 'checkbox', checked: notifications.sound, enabled: notifications.enabled, click: () => setNotifications({ sound: !notifications.sound }) },
   ] };
   // Numbered as ⌘1–9 number them: the first nine workspaces the sidebar filter shows.
   const workspace = { label: 'Workspace', submenu: [

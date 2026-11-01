@@ -21,7 +21,7 @@ test('the macOS menu bar has Throughline, File, Edit, View, Agent, Workspace, Wi
   assert.deepEqual(labels(item('Edit').submenu),['undo','redo','-','cut','copy','paste','pasteAndMatchStyle','delete','selectAll','-','Find in Conversation','Find Next','Find Previous','-','Filter Workspaces','-','Speech']);
   assert.deepEqual(labels(item('View').submenu),['Show Git Activity','Show Files','Focus Message Box','-','Appearance','-','resetZoom','zoomIn','zoomOut','-','togglefullscreen']);
   assert.deepEqual(labels(item('Appearance').submenu),['System','Dark','Light']);
-  assert.deepEqual(labels(item('Agent').submenu),['Use Codex','Use Claude Code','Use Gemini','Continue Locally…','-','Stop Run','Continue with…','-','Keep Awake']);
+  assert.deepEqual(labels(item('Agent').submenu),['Use Codex','Use Claude Code','Use Gemini','Continue Locally…','-','Stop Run','Continue with…','-','Keep Awake','Notify When Runs Finish or Need Approval','Play Notification Sound']);
   assert.deepEqual(labels(item('Workspace').submenu),['Frontend','R&D','-','Workspace Settings…','Remove Workspace…']);
   assert.deepEqual(labels(item('help').submenu),['Throughline Guide','Keyboard Shortcuts','-','Report a Bug','Share Design Feedback','-','Roadmap','What’s New']);
   // These are the page's own shortcuts plus ⌘, ⌘N and ⌘G, which the page leaves to the menu.
@@ -70,7 +70,8 @@ test('page items and in-app release notes send commands, and external Help links
   const repository='https://github.com/AhmedNavaz/throughline';
   const pages={'Throughline Guide':`${repository}/blob/main/docs/guide.md`,'Keyboard Shortcuts':`${repository}/blob/main/docs/guide.md#keyboard-shortcuts`,'Report a Bug':`${repository}/issues/new?template=bug_report.yml&version=0.7.0&system=macOS+26.1.0%2C+Apple+Silicon`,'Share Design Feedback':`${repository}/issues/new?template=ux_feedback.yml`,Roadmap:`${repository}/blob/main/ROADMAP.md`};
   for(const [label,url] of Object.entries(pages)){opened.length=0;item(label).click();assert.deepEqual(opened,[url],label);}
-  assert.equal(all.filter(entry=>entry.click).length,Object.keys(commands).length+Object.keys(pages).length,'Every other item is a standard role.');
+  // The two alert toggles are handled by the desktop app itself and tested separately.
+  assert.equal(all.filter(entry=>entry.click).length,Object.keys(commands).length+Object.keys(pages).length+2,'Every other item is a standard role.');
   for(const entry of all)assert(!(entry.role&&entry.click),`${entry.role} keeps its native behaviour.`);
   const intel=[];menu({arch:'x64',osVersion:'15.7.1',open:url=>intel.push(url)}).item('Report a Bug').click();assert.match(intel[0],/&system=macOS\+15\.7\.1%2C\+Intel$/);
 });
@@ -96,4 +97,12 @@ test('menu state from the page is used only in the expected shape',()=>{
   for(const wrong of [null,undefined,'state',[],{},missing,{...page,extra:true},{...page,running:'yes'},{...page,agent:'invalid'},{...page,continue:'invalid'},{...page,continue:false},{...page,workspaces:{}},{...page,workspaces:[...nine,{name:'One more',current:false}]},{...page,workspaces:[{name:'',current:false}]},{...page,workspaces:[{name:'x'.repeat(121),current:false}]},{...page,workspaces:[{name:7,current:false}]},{...page,workspaces:[{name:'Frontend',current:1}]},{...page,workspaces:[{name:'Frontend',current:false,path:'/'}]},{...page,workspaces:[null]}])
     assert.equal(menuState(wrong),null,JSON.stringify(wrong));
   const copy=menuState(page);assert.notEqual(copy.workspaces,page.workspaces,'The state is copied, not kept by reference.');
+});
+
+test('the Agent menu turns alerts outside the window on or off, with sound only while they are on',()=>{
+  const changes=[],open=menu({notifications:{enabled:true,sound:false},setNotifications:patch=>changes.push(patch)});
+  const alerts=open.item('Notify When Runs Finish or Need Approval'),sound=open.item('Play Notification Sound');
+  assert.deepEqual([alerts.type,alerts.checked,sound.checked,disabled(sound)],['checkbox',true,false,false]);
+  alerts.click();sound.click();assert.deepEqual(changes,[{enabled:false},{sound:true}]);
+  assert.equal(disabled(menu({notifications:{enabled:false,sound:true}}).item('Play Notification Sound')),true,'Sound applies only when alerts are on.');
 });

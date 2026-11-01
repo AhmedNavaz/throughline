@@ -234,6 +234,13 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
   return { server, registry, collaboration, sharing, commands: commandRoutes.commands, close,
     getAppearancePreference: () => appearance(config),
     getKeepAwakePreference: () => config.keepAwake === true,
+    // Alerts outside the window (#46): on unless turned off, with sound only when asked for.
+    getNotificationPreferences: () => ({ enabled: config.notifications?.enabled !== false, sound: config.notifications?.sound === true }),
+    setNotificationPreferences: patch => {
+      const next = { enabled: config.notifications?.enabled !== false, sound: config.notifications?.sound === true, ...patch };
+      if (typeof next.enabled !== 'boolean' || typeof next.sound !== 'boolean') throw new Error('Notifications must be turned on or off.');
+      saveSettings({ notifications: next });
+    },
     setKeepAwakePreference: enabled => { if (typeof enabled !== 'boolean') throw new Error('Keep awake must be enabled or disabled.'); saveSettings({ keepAwake: enabled }); },
     get broker() { const projects = registry.list(); return projects.length === 1 ? registry.broker(projects[0].id) : null; } };
 }

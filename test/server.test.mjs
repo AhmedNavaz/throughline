@@ -430,3 +430,10 @@ test('the desktop app hears about each saved appearance, whichever request saved
   await post(`${f.url}/api/preferences`,{defaults:{provider:'codex'}});await post(`${f.url}/api/appearance`,{theme:'blue'});f.app.setKeepAwakePreference(true);
   assert.deepEqual(changes,['light','system'],'Other settings and rejected values leave the window alone.');
 });
+
+test('desktop alert preferences default to on and silent, reject other values and persist',async t=>{
+  const f=await fixture(t);assert.deepEqual(f.app.getNotificationPreferences(),{enabled:true,sound:false});
+  f.app.setNotificationPreferences({sound:true});assert.deepEqual(f.app.getNotificationPreferences(),{enabled:true,sound:true});
+  f.app.setNotificationPreferences({enabled:false});assert.throws(()=>f.app.setNotificationPreferences({enabled:'no'}),/turned on or off/);
+  await f.app.close();const next=await f.launch();assert.deepEqual(next.app.getNotificationPreferences(),{enabled:false,sound:true});
+});

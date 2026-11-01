@@ -36,7 +36,7 @@ else {
     const appearance=createAppearance({nativeTheme,onBackground:color=>{if(win&&!win.isDestroyed())win.setBackgroundColor(color);}});
     // The menu bar shows what the page last reported, the saved appearance and Keep Awake.
     let page=null,awake=false;
-    const updateMenu=()=>Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({platform:process.platform,packaged:app.isPackaged,version:app.getVersion(),osVersion:process.getSystemVersion(),arch:process.arch,state:page,appearance:relay.getAppearancePreference(),keepAwake:awake,open:url=>shell.openExternal(url),
+    const updateMenu=()=>Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate({platform:process.platform,packaged:app.isPackaged,version:app.getVersion(),osVersion:process.getSystemVersion(),arch:process.arch,state:page,appearance:relay.getAppearancePreference(),keepAwake:awake,notifications:relay.getNotificationPreferences(),setNotifications:patch=>{relay.setNotificationPreferences(patch);updateMenu();},open:url=>shell.openExternal(url),
       // A clicked checkbox or radio item ticks itself, so the menu is rebuilt to show the page's answer instead.
       send:(...command)=>{if(win&&!win.isDestroyed())win.webContents.send('relay:menu-command',...command);updateMenu();}})));
     app.setAboutPanelOptions({applicationName:'Throughline',applicationVersion:app.getVersion(),version:''});
@@ -45,13 +45,17 @@ else {
     // front and needs no permission; an approval bounces the Dock until the app is opened. A system notification is
     // added where macOS allows one: an app without a Developer ID signature is refused, so the Dock always carries it.
     let attention=0,notificationsRefused=false;
-    function notify({kind,title,body,projectId,projectName}){
+    // Turned off in the Agent menu, only the Dock badge and the sidebar's approval count remain.
+    function notify({kind,title,body,projectId,projectName,approvalId}){
       if(win&&!win.isDestroyed()&&win.isFocused())return;
       attention++;app.dock?.setBadge(String(attention));
+      const preferences=relay.getNotificationPreferences();
+      if(!preferences.enabled)return;
       app.dock?.bounce(kind==='approval'?'critical':'informational');
       if(notificationsRefused||!Notification.isSupported())return;
-      const notice=new Notification({title:projectName?`${title} · ${projectName}`:title,body:String(body||'').slice(0,240),silent:kind==='started'});
-      notice.on('click',()=>{if(!win||win.isDestroyed())return;if(win.isMinimized())win.restore();win.show();win.focus();if(projectId)win.webContents.send('relay:menu-command','open-workspace',projectId);});
+      const notice=new Notification({title:projectName?`${title} · ${projectName}`:title,body:String(body||'').slice(0,240),silent:kind==='started'||!preferences.sound});
+      // An approval opens its own request card; it is never answered from the notification.
+      notice.on('click',()=>{if(!win||win.isDestroyed())return;if(win.isMinimized())win.restore();win.show();win.focus();if(projectId)win.webContents.send('relay:menu-command',kind==='approval'?'open-approval':'open-workspace',kind==='approval'?{projectId,approvalId}:projectId);});
       notice.on('failed',(_event,error)=>{notificationsRefused=true;console.warn('macOS did not show a Throughline notification:',error);});
       notice.show();
     }

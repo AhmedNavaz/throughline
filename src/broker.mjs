@@ -487,7 +487,7 @@ export class Broker extends EventEmitter {
               }
               const approval = { ...message.request, runId, provider, ...(scope ? { scope } : {}) }; run.approvals.set(approval.id, approval); this.emit('update', { conversationId: c.id });
               // The run pauses here until the person answers, so tell them.
-              this.emit('notify', { conversationId: c.id, kind: 'approval', title: 'Approval needed', body: `${provider === 'claude' ? 'Claude' : provider === 'gemini' ? 'Gemini' : 'Codex'} is waiting for your permission: ${String(approval.title || approval.command || approval.kind || 'a tool').slice(0, 120)}` });
+              this.emit('notify', { conversationId: c.id, kind: 'approval', approvalId: approval.id, title: 'Approval needed', body: `${provider === 'claude' ? 'Claude' : provider === 'gemini' ? 'Gemini' : 'Codex'} is waiting for your approval.` });
             }
           } catch (error) { run.failed = true; run.errorCategory = classifyError(error); run.stderr = error.message; this.cancel(run); }
         });

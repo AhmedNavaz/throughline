@@ -1833,3 +1833,18 @@ test('an approval with an exact scope can be allowed for the run or remembered f
   assert.deepEqual(permissionRequests.map(request=>request.projectId),['project-one','project-one'],'Rules are read and revoked for that workspace.');
   assert.equal(ui.$('workspace-permission-list').querySelectorAll('li').length,0);assert.equal(ui.$('workspace-permissions-empty').hidden,false);
 });
+
+test('a workspace waiting for approval shows its count in the sidebar, and opening the alert focuses that exact request',async()=>{
+  const ui=await browser({workbench:true,moreProjects:true});
+  ui.projects[1].pendingApprovals=2;await ui.window.relayUI.refreshProjects();await flush();
+  const row=()=>ui.document.querySelectorAll('.workspace-item').find(item=>item.dataset.projectId==='project-two');
+  assert.equal(row().querySelector('.workspace-approval-badge').textContent,'2');assert.match(row().textContent,/2 waiting for approval/);
+  const other=ui.canonical.get('project-two');other.status='running';other.activeRun={id:'run-two',provider:'claude'};
+  other.pendingApprovals=[{id:'first',runId:'run-two',provider:'claude',kind:'Bash',command:'npm install'},{id:'second',runId:'run-two',provider:'claude',kind:'Bash',command:'npm publish'}];
+  const answered=()=>ui.requests.filter(request=>request.path.endsWith('/approval')).length;
+  assert.equal(await ui.window.relayUI.commands['open-approval']({projectId:'project-two',approvalId:'second'}),true);await flush();
+  assert.equal(ui.state().projectId,'project-two');
+  const focused=ui.document.activeElement;assert.equal(focused?.dataset?.approvalId,'second','The exact request is focused.');
+  assert.equal(answered(),0,'Opening an alert never answers it.');
+  assert.equal(await ui.window.relayUI.commands['open-approval']({projectId:'missing'}),false);
+});

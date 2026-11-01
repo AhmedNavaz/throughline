@@ -331,6 +331,7 @@
       // The heading says what the agent wants to do; the exact command or file follows, and the full request stays one click away.
       const command = item.command || item.input?.command, target = item.input?.file_path || item.input?.path, files = item.kind?.includes('fileChange') || target;
       const card = node('article', undefined, 'approval-card'), head = node('header'), mark = node('span', undefined, 'approval-icon'); mark.setAttribute('aria-hidden', 'true');
+      card.dataset.approvalId = item.id; card.tabIndex = -1;
       head.append(mark, node('h3', `${providerName(item.provider)} ${command ? 'wants to run a command' : files ? 'wants to change files' : 'needs your permission'}`)); card.append(head);
       if (item.title && item.title !== command) card.append(node('p', item.title, 'approval-title'));
       if (command) output(card, command).classList.add('approval-command'); else if (target) card.append(node('p', target, 'approval-target')); else card.append(node('p', files ? 'Review the requested file changes before continuing.' : `Requested action: ${item.kind || 'tool use'}`, 'approval-title'));

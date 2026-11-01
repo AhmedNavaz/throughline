@@ -234,7 +234,7 @@
   }
   function filteredProjects() { return state.projects.filter(project => project.name.toLowerCase().includes(state.workspaceFilter.toLowerCase())); }
   function renderWorkspaceList() {
-    const signature = JSON.stringify([state.projects,state.projectId,projectBusy(),state.loading,state.status?.runningConversationId,state.workspaceFilter,selectedFolderId()]);
+    const signature = JSON.stringify([state.projects,state.projectId,projectBusy(),state.loading,state.status?.runningConversationId,state.workspaceFilter,selectedFolderId(),state.conversation?.pendingApprovals?.length]);
     if (signature === state.listSignature) return;
     renderFolderSettings();
     state.listSignature = signature; ui.workspaceList.replaceChildren(); ui.workspaceCount.textContent = String(state.projects.length);
@@ -246,10 +246,14 @@
       button.type = 'button'; button.disabled = projectBusy(); button.dataset.projectId = project.id; button.title = project.name;
       if (active) button.setAttribute('aria-current','page');
       const heading = element('span','workspace-item-heading'), mark = element('span','workspace-project-icon',''); mark.setAttribute('aria-hidden','true'); heading.append(mark,element('span','workspace-item-title',project.name));
-      const folders = foldersFor(project); const meta = folders.length + (folders.length === 1 ? ' folder' : ' folders') + (project.runningConversationId ? ' · running' : '');
+      // Pending approvals stay visible here while another workspace is open (#46).
+      const waiting = active ? state.conversation?.pendingApprovals?.length || 0 : project.pendingApprovals || 0;
+      const folders = foldersFor(project); const meta = folders.length + (folders.length === 1 ? ' folder' : ' folders') + (waiting ? ` · ${waiting} waiting for approval` : project.runningConversationId ? ' · running' : '');
       // Single-folder counts are noise; the text stays for screen readers and a running workspace shows a pulse.
       const metaNode = element('span','workspace-item-meta' + (folders.length === 1 ? ' single' : '') + (project.runningConversationId ? ' running' : ''),meta);
-      button.append(heading,metaNode); button.addEventListener('click',()=>selectProject(project.id)); const row = element('div','workspace-row');
+      button.append(heading,metaNode);
+      if (waiting) { const badge = element('span','workspace-approval-badge',String(waiting)); badge.title = `${waiting} approval${waiting === 1 ? '' : 's'} waiting`; badge.setAttribute('aria-hidden','true'); heading.append(badge); }
+      button.addEventListener('click',()=>selectProject(project.id)); const row = element('div','workspace-row');
       const options = element('button','workspace-options'); options.type = 'button'; options.disabled = projectBusy(); options.dataset.projectId = project.id;
       options.setAttribute('aria-label','Workspace options for ' + project.name); options.title = 'Workspace settings'; options.addEventListener('click',()=>openWorkspaceOptions(project.id));
       row.append(button,options); group.append(row);
@@ -1192,6 +1196,13 @@
     "add-folder": () => { if (covered()) return false; toggleFolderForm(true); return true; },
     agent: provider => ["codex", "claude", "gemini"].includes(provider) && press("select-" + provider)(),
     continue: () => !ui.continuation.hidden && press("continue-button")(),
+    "open-approval": async target => {
+      if (!target || typeof target.projectId !== "string" || !state.projects.some(project => project.id === target.projectId)) return false;
+      if (target.projectId !== state.projectId) await selectProject(target.projectId); else await refresh();
+      const cards = [...($("pending-approvals")?.querySelectorAll("article") || [])], card = cards.find(item => item.dataset.approvalId === target.approvalId) || cards[0];
+      if (card) { card.scrollIntoView?.({ behavior: "smooth", block: "center" }); card.focus?.(); card.classList.add("approval-highlight"); setTimeout(() => card.classList.remove("approval-highlight"), 2000); }
+      return true;
+    },
     "open-workspace": id => { if (typeof id !== "string" || !state.projects.some(project => project.id === id)) return false; if (id !== state.projectId) selectProject(id); return true; },
     appearance: value => { if (!["system", "graphite", "light"].includes(value)) return false; window.relayTheme?.choose(value); return true; },
     "workspace-settings": () => { if (covered() || !state.projectId) return false; openWorkspaceOptions(state.projectId); return true; },
