@@ -41,3 +41,45 @@ export function readExplorerFile(folder, relative) {
     return { ...meta, folderId: folder.id, path: relative, data: contents.toString('base64'), ...(meta.kind === 'text' ? { text: contents.toString('utf8') } : {}) };
   } finally { if (fd !== undefined) fs.closeSync(fd); }
 }
+
+// File search for the search bar, across every workspace folder. It follows the explorer's rules, so private,
+// credential and runtime paths (such as .git, node_modules and .env) never appear, and it skips build output and
+// symbolic links. Each folder's file list is read at most every 30 seconds, and a large folder stops at a limit.
+const SKIPPED = /^(?:dist|build|out|\.next|\.nuxt|\.svelte-kit|coverage|target|vendor|__pycache__|\.venv|venv|\.cache|\.turbo|\.parcel-cache|\.gradle|Pods|DerivedData)$/;
+const fileLists = new Map();
+export const FILE_SEARCH_LIMIT = 20000;
+function folderFiles(folder) {
+  const root = path.resolve(folder.path), cached = fileLists.get(root);
+  if (cached && Date.now() - cached.at < 30000) return cached.files;
+  const files = [], queue = [''];
+  while (queue.length && files.length < FILE_SEARCH_LIMIT) {
+    const relative = queue.shift();
+    let entries = [];
+    try { entries = fs.readdirSync(relative ? path.join(root, relative) : root, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      const child = relative ? relative + '/' + entry.name : entry.name;
+      if (entry.isSymbolicLink() || !allowed(child)) continue;
+      if (entry.isDirectory()) { if (!SKIPPED.test(entry.name)) queue.push(child); }
+      else if (entry.isFile()) { files.push(child); if (files.length >= FILE_SEARCH_LIMIT) break; }
+    }
+  }
+  fileLists.set(root, { at: Date.now(), files });
+  return files;
+}
+// Matches rank by name first: an exact name, a name that starts with the text, then one that contains it, then a path.
+export function searchFiles(workspaces, query, limit = 20) {
+  const text = String(query || '').trim().toLowerCase();
+  if (text.length < 2) return [];
+  const found = [];
+  for (const workspace of workspaces) for (const folder of workspace.folders || []) {
+    let files;
+    try { if (fs.realpathSync(path.resolve(folder.path)) !== path.resolve(folder.path)) continue; files = folderFiles(folder); } catch { continue; }
+    for (const file of files) {
+      const lower = file.toLowerCase(), name = lower.slice(lower.lastIndexOf('/') + 1);
+      const rank = name === text ? 0 : name.startsWith(text) ? 1 : name.includes(text) ? 2 : lower.includes(text) ? 3 : -1;
+      if (rank >= 0) found.push({ rank, projectId: workspace.id, projectName: workspace.name, folderId: folder.id, folderName: folder.name || path.basename(folder.path), path: file });
+    }
+  }
+  found.sort((a, b) => a.rank - b.rank || a.path.length - b.path.length || a.path.localeCompare(b.path));
+  return found.slice(0, limit).map(({ rank, ...file }) => file);
+}

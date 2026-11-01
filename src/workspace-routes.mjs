@@ -1,10 +1,16 @@
 import { workspaceGit, workspaceGitDiff } from './workspace-git.mjs';
-import { listFiles, readExplorerFile } from './file-explorer.mjs';
+import { listFiles, readExplorerFile, searchFiles } from './file-explorer.mjs';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 
 export function createWorkspaceRoutes({ registry, body, json }) {
   return async ({ req, res, url }) => {
+    // The search bar finds files across all workspaces.
+    if (url.pathname === '/api/file-search') {
+      if (req.method !== 'GET') fail('File search is read only.', 405);
+      const workspaces = registry.list().filter(project => project.available !== false).map(project => registry.get(project.id));
+      json(res, 200, { files: searchFiles(workspaces, url.searchParams.get('q') || '') }); return true;
+    }
     if (['/api/files', '/api/files/preview', '/api/attachments', '/api/attachments/preview'].includes(url.pathname)) {
       const projectId = url.searchParams.get('projectId');
       if (!projectId) fail('Select a workspace first.');

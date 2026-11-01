@@ -29,6 +29,7 @@ class Element extends Events {
   set innerHTML(_){throw new Error('Untrusted innerHTML is forbidden by this test DOM.');}
   append(...nodes){for(let child of nodes){if(typeof child==='string')child=this.document.createTextNode(child);if(child.tagName==='#FRAGMENT'){this.append(...[...child.childNodes]);continue;}child.remove();child.parentNode=this;this.childNodes.push(child);if(this.tagName==='SELECT'&&child.tagName==='OPTION'&&!this.value)this.value=child.value||child.textContent;}}
   prepend(child){child.remove();child.parentNode=this;this.childNodes.unshift(child);}
+  insertBefore(child,reference){child.remove();child.parentNode=this;const index=this.childNodes.indexOf(reference);this.childNodes.splice(index<0?this.childNodes.length:index,0,child);return child;}
   replaceChildren(...nodes){for(const child of this.childNodes)child.parentNode=null;this.childNodes=[];this.append(...nodes);}
   remove(){if(this.parentNode){this.parentNode.childNodes=this.parentNode.childNodes.filter(child=>child!==this);this.parentNode=null;}}
   setAttribute(key,value){this.attributes[key]=String(value);if(key==='id')this.id=String(value);if(key==='class')this.className=String(value);if(key.startsWith('data-'))this.dataset[key.slice(5)]=String(value);}
@@ -62,7 +63,7 @@ const response=(data,status=200)=>({ok:status>=200&&status<300,status,text:async
 async function flush(){for(let index=0;index<12;index++)await new Promise(resolve=>setImmediate(resolve));}
 function deferred(){let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};}
 
-async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,updatesUI=setup,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,reviewsUI=false,localUI=false,modelPickerUI=false,commandsUI=false,launch=null,theme=false,systemDark=true}={}){
+async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,updatesUI=setup,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,reviewsUI=false,localUI=false,modelPickerUI=false,agentsUI=false,layoutUI=false,commandsUI=false,launch=null,theme=false,systemDark=true}={}){
   const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[],updateAcknowledgements=[],externalLinks=[];let timerId=0,intercept=null;
   let preferences=clone(savedPreferences);
   window.innerWidth=1280;window.innerHeight=800;
@@ -170,6 +171,8 @@ async function browser({existing=true,available=true,providers={},authenticated=
   vm.runInContext(fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8'),context,{filename:'public/app.js'});if(workbench)vm.runInContext(fs.readFileSync(new URL('../public/workbench.js',import.meta.url),'utf8'),context,{filename:'public/workbench.js'});
   if(insights)vm.runInContext(fs.readFileSync(new URL('../public/insights.js',import.meta.url),'utf8'),context,{filename:'public/insights.js'});
   if(modelPickerUI)vm.runInContext(fs.readFileSync(new URL('../public/model-picker.js',import.meta.url),'utf8'),context,{filename:'public/model-picker.js'});
+  if(layoutUI)vm.runInContext(fs.readFileSync(new URL('../public/layout.js',import.meta.url),'utf8'),context,{filename:'public/layout.js'});
+  if(agentsUI)vm.runInContext(fs.readFileSync(new URL('../public/agents-panel.js',import.meta.url),'utf8'),context,{filename:'public/agents-panel.js'});
   if(historyUI)vm.runInContext(fs.readFileSync(new URL('../public/conversation-history.js',import.meta.url),'utf8'),context,{filename:'public/conversation-history.js'});
   if(desktopControls)vm.runInContext(fs.readFileSync(new URL('../public/desktop-controls.js',import.meta.url),'utf8'),context,{filename:'public/desktop-controls.js'});
   if(setup)vm.runInContext(fs.readFileSync(new URL('../public/setup.js',import.meta.url),'utf8'),context,{filename:'public/setup.js'});
@@ -186,7 +189,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   const switchProject=async id=>{$('project-select').value=id;fire('project-select','change');await flush();};
   const textNodes=node=>node.nodeType===3?[node]:node.childNodes.flatMap(textNodes);
   const rangeText=range=>{const nodes=textNodes($('messages')),first=nodes.indexOf(range.startContainer),last=nodes.indexOf(range.endContainer);return nodes.slice(first,last+1).map((node,index)=>node.data.slice(index===0?range.startOffset:0,first+index===last?range.endOffset:undefined)).join('');};
-  return {document,window,$,fire,findButton,highlights,rangeText,labelledInput,requests,conversations,submissions,handoffs,projects,canonical,pickedFolders,updateAcknowledgements,externalLinks,storage,switchProject,awakeChanges,menuStates,menu:(name,value)=>{for(const fn of menuListeners)fn(name,value);},get chatCreations(){return chatCreations;},setIntercept:fn=>{intercept=fn;},setSystemDark:value=>{colorScheme.matches=value;for(const fn of colorScheme.listeners)fn({matches:value});},state:()=>window.relayUI.getState()};
+  return {runTimers:()=>{for(const [id,timer] of [...timers]){timers.delete(id);timer.fn();}},document,window,$,fire,findButton,highlights,rangeText,labelledInput,requests,conversations,submissions,handoffs,projects,canonical,pickedFolders,updateAcknowledgements,externalLinks,storage,switchProject,awakeChanges,menuStates,menu:(name,value)=>{for(const fn of menuListeners)fn(name,value);},get chatCreations(){return chatCreations;},setIntercept:fn=>{intercept=fn;},setSystemDark:value=>{colorScheme.matches=value;for(const fn of colorScheme.listeners)fn({matches:value});},state:()=>window.relayUI.getState()};
 }
 
 test('late same-project refresh cannot restore superseded provider/access settings',async()=>{
@@ -503,17 +506,25 @@ test('Enter in the custom model field saves the model instead of sending the dra
 
 test('Git inspector sends workspace-scoped reads and shows changes and commit history',async()=>{
   const ui=await browser({insights:true});ui.$('open-git').click();await flush();assert.equal(ui.$('git-panel').hidden,false);assert.match(ui.$('git-summary').textContent,/feature\/design/);assert.match(ui.$('git-content').textContent,/app.js/);
-  const request=ui.requests.find(row=>row.path==='/api/git');assert.equal(request.projectId,'project-one');assert.equal(request.method,'GET');ui.$('git-commits-tab').click();await flush();assert.match(ui.$('git-content').textContent,/Improve workspace navigation/);ui.$('close-git').click();assert.equal(ui.$('git-panel').hidden,true);
+  const request=ui.requests.find(row=>row.path==='/api/git');assert.equal(request.projectId,'project-one');assert.equal(request.method,'GET');ui.$('git-commits-tab').click();await flush();assert.match(ui.$('git-content').textContent,/Improve workspace navigation/);ui.$('open-git').click();assert.equal(ui.$('git-panel').hidden,true);
 });
 
-test('Git panel stays open on wide layouts unless closed, and changed files open a line diff',async()=>{
-  const ui=await browser({insights:true,wide:true});assert.equal(ui.$('git-panel').hidden,false,'Docked layouts open Git activity by default.');await flush();assert(ui.requests.some(row=>row.path==='/api/git'));
+test('one side panel shows at a time: Agents opens first on docked layouts, the last choice is remembered, and changed files open a line diff',async()=>{
+  const ui=await browser({insights:true,agentsUI:true,wide:true});await flush();
+  assert.equal(ui.$('agents-panel').hidden,false,'Agents opens first on a docked layout.');assert.equal(ui.$('git-panel').hidden,true);assert.equal(ui.$('open-agents').getAttribute('aria-expanded'),'true');
+  ui.$('open-git').click();await flush();
+  assert.equal(ui.$('git-panel').hidden,false);assert.equal(ui.$('agents-panel').hidden,true,'Git takes the place of Agents.');assert.equal(ui.storage.get('throughline:side-panel'),'git');
+  assert(ui.requests.some(row=>row.path==='/api/git'));
   const file=ui.document.querySelectorAll('.git-file')[0];assert.equal(file.tagName,'BUTTON');file.click();await flush();
   const diff=ui.requests.find(row=>row.path==='/api/git/diff');assert.equal(diff.projectId,'project-one');assert.equal(ui.$('diff-dialog').open,true);assert.equal(ui.$('diff-title').textContent,'app.js');
   const lines=ui.document.querySelectorAll('.diff-line');assert.deepEqual(lines.map(line=>line.className.replace('diff-line ','')),['hunk','context','del','add']);assert.equal(lines[2].children.at(-1).textContent,'-- old SQL comment','Removed lines that start with dashes are content, not file headers.');assert.match(ui.$('diff-meta').textContent,/\+1 -1/);
-  ui.$('close-git').click();assert.equal(ui.storage.get('ai-relay:git-panel'),'closed');
-  const closed=await browser({insights:true,wide:true,stored:{'ai-relay:git-panel':'closed'}});assert.equal(closed.$('git-panel').hidden,true,'A closed panel stays closed.');
-  const narrow=await browser({insights:true});assert.equal(narrow.$('git-panel').hidden,true,'Overlay layouts start with the panel closed.');
+  ui.$('open-git').click();assert.equal(ui.storage.get('throughline:side-panel'),'none');
+  const git=await browser({insights:true,agentsUI:true,wide:true,stored:{'throughline:side-panel':'git'}});await flush();
+  assert.equal(git.$('git-panel').hidden,false,'The last panel chosen opens again.');assert.equal(git.$('agents-panel').hidden,true);
+  const none=await browser({insights:true,agentsUI:true,wide:true,stored:{'throughline:side-panel':'none'}});await flush();
+  assert.equal(none.$('git-panel').hidden,true);assert.equal(none.$('agents-panel').hidden,true,'A closed panel stays closed.');
+  const narrow=await browser({insights:true,agentsUI:true});await flush();
+  assert.equal(narrow.$('git-panel').hidden,true);assert.equal(narrow.$('agents-panel').hidden,true,'Overlay layouts start with no panel open.');
 });
 
 test('Gemini quota uses the reported default model and shows absolute and disabled buckets without percentage bars',async()=>{
@@ -1127,8 +1138,7 @@ test('a shortcut and its menu item run one command with the same checks, so a ke
   assert.equal(key('2'),true);await flush();assert.equal(ui.state().projectId,'project-two');
   ui.menu('workspace',1);await flush();assert.equal(ui.state().projectId,'project-one');
   ui.$('workspace-search').value='other';ui.fire('workspace-search','input');
-  assert.equal(key('2'),false,'Only one workspace matches the filter.');ui.menu('workspace',2);await flush();assert.equal(ui.state().projectId,'project-one');
-  assert.equal(key('1'),true);await flush();assert.equal(ui.state().projectId,'project-two');
+  assert.equal(key('2'),true,'Searching does not renumber the workspaces.');await flush();assert.equal(ui.state().projectId,'project-two');
 });
 
 test('menu items that stand in for a button do what the button does, and wait while a dialog covers the page',async()=>{
@@ -1176,9 +1186,8 @@ test('the menu bar follows the page: the workspace, a run, the agent, Continue, 
   const reported=ui.menuStates.length;ui.window.dispatchEvent(new UIEvent('relay-state'));await flush();assert.equal(ui.menuStates.length,reported,'An unchanged state is not sent again.');
   ui.$('select-claude').click();await flush();assert.equal(shown().agent,'claude');
   ui.$('toggle-explorer').click();await flush();assert.equal(shown().files,false);
-  ui.$('open-git').click();await flush();assert.equal(shown().git,true);ui.$('close-git').click();await flush();assert.equal(shown().git,false);
-  ui.$('workspace-search').value='other';ui.fire('workspace-search','input');await flush();assert.deepEqual(shown().workspaces,[{name:'Other workspace',current:false}]);
-  ui.$('workspace-search').dispatchEvent(new UIEvent('keydown',{key:'Escape'}));await flush();assert.deepEqual(shown().workspaces,workspaces);
+  ui.$('open-git').click();await flush();assert.equal(shown().git,true);ui.$('open-git').click();await flush();assert.equal(shown().git,false);
+  ui.$('workspace-search').value='other';ui.fire('workspace-search','input');await flush();assert.deepEqual(shown().workspaces,workspaces,'Searching does not filter the workspace list.');
   const chat=ui.canonical.get('project-one');chat.status='running';await ui.window.relayUI.refresh();await flush();
   assert.deepEqual([shown().running,shown().codex,shown().claude,shown().imports],[true,false,false,false],'During a run the agents and imports wait, as their buttons do.');
   // Continue names the agent the page's Continue button would use.
@@ -1463,7 +1472,7 @@ test('contextual review preselects changes and runs in the side panel while the 
   ui.fire('composer','submit'); await flush(); assert(ui.requests.some(request=>request.path.endsWith('/messages'))); assert.equal(fixture.report.status,'running');
   const stop = ui.$('review-panel-body').querySelectorAll('button').find(button=>button.textContent==='Stop review'); assert(stop); stop.click(); await flush();
   assert(ui.requests.some(request=>request.path==='/api/reviews/review-one/stop')); assert(!ui.requests.some(request=>/conversations\/[^/]+\/stop$/.test(request.path)));
-  ui.$('close-review-panel').click(); assert.equal(ui.$('review-panel').hidden,true);
+  ui.window.relayReviews.closePanel(); assert.equal(ui.$('review-panel').hidden,true);
 });
 
 test('prepared sharing exposes privacy warnings and requires reviewing them before approval or export', async () => {
@@ -1951,4 +1960,136 @@ test('while a run works, a note can be added to it, shown inside that run, and t
   assert.equal(ui.$('steer-button').hidden,true,'Connections that cannot take notes only queue.');
   conversation.status='complete';conversation.activeRun=null;conversation.lastRun={id:'run-one',status:'complete'};await ui.window.relayUI.refresh();
   assert.equal(ui.$('run-plan').hidden,true,'The plan shows while its run works.');
+});
+
+test('routing is chosen in the Agents panel; the model button then shows the mode and opens it, and what will run is shown before sending',async()=>{
+  const ui=await browser({modelPickerUI:true,agentsUI:true,insights:true}),conversation=ui.canonical.get('project-one'),choices=[],handoff=[];let preferences={threshold:90,automatic:false};
+  ui.setIntercept((request,next)=>{
+    if(request.path.endsWith('/routing')){choices.push(request.body);conversation.routing=request.body.mode?{mode:request.body.mode,allowApi:request.body.allowApi===true}:null;return response(conversation);}
+    if(request.path==='/api/handoff-preferences'){if(request.method==='POST'){handoff.push(request.body);preferences={...preferences,...request.body};}return response(preferences);}
+    return next();
+  });
+  await ui.window.relayUI.refresh();await flush();
+  assert.equal(ui.$('auto-button'),null,'Routing has no button of its own in the message box.');
+  assert.equal(ui.$('picked-agent').textContent,'Codex');
+  ui.$('open-agents').click();await flush();await flush();
+  const options=ui.$('routing-options').querySelectorAll('.routing-option');
+  assert.deepEqual(options.map(row=>row.querySelector('strong').textContent),['Manual','Cost saving','Balanced','Maximum quality']);
+  assert.match(options[2].textContent,/Matches the model and effort to each message/,'Each mode says what it does.');
+  assert.equal(options[0].getAttribute('aria-checked'),'true');
+  options[2].click();await flush();await flush();
+  assert.deepEqual(choices[0],{mode:'balanced',allowApi:false});
+  assert.equal(ui.$('picked-agent').textContent,'Routing');assert.equal(ui.$('picked-model').textContent,'Balanced');
+  assert(ui.$('model-picker-button').classList.contains('routing'));assert.equal(ui.$('effort-button').hidden,true,'Routing chooses the effort with the model.');
+  ui.$('open-agents').click();ui.$('model-picker-button').click();await flush();
+  assert.equal(ui.$('agents-panel').hidden,false,'The model button opens Routing while it is on.');
+
+  ui.$('message-input').value='Refactor the payment module into services';ui.fire('message-input','input');
+  assert.equal(ui.$('route-preview').hidden,false);
+  assert.equal(ui.$('route-choice').textContent,'Codex · Model One · High effort');assert.equal(ui.$('route-reason').textContent,'A complex task (refactoring)');
+  ui.$('message-input').dispatchEvent(new UIEvent('keydown',{key:'Enter'}));await flush();await flush();
+  const sent=ui.requests.filter(request=>request.path.endsWith('/messages')).at(-1).body;
+  assert.deepEqual([sent.provider,sent.model,sent.effort,sent.routing],['codex','model-one','high',{mode:'balanced',reason:'A complex task (refactoring)',tier:'deep'}]);
+  conversation.status='complete';conversation.messages.push({id:'routed',role:'user',text:'Refactor the payment module into services',provider:'codex',runId:'routed-run',routing:{mode:'balanced',reason:'A complex task (refactoring)',tier:'deep',model:'model-one',effort:'high'},createdAt:new Date().toISOString()});
+  await ui.window.relayUI.refresh();
+  const note=ui.$('messages').querySelector('.message-routing');
+  assert.equal(note.textContent,'Auto · Codex · Model One · high effort');assert.match(note.title,/Balanced: A complex task/);
+
+  assert.equal(ui.$('handoff-threshold').value,'90');assert.equal(ui.$('handoff-automatic').checked,false);
+  ui.$('routing-allow-api').checked=true;ui.fire('routing-allow-api','change');await flush();await flush();
+  assert.deepEqual(choices.at(-1),{mode:'balanced',allowApi:true});
+  ui.$('handoff-threshold').value='80';ui.fire('handoff-threshold','change');await flush();
+  ui.$('handoff-automatic').checked=true;ui.fire('handoff-automatic','change');await flush();
+  assert.deepEqual(handoff,[{threshold:80},{automatic:true}]);
+  ui.$('routing-options').querySelectorAll('.routing-option')[0].click();await flush();await flush();
+  assert.deepEqual(choices.at(-1),{mode:null,allowApi:true});assert.equal(ui.$('picked-agent').textContent,'Codex','Manual shows the chosen agent again.');
+  ui.$('open-git').click();await flush();
+  assert.equal(ui.$('agents-panel').hidden,true,'Git and Agents share the side panel.');
+});
+
+test('the sidebar, side panel, workspaces and Run panel resize from handles that work with the keyboard, are remembered and reset on double-click',async()=>{
+  const ui=await browser({layoutUI:true,stored:{'throughline:layout':JSON.stringify({inspector:999,commands:300})}});
+  const root=ui.document.documentElement,handles=ui.document.querySelectorAll('.resize-handle');
+  assert.deepEqual(handles.map(handle=>handle.getAttribute('aria-label')).sort(),['Resize the Run panel','Resize the side panel','Resize the side panel','Resize the side panel','Resize the sidebar','Resize workspaces and files']);
+  assert.equal(root.style['--inspector-width'],'600px','Saved sizes come back, within their limits.');assert.equal(ui.$('project-commands').style.height,'300px');
+  const sidebar=handles.find(handle=>handle.getAttribute('aria-label')==='Resize the sidebar');assert.equal(sidebar.getAttribute('role'),'separator');assert.equal(sidebar.tabIndex,0);
+  sidebar.dispatchEvent(new UIEvent('keydown',{key:'ArrowRight',preventDefault(){}}));
+  assert.equal(root.style['--sidebar-width'],'216px');
+  sidebar.dispatchEvent(new UIEvent('keydown',{key:'ArrowRight',shiftKey:true,preventDefault(){}}));
+  assert.equal(root.style['--sidebar-width'],'264px');
+  assert.equal(JSON.parse(ui.storage.get('throughline:layout')).sidebar,264,'The size is remembered.');
+  sidebar.dispatchEvent(new UIEvent('dblclick'));
+  assert.equal(root.style['--sidebar-width'],undefined,'Double-click returns to the default.');
+  assert.equal(JSON.parse(ui.storage.get('throughline:layout')).sidebar,undefined);
+});
+
+test('layout buttons at the top right show and hide the sidebar, the Run panel and the side panel, filled while shown, and remember them',async()=>{
+  const ui=await browser({layoutUI:true,insights:true,agentsUI:true,wide:true});await flush();
+  const shell=ui.$('app-shell'),pressed=id=>ui.$(id).getAttribute('aria-pressed');
+  assert.equal(pressed('toggle-sidebar'),'true');assert.equal(pressed('toggle-side-panel'),'true','Agents opens first on a docked layout.');
+  ui.$('toggle-sidebar').click();
+  assert(shell.classList.contains('sidebar-collapsed'));assert.equal(pressed('toggle-sidebar'),'false');assert.equal(ui.storage.get('throughline:sidebar'),'hidden');
+  ui.document.dispatchEvent(new UIEvent('keydown',{key:'b',metaKey:true,ctrlKey:true,preventDefault(){}}));
+  assert(!shell.classList.contains('sidebar-collapsed'),'The keyboard shortcut shows it again.');assert.equal(ui.storage.get('throughline:sidebar'),'shown');
+  ui.$('toggle-side-panel').click();await flush();
+  assert.equal(ui.$('agents-panel').hidden,true);assert.equal(pressed('toggle-side-panel'),'false','Hidden panels leave no buttons in the header.');
+  ui.$('git-panel').querySelectorAll('.panel-tab');ui.$('open-git').click();await flush();
+  assert.equal(ui.$('git-panel').hidden,false);ui.$('toggle-side-panel').click();await flush();assert.equal(ui.$('git-panel').hidden,true);
+  ui.$('toggle-side-panel').click();await flush();
+  assert.equal(ui.$('git-panel').hidden,false,'The side panel reopens on the tab last used.');assert.equal(pressed('toggle-side-panel'),'true');
+  const again=await browser({layoutUI:true,stored:{'throughline:sidebar':'hidden'}});
+  assert(again.$('app-shell').classList.contains('sidebar-collapsed'),'A hidden sidebar stays hidden next time.');assert.equal(again.$('toggle-sidebar').getAttribute('aria-pressed'),'false');
+});
+
+test('the search bar at the top finds workspaces, files in every workspace and actions, without filtering the sidebar',async()=>{
+  const ui=await browser({moreProjects:true}),search=ui.$('workspace-search'),results=ui.$('command-results');let settings=0;const searches=[];
+  ui.setIntercept((request,next)=>{
+    if(request.path!=='/api/file-search')return next();
+    searches.push(request.params.q);
+    return response({files:[{projectId:'project-two',projectName:'Other workspace',folderId:'api',folderName:'API',path:'src/settings.js'}]});
+  });
+  ui.$('relay-settings').addEventListener('click',()=>settings++);
+  search.dispatchEvent(new UIEvent('focus'));
+  assert.equal(results.hidden,false);assert.deepEqual(results.querySelectorAll('.command-group').map(node=>node.textContent),['Workspaces','Actions']);
+  const labels=()=>results.querySelectorAll('.command-result').map(node=>node.querySelector('.command-label').textContent);
+  assert(labels().includes('Example workspace'));assert(labels().includes('Ask a friend…'));
+  search.value='sett';ui.fire('workspace-search','input');
+  assert.equal(ui.$('workspace-list').querySelectorAll('.workspace-item').length||ui.state().projects.length,2,'The sidebar keeps every workspace.');
+  ui.runTimers();await flush();await flush();
+  assert.deepEqual(searches,['sett']);
+  assert.deepEqual(results.querySelectorAll('.command-group').map(node=>node.textContent),['Files','Actions']);
+  assert.deepEqual(labels(),['settings.js','Settings']);
+  assert.match(results.querySelectorAll('.command-result')[0].textContent,/Other workspace · src/);
+  search.value='>sett';ui.fire('workspace-search','input');ui.runTimers();await flush();
+  assert.deepEqual(labels(),['Settings'],'A leading > shows actions only.');assert.deepEqual(searches,['sett'],'Actions-only searches look up no files.');
+  search.dispatchEvent(new UIEvent('keydown',{key:'Enter',preventDefault(){}}));
+  assert.equal(settings,1);assert.equal(search.value,'','Running a result clears the search.');assert.equal(results.hidden,true);
+  search.value='sett';ui.fire('workspace-search','input');ui.runTimers();await flush();await flush();
+  results.querySelectorAll('.command-result')[0].click();await flush();await flush();
+  assert.equal(ui.state().projectId,'project-two','A file in another workspace opens that workspace.');
+  search.value='other';ui.fire('workspace-search','input');
+  search.dispatchEvent(new UIEvent('keydown',{key:'Enter',preventDefault(){}}));await flush();
+  assert.equal(ui.state().projectId,'project-two','Enter opens the first workspace match.');
+});
+
+test('the prompt itself stays at the top of its turn, with no floating copy, and a long prompt shows its first lines until opened',async()=>{
+  const ui=await browser(),conversation=ui.canonical.get('project-one');
+  const long=Array.from({length:9},(_,index)=>`Step ${index+1}: do the next part of the change.`).join('\n');
+  conversation.messages=[{id:'short',role:'user',text:'Tell me about the project',runId:'one',createdAt:new Date().toISOString()},{id:'answer',role:'assistant',provider:'codex',text:'It is a checkout app.',runId:'one',createdAt:new Date().toISOString()},{id:'long',role:'user',text:long,runId:'two',createdAt:new Date().toISOString()}];
+  await ui.window.relayUI.refresh();
+  assert.equal(ui.$('messages').querySelectorAll('.turn-pin').length,0,'No floating copy of the prompt.');
+  const prompts=ui.$('messages').querySelectorAll('.message-prompt');assert.equal(prompts.length,2);
+  assert.equal(prompts[0].classList.contains('long'),false);assert.equal(prompts[0].querySelector('.prompt-more'),null);
+  const more=prompts[1].querySelector('.prompt-more');assert(prompts[1].classList.contains('long'));assert.equal(more.textContent,'Show more');
+  more.click();assert(prompts[1].classList.contains('expanded'));assert.equal(more.textContent,'Show less');
+  conversation.messages.push({id:'reply',role:'assistant',provider:'codex',text:'Working on it.',runId:'two',createdAt:new Date().toISOString()});await ui.window.relayUI.refresh();
+  assert(ui.$('messages').querySelectorAll('.message-prompt')[1].classList.contains('expanded'),'An opened prompt stays open as the conversation updates.');
+});
+
+test('with the sidebar hidden, the top bar names the open workspace, and clicking it shows the sidebar again',async()=>{
+  const ui=await browser({layoutUI:true,moreProjects:true});
+  assert.equal(ui.$('workspace-chip-name').textContent,'Example workspace');
+  await ui.switchProject('project-two');assert.equal(ui.$('workspace-chip-name').textContent,'Other workspace','It follows the open workspace.');
+  ui.$('toggle-sidebar').click();assert(ui.$('app-shell').classList.contains('sidebar-collapsed'));
+  ui.$('workspace-chip').click();assert(!ui.$('app-shell').classList.contains('sidebar-collapsed'),'Clicking the name shows the sidebar.');
 });

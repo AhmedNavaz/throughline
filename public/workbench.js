@@ -62,7 +62,7 @@
     const latestError = (c.messages || []).filter(message => message.role === 'error').at(-1)?.text;
     let prepared = null, approved = null, sourceFiles = [], previewVersion = 0, config = {}, privacyWarnings = false;
     const current = () => token === renderRevision && projectId === api().getState().projectId;
-    const card = section('Get another pair of eyes', 'Your task and recent conversation are already included. Review this preview, then export it or share a private link.'); card.classList.add('friend-ready-card');
+    const card = section('Help request', 'Includes your task and the recent conversation. Review this preview, then export it or share a private link.'); card.classList.add('friend-ready-card');
     const message = field('What you need help with', 'textarea', (c.context?.goal || latestTask || `Help with ${project?.name || 'this project'}`).slice(0, 2000)); message.i.rows = 2; card.append(message.l);
     const context = node('p', `${recent.length} recent messages · ${project?.name || 'Current workspace'} · No source files included yet`, 'friend-context'); card.append(context);
     const files = check('Include changed source files'); files.i.disabled = true; card.append(files.l);

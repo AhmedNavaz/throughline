@@ -48,8 +48,8 @@ select, #setup-content select, #workbench select, .git-toolbar select, .import-d
 .line-number { display: inline-block; flex: 0 0 56px; padding-right: 20px; color: var(--faint); text-align: right; user-select: none; }
 .source-line:hover { background: var(--hover); }
 .file-preview > footer { padding: 6px 20px; border-top: 1px solid var(--border); color: var(--faint); font-size: 10px; }
-.attach-files { display: inline-flex; gap: 5px; align-items: center; height: 28px; padding: 0 9px; margin-right: 2px; background: transparent; border: 0; border-radius: 14px; color: var(--muted); font-size: 11px; }
-.attach-files:hover:enabled { color: var(--text-strong); background: var(--hover); }.attach-files .icon { width: 14px; height: 14px; }
+.attach-files { display: inline-flex; flex: none !important; gap: 5px; align-items: center; justify-content: center; height: 28px; min-width: 30px; padding: 0 8px; margin-right: 6px; background: var(--chip-bg); border: 1px solid var(--border); border-radius: 9px; color: var(--text); font-size: 11px; }
+.attach-files:hover:enabled { color: var(--text-strong); background: var(--hover-strong, var(--hover)); border-color: var(--border-strong); }.attach-files .icon { width: 15px; height: 15px; }
 /* Icon-only like the other composer controls, so the toolbar stays on one line; the title and aria-label name it. */
 .attach-files { padding: 0 7px; } .attach-files > span { display: none; }
 .attachment-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 12px 0; }

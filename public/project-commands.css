@@ -1,4 +1,4 @@
-.project-commands { flex: none; height: min(360px, 43vh); min-height: 210px; overflow: auto; border-top: 1px solid var(--border-strong); background: var(--bg); padding: 10px 16px; }
+.project-commands { position: relative; flex: none; height: min(360px, 43vh); min-height: 210px; overflow: auto; border-top: 1px solid var(--border-strong); background: var(--bg); padding: 10px 16px; }
 .command-heading, .command-actions, .command-tabs, .command-links, .command-suggestions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .command-heading { justify-content: space-between; margin-bottom: 8px; }
 .command-heading h2 { margin: 0; font-size: 13px; color: var(--text-strong); }

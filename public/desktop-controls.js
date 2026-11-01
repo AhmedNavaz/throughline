@@ -25,7 +25,7 @@
   const schedule = () => { if (!scheduled) { scheduled = true; Promise.resolve().then(report); } };
   window.addEventListener('relay-state', schedule);
   // These change what the menu shows without a relay-state event.
-  for (const [id, type] of [['toggle-explorer', 'click'], ['open-git', 'click'], ['close-git', 'click'], ['workspace-search', 'input'], ['workspace-search', 'keydown']]) $(id)?.addEventListener(type, schedule);
+  for (const [id, type] of [['toggle-explorer', 'click'], ['open-git', 'click'], ['toggle-side-panel', 'click'], ['workspace-search', 'input'], ['workspace-search', 'keydown']]) $(id)?.addEventListener(type, schedule);
   const unsubscribe = bridge.onMenuCommand((name, value) => { if (Object.hasOwn(api.commands, name)) api.commands[name](value); });
   window.addEventListener('beforeunload', () => unsubscribe?.());
   report();

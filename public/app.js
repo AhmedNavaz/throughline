@@ -490,6 +490,25 @@
     for(let i=0;i<parts.length;i+=3){if(parts[i]){if(user)body.append(document.createTextNode(parts[i]));else renderProse(body,parts[i]);}if(parts[i+2]!==undefined){const block=element('div','code-block'),head=element('div','code-head'),pre=element('pre');head.append(element('span','code-language',parts[i+1].trim()||'code'),copyButton('code-copy','Copy code',parts[i+2]));pre.append(highlightedCode(parts[i+2],parts[i+1].trim()));block.append(head,pre);body.append(block);}}
     if (!user || message.steer) row.append(heading);
     row.append(body);
+    // A prompt stays at the top of its turn while the results scroll past (see .message-prompt). A long one shows its
+    // first lines until opened, so it never fills the view; an opened one scrolls normally.
+    if (user && !message.steer) {
+      row.classList.add("message-prompt");
+      const text = message.text || "";
+      if (text.split("\n").length > 6 || text.length > 520) {
+        const expanded = state.expandedPrompts?.has(message.id);
+        row.classList.add("long"); row.classList.toggle("expanded", Boolean(expanded));
+        const more = element("button", "prompt-more", expanded ? "Show less" : "Show more"); more.type = "button";
+        more.setAttribute("aria-expanded", String(Boolean(expanded)));
+        more.addEventListener("click", () => {
+          state.expandedPrompts ||= new Set();
+          if (state.expandedPrompts.has(message.id)) state.expandedPrompts.delete(message.id); else state.expandedPrompts.add(message.id);
+          const open = state.expandedPrompts.has(message.id);
+          row.classList.toggle("expanded", open); more.textContent = open ? "Show less" : "Show more"; more.setAttribute("aria-expanded", String(open));
+        });
+        row.append(more);
+      }
+    }
     window.relayFiles?.renderMessageAttachments(row, message.attachments);
     if (user && message.routing) {
       const choice = message.routing, model = choice.model ? window.relayModelPicker?.modelName?.(message.provider, choice.model) || choice.model : "default model";
@@ -515,7 +534,7 @@
     const openOutputs = new Set([...ui.messages.querySelectorAll(".activity-output")].filter(node => !node.hidden).map(node => node.getAttribute("data-entry-id") || node.dataset?.entryId));
     const openEarlier = new Set([...ui.messages.querySelectorAll("details")].filter(node => node.open && node.classList.contains("activity-earlier")).map(node => node.getAttribute("data-group") || node.dataset?.group));
     const fragment = document.createDocumentFragment();
-    // Each prompt starts a turn holding everything that answers it, so the prompt stays pinned while its results scroll.
+    // Each prompt starts a turn holding everything that answers it, so the prompt can stay at the top while its results scroll.
     // Later replies from the same agent in the same run continue the first one, without repeating its name.
     let speaker = null, turn = null;
     const place = node => (turn || fragment).append(node);
@@ -530,19 +549,6 @@
         if (key && key === speaker) row.classList.add("message-continued");
         if (!message.steer) speaker = key;
         place(row);
-        // Once the prompt scrolls away, a one-line copy stays at the top until the next prompt. The marker takes no
-        // space, so pinning never moves the conversation; a prompt that changed size when pinned made scrolling flicker.
-        if (message.role === "user") {
-          const pin = element("div", "turn-pin"), card = element("button", "turn-pin-card");
-          card.type = "button";
-          card.title = "Back to this prompt";
-          card.append(element("span", "turn-pin-text", (message.text || "").replace(/\s+/g, " ").trim() || "Attached files"));
-          card.addEventListener("click", () => row.scrollIntoView({ behavior: "smooth", block: "start" }));
-          const band = element("div", "turn-pin-band");
-          band.append(card);
-          pin.append(band);
-          turn.append(pin);
-        }
         continue;
       }
       const activities = [message];
@@ -915,6 +921,9 @@
     renderQueue(); renderHandoff(); renderPlan(); renderRoute();
     const hasMessages = Boolean(state.conversation?.messages?.length);
     ui.title.textContent=state.loading&&state.projectId?'Opening workspace…':currentProject()?.name||'Throughline';
+    // With the sidebar hidden, the top bar names the open workspace; clicking it shows the sidebar again.
+    $("workspace-chip-name").textContent=currentProject()?.name||'No workspace';
+    $("workspace-chip").setAttribute("aria-label",`${currentProject()?.name||'No workspace'}. Show the sidebar.`);
     const run=state.conversation?.activeRun || state.conversation?.lastRun;
     const effective=run?.provider===state.provider?run.effectiveModel:null;
     ui.subtitle.textContent=state.projectId?'Conversation':'Workspace';
@@ -1331,17 +1340,78 @@
     } catch (error) { showNotice(error.message, initialize); }
   }
 
-  $("workspace-search")?.addEventListener("input", () => { state.workspaceFilter = $("workspace-search").value; renderWorkspaceList(); });
+  // The search bar at the top (⌘K) finds workspaces, files in every workspace and actions; ">" first shows actions
+  // only. It never filters the sidebar. Enter runs the highlighted result, the first match at first, and Escape clears it.
+  const commandActions = [
+    { label: "Review changes…", id: "open-review" }, { label: "Ask a friend…", id: "ask-friend" },
+    { label: "Previous chats…", id: "open-import" }, { label: "Export conversation…", id: "open-export" },
+    { label: "Agents: routing and handoff", run: () => window.relayAgents?.open() },
+    { label: "Git activity", run: () => { if ($("git-panel").hidden) $("open-git").click(); } },
+    { label: "New workspace…", id: "create-workspace" }, { label: "Settings", id: "relay-settings" },
+  ];
+  let commandActive = 0, commandItems = [], commandFiles = { query: "", files: [] }, fileSearch = 0, fileTimer = null;
+  const commandQuery = () => { const raw = $("workspace-search").value.trim(); return raw.startsWith(">") ? { actionsOnly: true, text: raw.slice(1).trim().toLowerCase() } : { actionsOnly: false, text: raw.toLowerCase() }; };
+  // File matches come from the app, a moment after typing stops.
+  function searchFiles() {
+    const { actionsOnly, text } = commandQuery(), request = ++fileSearch;
+    clearTimeout(fileTimer);
+    if (actionsOnly || text.length < 2) { commandFiles = { query: text, files: [] }; return; }
+    fileTimer = setTimeout(async () => {
+      try { const result = await api(`/api/file-search?q=${encodeURIComponent(text)}`); if (request === fileSearch) { commandFiles = { query: text, files: result.files || [] }; if ($("workspace-search").value.trim()) renderCommandResults(true); } }
+      catch { /* Workspaces and actions still show. */ }
+    }, 120);
+  }
+  async function openFound(file) {
+    if (file.projectId !== state.projectId) await selectProject(file.projectId);
+    if (state.projectId === file.projectId) window.relayFiles?.openAt(file.folderId, file.path);
+  }
+  function commandResults() {
+    const { actionsOnly, text } = commandQuery();
+    const workspaces = actionsOnly ? [] : state.projects.filter(project => project.name.toLowerCase().includes(text)).slice(0, 6).map(project => ({ group: "Workspaces", label: project.name, detail: project.id === state.projectId ? "Open" : "", run: () => { selectProject(project.id); ui.input.focus(); } }));
+    const files = actionsOnly || commandFiles.query !== text ? [] : commandFiles.files.slice(0, 10).map(file => ({ group: "Files", label: file.path.split("/").pop(), detail: [state.projects.length > 1 ? file.projectName : "", file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : file.folderName].filter(Boolean).join(" · "), run: () => openFound(file) }));
+    const actions = commandActions.filter(action => !text || action.label.toLowerCase().includes(text)).filter(action => !action.id || ($(action.id) && !$(action.id).disabled))
+      .map(action => ({ group: "Actions", label: action.label, detail: "", run: action.run || (() => $(action.id).click()) }));
+    return [...workspaces, ...files, ...actions];
+  }
+  function renderCommandResults(open) {
+    const host = $("command-results"), bar = host.parentNode;
+    commandItems = open ? commandResults() : [];
+    host.hidden = !commandItems.length; bar.setAttribute("aria-expanded", String(!host.hidden));
+    if (host.hidden) return;
+    commandActive = Math.min(Math.max(commandActive, 0), commandItems.length - 1);
+    let group = null;
+    host.replaceChildren(...commandItems.flatMap((item, index) => {
+      const nodes = [];
+      if (item.group !== group) { group = item.group; nodes.push(element("div", "command-group", group)); }
+      const row = element("button", `command-result${index === commandActive ? " active" : ""}`);
+      row.type = "button"; row.setAttribute("role", "option"); row.setAttribute("aria-selected", String(index === commandActive));
+      row.append(element("span", "command-label", item.label), element("span", "command-detail", item.detail));
+      row.addEventListener("mousedown", event => event.preventDefault());
+      row.addEventListener("click", () => runCommandResult(index));
+      nodes.push(row); return nodes;
+    }));
+  }
+  function runCommandResult(index) {
+    const item = commandItems[index]; if (!item) return false;
+    $("workspace-search").value = ""; commandFiles = { query: "", files: [] }; renderCommandResults(false);
+    item.run(); return true;
+  }
+  $("workspace-search")?.addEventListener("input", () => { commandActive = 0; searchFiles(); renderCommandResults(true); });
+  $("workspace-search")?.addEventListener("focus", () => { commandActive = 0; renderCommandResults(true); });
+  // An open list follows changes, such as another workspace opening or an action becoming available.
+  window.addEventListener("relay-state", () => { if (!$("command-results").hidden) renderCommandResults(true); });
+  $("workspace-search")?.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== $("workspace-search")) renderCommandResults(false); }, 120));
   $("workspace-search")?.addEventListener("keydown", (event) => {
-    // Enter opens the first match and Escape clears the filter, so the field doubles as a quick switcher.
-    // While an input method is composing, those keys finish or cancel the composition instead.
+    // While an input method is composing, these keys finish or cancel the composition instead.
     if (event.isComposing) return;
-    if (event.key === "Enter") { const match = filteredProjects()[0]; if (match) { event.preventDefault(); selectProject(match.id); ui.input.focus(); } }
-    if (event.key === "Escape" && $("workspace-search").value) { event.preventDefault(); $("workspace-search").value = ""; state.workspaceFilter = ""; renderWorkspaceList(); }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); if (!commandItems.length) renderCommandResults(true); commandActive = (commandActive + (event.key === "ArrowDown" ? 1 : -1) + commandItems.length) % Math.max(commandItems.length, 1); renderCommandResults(true); }
+    if (event.key === "Enter") { const items = commandItems.length ? commandItems : commandResults(); if (items[commandActive] || items[0]) { event.preventDefault(); commandItems = items; runCommandResult(items[commandActive] ? commandActive : 0); } }
+    if (event.key === "Escape") { if ($("workspace-search").value) { event.preventDefault(); $("workspace-search").value = ""; searchFiles(); renderCommandResults(true); } else { renderCommandResults(false); $("workspace-search").blur?.(); } }
   });
   const mac = /Mac|iPhone|iPad/.test(navigator.platform || ""), shortcut = (key, shift = false) => mac ? `${shift ? "⇧" : ""}⌘${key}` : `Ctrl+${shift ? "Shift+" : ""}${key}`;
-  $("workspace-search").placeholder = `Filter workspaces  ${shortcut("K")}`;
+  $("workspace-search").placeholder = `Search workspaces and actions   ${shortcut("K")}`;
   $("open-git").title = `Git activity (${shortcut("G", true)})`;
+  $("toggle-sidebar").title = `Toggle sidebar (${shortcut("B")})`;
   ui.input.title = `Focus with ${shortcut("L")}`;
   // Shortcuts and the desktop menu bar run these commands. Each returns whether the page handled it, and a shortcut
   // is only claimed when it did, so a key the page leaves alone goes on to the menu, whose item makes the same check.
@@ -1357,7 +1427,7 @@
     settings: press("relay-settings"), "setup-guide": press("open-setup-guide"), "new-workspace": press("create-workspace"), review: press("open-review"),
     "whats-new": () => { if (covered() || !window.relayUpdates) return false; window.relayUpdates.open(); return true; },
     "local-models": () => window.relayLocal?.open(),
-    "previous-chats": press("open-import"), export: press("open-export"), files: press("toggle-explorer"), "keep-awake": press("keep-awake"),
+    "previous-chats": press("open-import"), export: press("open-export"), "ask-friend": press("ask-friend"), files: press("toggle-explorer"), "keep-awake": press("keep-awake"),
     "add-folder": () => { if (covered()) return false; toggleFolderForm(true); return true; },
     agent: provider => ["codex", "claude", "gemini"].includes(provider) && press("select-" + provider)(),
     continue: () => !ui.continuation.hidden && press("continue-button")(),
@@ -1371,6 +1441,7 @@
     "open-workspace": id => { if (typeof id !== "string" || !state.projects.some(project => project.id === id)) return false; if (id !== state.projectId) selectProject(id); return true; },
     appearance: value => { if (!["system", "graphite", "light"].includes(value)) return false; window.relayTheme?.choose(value); return true; },
     "workspace-settings": () => { if (covered() || !state.projectId) return false; openWorkspaceOptions(state.projectId); return true; },
+    "toggle-sidebar": () => !covered() && Boolean(window.relayLayout?.toggleSidebar()),
     "remove-workspace": () => { if (covered() || !state.projectId) return false; confirmRemoveWorkspace(state.projectId); return true; },
   };
   document.addEventListener("keydown", (event) => {
@@ -1379,6 +1450,7 @@
     if (key === "k" && !event.shiftKey) run("filter-workspaces");
     else if (key === "l" && !event.shiftKey) run("focus-message");
     else if (key === "g" && event.shiftKey) run("git");
+    else if (key === "b" && !event.shiftKey) run("toggle-sidebar");
     else if (key === ".") run("stop");
     else if (/^[1-9]$/.test(event.key) && !event.shiftKey) run("workspace", Number(event.key));
   });
@@ -1411,6 +1483,11 @@
   $("prompt-queue-toggle").addEventListener("click", () => queueAction({ action: state.conversation?.queuePaused ? "resume" : "pause" }));
   ui.input.addEventListener("input", () => { resizeInput(); saveDraft(); renderControls(); });
   $("steer-button").addEventListener("click", addToRun);
+  $("workspace-chip").addEventListener("click", () => window.relayLayout?.toggleSidebar());
+  // Choosing an action from the ⋯ menu closes it.
+  $("header-menu").addEventListener("click", event => { if (event.target?.closest?.("button")) $("header-menu").hidePopover?.(); });
+  // The tabs at the top of a side panel switch to the other panel.
+  document.querySelectorAll(".panel-tab").forEach(tab => tab.addEventListener("click", () => { if (tab.getAttribute("aria-selected") !== "true") $(tab.dataset.panel === "git" ? "open-git" : "open-agents").click(); }));
   $("route-preview").addEventListener("click", () => window.relayModelPicker?.open());
   $("run-plan-toggle").addEventListener("click", () => {
     const list = $("run-plan-list"); list.hidden = !list.hidden;

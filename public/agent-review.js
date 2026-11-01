@@ -7,8 +7,8 @@
   const resultHome = $('review-result').parentNode;
   let panelOpen = false;
   function closePanel() { panelOpen = false; $('review-panel').hidden = true; resultHome.append($('review-result')); }
-  function showPanel() { panelOpen = true; $('review-panel').hidden = false; $('git-panel').hidden = true; $('open-git').setAttribute('aria-expanded', 'false'); $('review-panel-body').append($('review-result')); $('review-result').hidden = false; if (dialog.open) dialog.close(); }
-  $('close-review-panel').addEventListener('click', closePanel);
+  function showPanel() { panelOpen = true; window.relayAgents?.close(); $('review-panel').hidden = false; $('git-panel').hidden = true; $('open-git').setAttribute('aria-expanded', 'false'); $('review-panel-body').append($('review-result')); $('review-result').hidden = false; if (dialog.open) dialog.close(); }
+  $('close-review-panel')?.addEventListener('click', closePanel);
   const selected = new Map(), findings = new Set(), freshness = new Map();
   let scope = null, generation = 0, busy = false, data = null, snapshot = null, report = null, mode = 'new', requestId = null, checking = false;
   const current = () => scope === api.getState().projectId;

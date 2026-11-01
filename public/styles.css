@@ -44,10 +44,12 @@ summary::-webkit-details-marker { display: none; }
   display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) var(--statusbar-height); height: 100dvh; min-height: 480px;
 }
-.app-shell:has(#git-panel:not([hidden])) { grid-template-columns: var(--sidebar-width) minmax(380px, 1fr) 300px; }
+.app-shell:has(#git-panel:not([hidden])), .app-shell:has(#agents-panel:not([hidden])) { grid-template-columns: var(--sidebar-width) minmax(380px, 1fr) var(--inspector-width, 300px); }
 
 /* Sidebar */
-.sidebar { display: flex; flex-direction: column; min-height: 0; background: var(--sidebar); border-right: 1px solid var(--border); }
+.sidebar { position: relative; display: flex; flex-direction: column; min-height: 0; background: var(--sidebar); border-right: 1px solid var(--border); }
+/* A sized workspace list keeps its height; the files take the rest. */
+.sidebar.sized .workspace-list { flex-grow: 0; flex-shrink: 0; }
 .sidebar-titlebar { display: flex; align-items: center; gap: 8px; flex: none; height: var(--titlebar-height); padding: 0 14px; }
 .brand { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-strong); font-size: 13px; font-weight: 600; text-decoration: none; border-radius: 4px; }
 .brand-mark { display: block; flex: none; width: 18px; height: 18px; border-radius: 4px; }
@@ -156,6 +158,15 @@ summary::-webkit-details-marker { display: none; }
   border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; white-space: nowrap;
 }
 .toolbar-button:hover:enabled, .toolbar-button[aria-expanded="true"] { color: var(--text); background: var(--hover); }
+/* Less-used actions live in one quiet menu under ⋯; Review and Ask a friend also appear after a run when they help. */
+.header-more { anchor-name: --header-more; }
+.header-menu { position: fixed; position-anchor: --header-more; position-area: bottom span-left; position-try-fallbacks: flip-block; inset: auto; min-width: 200px; margin: 6px 0 0; padding: 4px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--overlay-bg); color: var(--text); box-shadow: 0 16px 40px rgb(0 0 0 / 0.32), 0 2px 6px rgb(0 0 0 / 0.16); }
+.header-menu:popover-open { display: grid; gap: 1px; }
+.header-menu-item { display: flex; align-items: center; gap: 9px; width: 100%; height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font-size: 12.5px; text-align: left; white-space: nowrap; }
+.header-menu-item .icon { width: 15px; height: 15px; color: var(--muted); }
+.header-menu-item:hover:enabled, .header-menu-item:focus-visible { background: var(--hover); outline: 0; }
+.header-menu-item:disabled { color: var(--faint); }
+.header-menu-item:disabled .icon { color: var(--faint); }
 .conversation-state { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; background: var(--chip-bg); color: var(--muted); font-size: 11px; font-weight: 500; white-space: nowrap; }
 .conversation-state > i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .conversation-state[data-status="ready"] { color: var(--success); background: var(--success-bg); }
@@ -237,19 +248,14 @@ summary::-webkit-details-marker { display: none; }
 .message-continued { padding-top: 0; }
 .message-continued > .message-heading { display: none; }
 .message-user { display: flex; flex-direction: column; align-items: flex-end; padding: 12px 0 4px; }
-/* After a prompt scrolls away, a one-line copy stays pinned above its results until the next prompt.
-   The marker has no height and the copy is positioned over the content, so pinning never changes the layout. */
-.turn-pin { position: sticky; top: 0; z-index: 3; height: 0; container-type: scroll-state; }
-.turn-pin-band { position: absolute; top: 0; left: 0; right: 0; display: none; justify-content: flex-end; height: 56px; padding-top: 8px; background: linear-gradient(var(--bg) 62%, transparent); pointer-events: none; }
-.turn-pin-card {
-  display: flex; align-items: center; gap: 8px; max-width: min(85%, 640px); height: 32px; padding: 0 14px; pointer-events: auto;
-  border: 0; border-radius: 16px; background: var(--bubble-bg, var(--surface-strong)); color: var(--text-strong); font-size: 13px; text-align: left;
-  box-shadow: 0 6px 18px -6px rgb(0 0 0 / .45), 0 0 0 1px var(--border);
-}
-.turn-pin-card::before { content: ""; flex: none; width: 12px; height: 12px; background: var(--faint); -webkit-mask: var(--icon-chevron-down) center / contain no-repeat; mask: var(--icon-chevron-down) center / contain no-repeat; transform: rotate(180deg); }
-.turn-pin-card:hover { background: var(--surface-strong); }
-.turn-pin-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@container scroll-state(stuck: top) { .turn-pin-band { display: flex; } }
+/* The prompt itself stays at the top of its turn while its results scroll past, until the next prompt takes its place.
+   It keeps its size when it sticks, so pinning never moves the conversation; a long prompt shows its first lines. */
+.turn > .message-prompt { position: sticky; top: 0; z-index: 3; padding-top: 10px; background: linear-gradient(var(--bg) calc(100% - 14px), transparent); }
+.turn > .message-prompt.expanded { position: static; background: none; }
+.message-prompt.long .message-text { max-height: calc(1.5em * 6 + 18px); overflow: hidden; -webkit-mask-image: linear-gradient(#000 65%, transparent); mask-image: linear-gradient(#000 65%, transparent); }
+.message-prompt.long.expanded .message-text { max-height: none; -webkit-mask-image: none; mask-image: none; }
+.prompt-more { margin-top: 2px; padding: 2px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--link); font-size: 11.5px; }
+.prompt-more:hover { background: var(--hover); }
 .message-user .message-text { max-width: min(85%, 640px); padding: 9px 14px; border-radius: 14px 14px 4px 14px; background: var(--bubble-bg, var(--surface-strong)); color: var(--text-strong); white-space: pre-wrap; }
 .message-user .message-actions { justify-content: flex-end; }
 /* A note added while the agent worked: a smaller bubble inside the run, with a quiet label. */
@@ -451,10 +457,17 @@ div.activity-output-toggle { cursor: default; }
 .composer-controls .picker select { min-width: 0; }
 .composer-actions { flex: none; }
 @container composer (max-width: 860px) { #picked-agent, .usage-chip-label { display: none; } }
-@container composer (max-width: 580px) { #effort-button-label { display: none; } }
-@container composer (max-width: 460px) { .usage-chip { display: none; } }
-@container composer (max-width: 640px) { .composer-controls .picker.mode-control select { width: 30px; field-sizing: fixed; padding: 0 0 0 30px !important; color: transparent; background-image: none !important; } }
-@container composer (max-width: 580px) { .composer-controls .picker:is(.approval-control, .effort-picker) select { width: 30px; field-sizing: fixed; padding: 0 0 0 30px !important; color: transparent; background-image: none !important; } }
+@container composer (max-width: 700px) { #effort-button-label { display: none; } }
+@container composer (max-width: 540px) { .usage-chip { display: none; } }
+@container composer (max-width: 690px) { .composer-controls .picker.mode-control select { width: 30px; field-sizing: fixed; padding: 0 0 0 30px !important; color: transparent; background-image: none !important; } }
+@container composer (max-width: 640px) { .composer-controls .picker:is(.approval-control, .effort-picker) select { width: 30px; field-sizing: fixed; padding: 0 0 0 30px !important; color: transparent; background-image: none !important; } }
+/* During a run, Stop and Queue take the place of Send; with the usage chip as well, the pickers turn into icons sooner. */
+/* During a run Stop and Queue (and Add to run) take the place of Send. The pickers can't change during a run, so they
+   show as icons; Add to run loses its label only when space is short. */
+.composer:has(#stop-button:not([hidden])) .composer-controls .picker:is(.mode-control, .approval-control, .effort-picker) select { width: 30px; field-sizing: fixed; padding: 0 0 0 30px !important; color: transparent; background-image: none !important; }
+@container composer (max-width: 660px) { .composer:has(#steer-button:not([hidden])) .steer-label { display: none; } .composer:has(#steer-button:not([hidden])) .steer-button { padding: 0 9px; } }
+@container composer (max-width: 760px) { .composer:has(#stop-button:not([hidden])):has(#usage-chip:not([hidden])) .composer-controls .picker.mode-control select { width: 30px; field-sizing: fixed; padding: 0 0 0 30px !important; color: transparent; background-image: none !important; } }
+@container composer (max-width: 660px) { .composer:has(#stop-button:not([hidden])):has(#usage-chip:not([hidden])) .composer-controls .picker:is(.approval-control, .effort-picker) select { width: 30px; field-sizing: fixed; padding: 0 0 0 30px !important; color: transparent; background-image: none !important; } .composer:has(#stop-button:not([hidden])):has(#usage-chip:not([hidden])) .usage-chip-label { display: none; } }
 .composer-controls .picker select option { color: var(--text); }
 .provider-selector { display: inline-flex; gap: 2px; margin-right: 4px; padding: 2px; border-radius: var(--radius); background: var(--chip-bg); }
 .provider-button { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 12px; }
@@ -520,7 +533,7 @@ div.activity-output-toggle { cursor: default; }
 #save-custom-model { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
 
 /* Git inspector */
-.git-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--border); background: var(--sidebar); }
+.git-panel { position: relative; grid-column: 3; grid-row: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--border); background: var(--sidebar); }
 .inspector-heading { display: flex; align-items: center; justify-content: space-between; flex: none; height: var(--titlebar-height); padding: 0 8px 0 16px; border-bottom: 1px solid var(--border); }
 .inspector-heading h2 { margin: 0; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .inspector-actions { display: flex; gap: 2px; }
@@ -731,8 +744,8 @@ button.commit-hash:hover { text-decoration: underline; }
 
 /* Responsive */
 @media (max-width: 1100px) {
-  .app-shell:has(#git-panel:not([hidden])) { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
-  .git-panel { position: fixed; z-index: 30; top: 0; right: 0; bottom: var(--statusbar-height); width: 320px; box-shadow: var(--shadow-lg); }
+  .app-shell:has(#git-panel:not([hidden])), .app-shell:has(#agents-panel:not([hidden])) { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
+  .git-panel, .agents-panel { position: fixed; z-index: 30; top: 0; right: 0; bottom: var(--statusbar-height); width: min(var(--inspector-width, 320px), 80vw); box-shadow: var(--shadow-lg); }
   .header-actions .button-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
   .toolbar-button { padding: 0 6px; }
 }
@@ -762,7 +775,7 @@ button.commit-hash:hover { text-decoration: underline; }
   .starter-prompts { grid-template-columns: 1fr; }
   .provider-button { padding: 0 7px; }
   .composer-toolbar { align-items: flex-end; }
-  .picker select { max-width: 130px; }
+  .picker select { max-width: 180px; }
   .git-panel { top: 44px; width: min(360px, 100vw); }
   .status-bar .provider-state, .usage-label, .usage-chip { display: none; }
   .diff-dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); }
@@ -813,7 +826,8 @@ button.commit-hash:hover { text-decoration: underline; }
 .prompt-queue-paused { flex: 1; min-width: 0; overflow: hidden; color: var(--warning); text-overflow: ellipsis; white-space: nowrap; }
 .prompt-queue-head .pill-button { margin-left: auto; }
 .prompt-queue-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.prompt-queue-item { display: flex; align-items: flex-start; gap: 10px; padding: 7px 8px; border-radius: 8px; background: var(--bubble-bg, var(--surface-strong)); }
+.prompt-queue-item { display: flex; align-items: flex-start; gap: 10px; padding: 6px 8px; border-radius: 8px; transition: background .12s; }
+.prompt-queue-item:hover, .prompt-queue-item:focus-within { background: var(--hover); }
 .prompt-queue-number { flex: none; min-width: 16px; padding-top: 1px; color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .prompt-queue-body { display: grid; flex: 1; min-width: 0; gap: 3px; }
 .prompt-queue-text { display: -webkit-box; margin: 0; overflow: hidden; color: var(--text-strong); font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -876,3 +890,157 @@ button.commit-hash:hover { text-decoration: underline; }
 .route-preview.error .route-reason { color: var(--warning); white-space: normal; }
 .message-routing { margin-top: 3px; color: var(--faint); font-size: 11.5px; }
 
+/* Resize handles: a thin, invisible strip that shows a line on hover, while dragging and when focused. */
+.resize-handle { position: absolute; z-index: 6; touch-action: none; outline: 0; }
+.resize-handle::after { content: ""; position: absolute; background: var(--focus); opacity: 0; transition: opacity .12s; }
+.resize-handle:hover::after, .resize-handle.dragging::after, .resize-handle:focus-visible::after { opacity: 1; transition-delay: .15s; }
+.resize-handle.dragging::after, .resize-handle:focus-visible::after { transition-delay: 0s; }
+.resize-handle.columns { top: 0; bottom: 0; width: 7px; cursor: col-resize; }
+.resize-handle.columns::after { top: 0; bottom: 0; left: 3px; width: 1px; }
+.resize-handle.columns.edge-end { right: -4px; }
+.resize-handle.columns.edge-start { left: -4px; }
+.resize-handle.rows { left: 0; right: 0; height: 7px; cursor: row-resize; }
+.resize-handle.rows::after { left: 0; right: 0; top: 3px; height: 1px; }
+.resize-handle.rows.edge-top { top: -4px; }
+.resize-handle.rows.before { position: relative; flex: none; margin: -3px 0 -4px; }
+:root.resizing, :root.resizing * { user-select: none; }
+:root.resizing-columns, :root.resizing-columns * { cursor: col-resize !important; }
+:root.resizing-rows, :root.resizing-rows * { cursor: row-resize !important; }
+
+/* Run lives with the files, as project scripts do in an editor's explorer. */
+.explorer-run { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px; border: 0; border-radius: 11px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 500; }
+.explorer-run .icon { width: 12px; height: 12px; fill: currentColor; stroke: none; }
+.explorer-run:hover:enabled, .explorer-run[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+.explorer-run:disabled { opacity: .5; }
+
+/* The Agents panel: agents, who answers each message, and what happens near a limit. */
+.agents-panel { position: relative; grid-column: 3; grid-row: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--border); background: var(--sidebar); }
+.agents-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 18px; }
+.agents-section { padding: 12px 0 14px; border-bottom: 1px solid var(--border); scroll-margin-top: 8px; transition: background .4s; }
+.agents-section:last-child { border-bottom: 0; }
+.agents-section.flash { background: var(--hover); border-radius: 8px; }
+.agents-section h3 { margin: 0 0 4px; color: var(--text-strong); font-size: 12.5px; font-weight: 600; }
+.agents-hint { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.routing-options { display: grid; gap: 2px; }
+.routing-option { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text); text-align: left; transition: background .12s; }
+.routing-option:hover:enabled, .routing-option:focus-visible { background: var(--hover); outline: 0; }
+.routing-option:disabled { opacity: .6; }
+.routing-option-mark { position: relative; flex: none; width: 14px; height: 14px; margin-top: 2px; border: 1.5px solid var(--faint); border-radius: 50%; }
+.routing-option[aria-checked="true"] .routing-option-mark { border-color: var(--link); }
+.routing-option[aria-checked="true"] .routing-option-mark::after { content: ""; position: absolute; inset: 2.5px; border-radius: 50%; background: var(--link); }
+.routing-option-text { display: grid; gap: 1px; min-width: 0; }
+.routing-option-text strong { color: var(--text-strong); font-size: 12.5px; font-weight: 500; }
+.routing-option-text small { color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+.agents-switch { display: flex; align-items: flex-start; gap: 8px; margin: 10px 8px 0; color: var(--text); font-size: 12px; line-height: 1.45; cursor: pointer; }
+.agents-switch input { margin-top: 2px; }
+.agents-switch small { display: block; color: var(--faint); font-size: 11.5px; }
+.agents-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 4px; color: var(--text); font-size: 12px; }
+.agents-field select { height: 26px; padding: 0 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--surface-input); color: var(--text); font-size: 12px; }
+.agents-more { margin: 10px 8px 0; color: var(--muted); font-size: 12px; }
+.agents-more summary { color: var(--link); cursor: pointer; }
+.agents-more ul { margin: 6px 0 0; padding-left: 16px; line-height: 1.5; }
+
+/* While routing is on, the model button shows the mode in the accent colour. */
+.model-picker-button.routing { color: var(--link); }
+.model-picker-button.routing .agent-icon.auto { color: var(--link); }
+
+/* What Throughline does, in a new conversation: four quiet lines, two of them leading to the Agents panel. */
+.capabilities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 18px; width: 100%; margin: 22px 0 0; padding: 0; list-style: none; text-align: left; }
+.capability { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: left; }
+button.capability { cursor: pointer; transition: background .12s; }
+button.capability:hover { background: var(--hover); }
+.capability-text { display: grid; min-width: 0; }
+.capabilities strong { display: block; color: var(--text-strong); font-size: 12.5px; font-weight: 500; }
+.capabilities small { display: block; margin-top: 1px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+button.capability strong::after { content: " →"; color: var(--faint); }
+.capability-icon { flex: none; width: 15px; height: 15px; margin-top: 1px; background: var(--faint); -webkit-mask: var(--capability) center / contain no-repeat; mask: var(--capability) center / contain no-repeat; }
+.capability-icon.agents { --capability: var(--icon-codex); }
+.capability-icon.auto { --capability: var(--icon-auto); background: var(--link); }
+.capability-icon.limit { --capability: var(--icon-effort); }
+.capability-icon.steer { --capability: var(--icon-steer); }
+@media (max-width: 900px) { .capabilities { grid-template-columns: 1fr; } }
+
+/* Side panels: Agents and Git toggle from the top right of the header. An open panel shows the same two as tabs at
+   its top, the selected one joined to the panel like a folder tab. Tabs and toggles keep one size in every state. */
+.panel-toggles { display: inline-flex; align-items: center; gap: 2px; }
+.panel-toggle { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.panel-toggle .icon { width: 15px; height: 15px; }
+.panel-toggle:hover:enabled { background: var(--hover); color: var(--text); }
+.panel-toggle:disabled { opacity: .45; }
+.panel-heading { align-items: stretch; padding-left: 6px; }
+/* Icon tabs at the top of a side panel: the selected one is coloured and underlined on the header's edge. */
+.panel-tabs { display: flex; align-items: stretch; gap: 2px; }
+.panel-tab { position: relative; display: grid; place-items: center; width: 38px; padding: 0; border: 0; background: transparent; color: var(--muted); }
+.panel-tab .icon { width: 16px; height: 16px; transition: color .12s; }
+.panel-tab:hover { color: var(--text); }
+.panel-tab:hover::before { content: ""; position: absolute; inset: 7px 3px; border-radius: 6px; background: var(--hover); z-index: -1; }
+.panel-tab { isolation: isolate; }
+.panel-tab[aria-selected="true"] { color: var(--link); cursor: default; }
+.panel-tab[aria-selected="true"]::after { content: ""; position: absolute; left: 9px; right: 9px; bottom: -1px; height: 2px; border-radius: 2px 2px 0 0; background: var(--link); }
+/* On phones the side panels cover the conversation. */
+@media (max-width: 760px) { .git-panel, .agents-panel, .review-panel { right: 0 !important; } }
+
+/* Layout buttons at the top right of the window, as in an editor: sidebar, Run panel and side panel. Each icon is
+   filled while its area shows. They keep their place whether or not the side panel is open, so the conversation
+   header, and a side panel's header, leave room for them. */
+.layout-toggles { position: fixed; z-index: 35; top: 0; right: 8px; display: flex; align-items: center; gap: 2px; height: var(--titlebar-height); -webkit-app-region: no-drag; }
+.layout-toggle { -webkit-app-region: no-drag; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
+.layout-toggle:hover:enabled { background: var(--hover); color: var(--text); }
+.layout-toggle:disabled { opacity: .35; }
+.layout-toggle .icon { width: 17px; height: 17px; }
+.layout-icon .layout-fill { fill: none; stroke: none; }
+.layout-toggle[aria-pressed="true"] { color: var(--text); }
+.layout-toggle[aria-pressed="true"] .layout-fill { fill: currentColor; }
+.conversation-header, .inspector-heading { padding-right: 76px; }
+.app-shell:has(#git-panel:not([hidden]), #agents-panel:not([hidden]), #review-panel:not([hidden])) .conversation-header { padding-right: 8px; }
+.git-toolbar { display: flex; align-items: center; gap: 4px; }
+.git-toolbar select { flex: 1; min-width: 0; }
+.git-toolbar .refresh-button { width: 28px; height: 28px; margin: 0; }
+/* Hiding the sidebar closes its column to nothing; on macOS the header then leaves room for the window controls. */
+.app-shell.sidebar-collapsed { --sidebar-width: 0px; }
+.app-shell.sidebar-collapsed > .sidebar { visibility: hidden; overflow: hidden; border: 0; }
+.mac-titlebar .app-shell.sidebar-collapsed .conversation-header { padding-left: 82px; }
+@media (max-width: 760px) {
+  .layout-toggles { top: 44px; }
+  #toggle-sidebar { display: none; }
+  .conversation-header, .inspector-heading { padding-right: 44px; }
+  .app-shell.sidebar-collapsed > .sidebar { visibility: visible; overflow: visible; border-bottom: 1px solid var(--border); }
+}
+
+/* The top bar is a search bar for workspaces and actions, centred like an editor's command centre. */
+/* Centred on the whole window, not between the sidebar and the side panel, so it stays put as they open and close.
+   Its width leaves room for whatever sits on either side: the sidebar or the workspace name, and the side panel or
+   the layout buttons. */
+.app-shell { --left-reserve: calc(var(--sidebar-width) + 16px); --right-reserve: 92px; }
+.app-shell.sidebar-collapsed { --left-reserve: 268px; }
+.mac-titlebar .app-shell.sidebar-collapsed { --left-reserve: 350px; }
+.app-shell:has(#git-panel:not([hidden]), #agents-panel:not([hidden])) { --right-reserve: calc(var(--inspector-width, 320px) + 16px); }
+.app-shell:has(#review-panel:not([hidden])) { --right-reserve: calc(var(--inspector-width, 320px) + 16px); }
+.command-bar { position: fixed; z-index: 25; top: calc((var(--titlebar-height) - 28px) / 2); left: 50%; transform: translateX(-50%); display: flex; align-items: center; width: clamp(180px, calc(100vw - 2 * max(var(--left-reserve), var(--right-reserve))), 520px); }
+.command-bar > .icon { position: absolute; left: 10px; width: 14px; height: 14px; color: var(--faint); pointer-events: none; }
+.command-bar input { width: 100%; height: 28px; padding: 0 12px 0 30px; border: 1px solid var(--border); border-radius: 8px; background: var(--chip-bg); color: var(--text); font: inherit; font-size: 12.5px; text-align: center; transition: background .12s, border-color .12s; }
+.command-bar input::placeholder { color: var(--faint); }
+.command-bar input:hover { border-color: var(--border-strong); }
+.command-bar input:focus { outline: none; border-color: var(--focus); background: var(--surface-input); text-align: left; }
+.command-bar input::-webkit-search-cancel-button { display: none; }
+.command-results { position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; right: 0; display: grid; gap: 1px; max-height: min(420px, 60vh); padding: 4px; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--overlay-bg); box-shadow: 0 16px 40px rgb(0 0 0 / 0.32), 0 2px 6px rgb(0 0 0 / 0.16); }
+.command-group { padding: 6px 8px 3px; color: var(--faint); font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.command-result { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font-size: 12.5px; text-align: left; }
+.command-result:hover, .command-result.active { background: var(--list-active, var(--hover)); }
+.command-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-detail { flex: none; color: var(--faint); font-size: 11.5px; }
+.conversation-header { justify-content: center; }
+/* Nothing in the header's action group shows any more, so it takes no space and the search bar stays centred. */
+.conversation-header > .header-actions { display: contents; }
+
+/* With the sidebar hidden, the top bar's left names the open workspace, so it is always clear where you are. */
+.workspace-chip { display: none; align-items: center; gap: 7px; flex: 0 1 auto; min-width: 0; max-width: 240px; height: 28px; margin-right: 12px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text-strong); font-size: 12.5px; font-weight: 500; }
+.workspace-chip .icon { flex: none; width: 15px; height: 15px; color: var(--muted); }
+.workspace-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-chip:hover { background: var(--hover); }
+.app-shell.sidebar-collapsed .workspace-chip { display: inline-flex; }
+.app-shell.sidebar-collapsed .conversation-header { justify-content: flex-start; }
+@media (max-width: 760px) {
+  .app-shell.sidebar-collapsed .workspace-chip { display: none; }
+  .command-bar { position: relative; top: auto; left: auto; transform: none; flex: 1 1 auto; width: auto; margin: 0 auto; }
+}

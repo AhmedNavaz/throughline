@@ -36,12 +36,15 @@
   }
   const routing = () => { const state = api.getState(); return state.localSelections?.[state.projectId] ? null : state.conversation?.routing || null; };
   function label() {
-    const state = api.getState(), local = state.localSelections?.[state.projectId], actual = local ? 'local' : state.provider;
-    $('picked-agent').textContent = names[actual];
-    $('picked-model').textContent = local?.model || (state.model ? modelName(selectedRow(state.provider) || { id: state.model }) : 'Auto');
-    $('picked-agent-icon').className = 'agent-icon ' + (actual === 'local' ? 'codex' : actual);
+    const state = api.getState(), local = state.localSelections?.[state.projectId], actual = local ? 'local' : state.provider, auto = routing();
+    // While routing is on, the button shows the mode instead of a model and opens Routing in the Agents panel.
+    $('picked-agent').textContent = auto ? 'Routing' : names[actual];
+    $('picked-model').textContent = auto ? window.relayRouting?.modeNames[auto.mode] || 'Auto' : local?.model || (state.model ? modelName(selectedRow(state.provider) || { id: state.model }) : 'Default');
+    $('picked-agent-icon').className = 'agent-icon ' + (auto ? 'auto' : actual === 'local' ? 'codex' : actual);
+    trigger.classList.toggle('routing', Boolean(auto));
     trigger.disabled = !state.ready || !state.projectId || Boolean(state.pending || state.settingsPending || api.isRunning());
-    trigger.setAttribute('aria-label', `Choose agent and model. Current: ${names[actual]}, ${$('picked-model').textContent}`);
+    trigger.setAttribute('aria-label', auto ? `Routing: ${$('picked-model').textContent}. Change it in the Agents panel.` : `Choose agent and model. Current: ${names[actual]}, ${$('picked-model').textContent}`);
+    trigger.title = auto ? 'Routing picks the agent, model and effort for each message. Click to change it.' : '';
     if (local) {
       $('model-description').textContent = `Local · ${local.model} · Downloaded model · No cloud model charges`;
       $('effort-select').disabled = true;
@@ -68,7 +71,8 @@
     const data = cache.get(scope + ':' + provider);
     if (provider === 'local') return (data?.models || []).map(row => ({ ...row, tag: row.parameterSize || '' }));
     const reported = (data?.models || []).filter(row => row.value !== 'default').map(row => ({ ...row, tag: row.isDefault ? 'Default' : '' }));
-    return [{ id: '', displayName: 'Auto', description: `${names[provider]} chooses its default model`, tag: 'Agent default' }, ...reported];
+    // The agent's own default, named so it isn't confused with Throughline's Auto above.
+    return [{ id: '', displayName: `Let ${names[provider]} choose`, description: `${names[provider]} uses its default model`, tag: '' }, ...reported];
   }
   function isSelected(provider, row) {
     const state = api.getState(), local = state.localSelections?.[scope];
@@ -173,8 +177,8 @@
     effortButton.disabled = select.disabled;
     bars($('effort-bars'), index >= 0 ? index + 1 : 0, levels.length);
     effortButton.dataset.level = index >= 0 ? levels[index].value : 'auto';
-    $('effort-button-label').textContent = index >= 0 ? effortName(levels[index].textContent) : 'Auto';
-    effortButton.title = `Reasoning effort: ${index >= 0 ? effortName(levels[index].textContent) : 'Auto, chosen by the agent'}`;
+    $('effort-button-label').textContent = index >= 0 ? effortName(levels[index].textContent) : 'Default';
+    effortButton.title = `Reasoning effort: ${index >= 0 ? effortName(levels[index].textContent) : 'the agent’s default'}`;
     effortButton.setAttribute('aria-label', effortButton.title);
     if (effortButton.hidden && effortOpen()) effortPopup.hidePopover();
     if (effortOpen()) renderEffortPanel();
@@ -185,7 +189,7 @@
     effortPopup.dataset.level = auto ? 'auto' : level?.value || 'auto';
     range.value = String(index);
     range.style.setProperty?.('--fill', levels.length > 1 ? (index / (levels.length - 1)) * 100 + '%' : '0%');
-    range.setAttribute('aria-valuetext', level ? effortName(level.textContent) : 'Auto');
+    range.setAttribute('aria-valuetext', level ? effortName(level.textContent) : 'Agent default');
     $('effort-stops').querySelectorAll('button').forEach((stop, position) => stop.setAttribute('aria-pressed', String(!auto && position === index)));
     const unknown = effortPopup.classList.contains('unknown');
     $('effort-ticks').querySelectorAll('i').forEach((tick, position) => { tick.hidden = !unknown && position === index; tick.classList.toggle('passed', !unknown && position < index); });
@@ -293,7 +297,7 @@
     $('picker-search')?.focus();
     refreshStale();
   }
-  trigger.addEventListener('click', () => show(trigger));
+  trigger.addEventListener('click', () => { if (routing()) { close(); window.relayAgents?.open('routing'); } else show(trigger); });
 
   $('picker-search')?.addEventListener('input', () => { query = $('picker-search').value.trim().toLowerCase(); active = 0; render(); });
   $('picker-search')?.addEventListener('keydown', event => {

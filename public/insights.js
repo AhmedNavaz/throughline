@@ -17,7 +17,7 @@
     const count = gitScope === state.projectId ? gitData?.totalChanges || 0 : 0;
     const blocked = ['incomplete','interrupted'].includes(run?.status);
     $('next-actions').hidden = !state.projectId || api.isRunning() || (!blocked && (run?.status !== 'complete' || !count)) || run?.purpose === 'review' || !run || dismissedSteps.has(nextStepsKey());
-    $('next-actions-text').textContent = blocked ? 'Need another pair of eyes on this task?' : `${count} changed file${count === 1 ? '' : 's'} · Ready for a second look`;
+    $('next-actions-text').textContent = blocked ? 'The run stopped' : `${count} changed file${count === 1 ? '' : 's'}`;
     $('next-review').hidden = !count;
   }
   $('next-review').addEventListener('click', () => window.relayReviews?.suggest());
@@ -222,13 +222,14 @@
   }
   function setGitPanel(open, remember = true) {
     $('git-panel').hidden = !open; $('open-git').setAttribute('aria-expanded', String(open));
-    if (remember) try { localStorage.setItem('ai-relay:git-panel', open ? 'open' : 'closed'); } catch { /* Panel state is a convenience. */ }
-    if (open) { window.relayReviews?.closePanel(); loadGit(); }
+    if (remember) try { localStorage.setItem('throughline:side-panel', open ? 'git' : 'none'); } catch { /* Panel state is a convenience. */ }
+    if (open) { window.relayReviews?.closePanel(); window.relayAgents?.close(); loadGit(); }
   }
   $('open-git').addEventListener('click', () => setGitPanel($('git-panel').hidden));
-  $('close-git').addEventListener('click', () => { setGitPanel(false); $('open-git').focus(); });
-  // Docked layouts keep the panel open unless it was closed; narrow layouts overlay it, so it starts closed there.
-  function wantsGitPanel() { let preference = null; try { preference = localStorage.getItem('ai-relay:git-panel'); } catch { /* Defaults apply. */ } return preference !== 'closed' && Boolean(window.matchMedia?.('(min-width: 1101px)').matches); }
+  // One side panel shows at a time, and docked layouts reopen the one last chosen (Agents at first). Narrow layouts
+  // overlay it, so it starts closed there.
+  function wantsGitPanel() { let preference = null; try { preference = localStorage.getItem('throughline:side-panel'); } catch { /* Defaults apply. */ } return preference === 'git' && Boolean(window.matchMedia?.('(min-width: 1101px)').matches); }
+  window.relayGit = { close: () => { if (!$('git-panel').hidden) setGitPanel(false, false); } };
 
   const diffDialog = $('diff-dialog'), statusNames = { added: 'Added', untracked: 'New file', deleted: 'Deleted', renamed: 'Renamed', modified: 'Modified' };
   let diffRequest = 0;
