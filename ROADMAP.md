@@ -40,6 +40,7 @@ The fastest way to make Throughline better is to use it on your real projects an
 | Contextual background reviews, grouped cloud/local model selection and prefilled Ask a Friend previews | [0.11.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.0) |
 | Full auto-approval with an explicit workspace permission mode | [0.12.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.12.0) |
 | Gemini conversation discovery, preview and import with an agent filter | [0.12.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.12.0) |
+| Project command controls with Run, Test and Stop actions, package suggestions and live output | [0.13.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.13.0) |
 
 ## Now
 
@@ -57,7 +58,6 @@ The fastest way to make Throughline better is to use it on your real projects an
 | Feature | Status | Issue |
 | --- | --- | --- |
 | Adaptive agent, model and effort selection with Cost Saving, Balanced and Maximum Quality modes | Follows the first additional provider in #4; [scope and stages below](#adaptive-agent-and-model-routing) | [#12](https://github.com/AhmedNavaz/throughline/issues/12) |
-| Run, test and stop the current project with saved commands and live output | Shipped in main; first step toward the terminal | [#47](https://github.com/AhmedNavaz/throughline/issues/47) |
 | Resume when limits reset: continue on whichever agent resets first, and queue prompts until then | Planned, help wanted | [#32](https://github.com/AhmedNavaz/throughline/issues/32) |
 | Windows and Linux builds | Planned, help wanted | [#5](https://github.com/AhmedNavaz/throughline/issues/5) |
 | Commit reviewed changes from the Git panel | Planned | [#6](https://github.com/AhmedNavaz/throughline/issues/6) |

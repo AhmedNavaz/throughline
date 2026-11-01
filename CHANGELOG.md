@@ -4,6 +4,8 @@ Notable changes to Throughline. The format follows [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-01
+
 ### Added
 
 - **Project command controls (#47)**: Configure, inspect, and run persistent local commands (such as dev servers and test runners) for each workspace with separate Run and Test actions. Includes inert script detection from `package.json`, bounded UTF-8 output logs with clickable local URL actions, active process badges, and stop/restart controls that remain running during agent editing.
@@ -233,6 +235,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.13.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.13.0
 [0.12.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.12.0
 [0.11.3]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.3
 [0.11.2]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.2
