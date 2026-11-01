@@ -4,6 +4,10 @@ Notable changes to Throughline. The format follows [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+### Added
+
+- **Project command controls (#47)**: Configure, inspect, and run persistent local commands (such as dev servers and test runners) for each workspace with separate Run and Test actions. Includes inert script detection from `package.json`, bounded UTF-8 output logs with clickable local URL actions, active process badges, and stop/restart controls that remain running during agent editing.
+
 ### Changed
 
 - Local backend modules now live in `src/`, with updated launch paths, tests, sharing-container inputs and contributor documentation. The repository root focuses on project information and configuration; saved-data locations and npm commands remain unchanged.

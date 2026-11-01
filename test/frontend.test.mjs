@@ -62,7 +62,7 @@ const response=(data,status=200)=>({ok:status>=200&&status<300,status,text:async
 async function flush(){for(let index=0;index<12;index++)await new Promise(resolve=>setImmediate(resolve));}
 function deferred(){let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};}
 
-async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,updatesUI=setup,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,reviewsUI=false,localUI=false,modelPickerUI=false,launch=null,theme=false,systemDark=true}={}){
+async function browser({existing=true,available=true,providers={},authenticated=true,billingSource='subscription',accountErrors=[],workbench=false,insights=false,historyUI=insights,empty=false,moreProjects=false,desktop=false,wide=false,stored={},usage=null,setup=false,updatesUI=setup,savedPreferences={},desktopControls=false,filesUI=false,searchUI=false,reviewsUI=false,localUI=false,modelPickerUI=false,commandsUI=false,launch=null,theme=false,systemDark=true}={}){
   const document=documentFixture(),window=new Events(),storage=new Map(Object.entries(stored)),timers=new Map(),requests=[],handoffs=[],pickedFolders=[],updateAcknowledgements=[],externalLinks=[];let timerId=0,intercept=null;
   let preferences=clone(savedPreferences);
   window.innerWidth=1280;window.innerHeight=800;
@@ -72,6 +72,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   const projects=empty?[]:[project],removedProjects=new Map();if(moreProjects)projects.push({id:'project-two',name:'Other workspace',path:'/workspace/other/api',available:true,folders:[folder('api','API','/workspace/other/api')]});
   const newConversation=()=>({id:randomUUID(),title:'Conversation',provider:'codex',mode:'edit',approvalPolicy:'ask',models:{},status:'idle',messages:[],context:{goal:'',decisions:[],tasks:[]},updatedAt:'2026-10-20T00:00:00.000Z'});
   const conversations=[],canonical=new Map(),submissions=new Map();let chatCreations=0;
+  const commandStates=new Map();
   const snapshots=new Map();
   const importSources=[
     {id:'claude-one',provider:'claude',title:'Plan the API',folder:'frontend',cwd:'/workspace/example/frontend',updatedAt:'2026-10-20T09:02:00.000Z',messages:[{sourceId:'c1',role:'user',text:'Plan the API',timestamp:'2026-10-20T09:00:00.000Z'},{sourceId:'c2',role:'assistant',text:'Claude planned it',timestamp:'2026-10-20T09:02:00.000Z'}]},
@@ -84,6 +85,16 @@ async function browser({existing=true,available=true,providers={},authenticated=
   async function fetch(url,options={}){
     const address=new URL(url,'http://127.0.0.1:4318');const request={path:address.pathname,projectId:address.searchParams.get('projectId'),params:Object.fromEntries(address.searchParams),method:options.method||'GET',body:options.body?JSON.parse(options.body):null};requests.push(request);
     const next=()=>{
+      if (request.path.startsWith('/api/commands')) {
+        assert(projects.some(project=>project.id===request.projectId),'Project commands must name the current workspace.');
+        let saved=commandStates.get(request.projectId); if(!saved){saved={commands:{},sessions:{}};commandStates.set(request.projectId,saved);}
+        if(request.path==='/api/commands')return response(clone(saved));
+        if(request.path==='/api/commands/detect')return response({manager:'npm',scripts:['dev','test'],suggestions:{run:'npm run dev',test:'npm run test'},message:'Review before executing.'});
+        const [,action,operation]=request.path.match(/^\/api\/commands\/(run|test)(?:\/(start|stop))?$/);
+        if(operation==='start'){saved.commands[action]=clone(request.body);saved.sessions[action]={...request.body,id:randomUUID(),action,status:'running',output:'http://localhost:3000',cwd:'/workspace/example/frontend',exitCode:null,urls:['http://localhost:3000/']};return response(clone(saved.sessions[action]),202);}
+        if(operation==='stop'){assert.equal(request.body.sessionId,saved.sessions[action].id);saved.sessions[action].status='stopped';return response(clone(saved.sessions[action]));}
+        saved.commands[action]=clone(request.body);return response(clone(request.body));
+      }
       if(request.path==='/api/files')return response({entries:[],nextOffset:null});
       if(request.path==='/api/attachments'&&request.method==='POST'){const id=(snapshots.size+1).toString(16).padStart(64,'0'), file={id,name:request.body.name,kind:'text',mime:'text/plain',bytes:10};snapshots.set(id,file);return response(file,201);}
       if(request.path==='/api/attachments/preview')return response({...snapshots.get(request.params.id),text:'snapshot'});
@@ -163,6 +174,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   if(setup)vm.runInContext(fs.readFileSync(new URL('../public/setup.js',import.meta.url),'utf8'),context,{filename:'public/setup.js'});
   if(updatesUI)vm.runInContext(fs.readFileSync(new URL('../public/updates.js',import.meta.url),'utf8'),context,{filename:'public/updates.js'});
   if(localUI)vm.runInContext(fs.readFileSync(new URL('../public/local-models.js',import.meta.url),'utf8'),context,{filename:'public/local-models.js'});
+  if(commandsUI)vm.runInContext(fs.readFileSync(new URL('../public/project-commands.js',import.meta.url),'utf8'),context,{filename:'public/project-commands.js'});
   if(filesUI)vm.runInContext(fs.readFileSync(new URL('../public/files.js',import.meta.url),'utf8'),context,{filename:'public/files.js'});
   if(searchUI)vm.runInContext(fs.readFileSync(new URL('../public/conversation-search.js',import.meta.url),'utf8'),context,{filename:'public/conversation-search.js'});
   if(reviewsUI)vm.runInContext(fs.readFileSync(new URL('../public/agent-review.js',import.meta.url),'utf8'),context,{filename:'public/agent-review.js'});
@@ -1488,4 +1500,47 @@ test('permission controls offer Ask for permission and Full auto-approval and en
   assert.equal(ui.state().approvalPolicy, 'ask');
   assert.equal(ui.$('approval-select').value, 'ask');
   assert.equal(ui.$('approval-select').disabled, true);
+});
+
+
+test('project controls preview commands without executing, preserve the chat draft and keep output alive when hidden',async()=>{
+  const ui=await browser({commandsUI:true,desktop:true});
+  ui.$('message-input').value='Keep coding while the server runs';ui.fire('message-input','input');
+  ui.$('open-commands').click();await flush();assert.equal(ui.$('project-commands').hidden,false);
+  assert.equal(ui.$('command-folder').value,'frontend');assert.equal(ui.$('command-start').disabled,true);
+  ui.$('command-detect').click();await flush();assert.equal(ui.$('command-text').value,'npm run dev');
+  assert.match(ui.$('command-detection').textContent,/npm/);assert.match(ui.$('command-location').textContent,/frontend/);
+  assert.equal(ui.requests.filter(request=>request.path.endsWith('/start')).length,0,'Detection never starts scripts.');
+  ui.$('command-text').value='npm run dev -- --port 3000';ui.fire('command-text','input');
+  ui.$('command-start').click();ui.$('command-start').click();await flush();
+  assert.equal(ui.requests.filter(request=>request.path==='/api/commands/run/start').length,1);
+  assert.equal(ui.$('command-config').open,false);assert.equal(ui.$('command-stop').disabled,false);assert.equal(ui.$('command-start').disabled,true);
+  assert.match(ui.$('command-output').textContent,/localhost:3000/);assert.equal(ui.$('command-badge').textContent,'1');
+  ui.$('close-commands').click();assert.equal(ui.$('project-commands').hidden,true);
+  assert.equal(ui.requests.filter(request=>request.path.endsWith('/stop')).length,0);
+  ui.$('open-commands').click();await flush();ui.$('command-links').children[0].click();await flush();assert(ui.externalLinks.includes('http://localhost:3000/'));
+  ui.$('command-stop').click();await flush();assert.equal(ui.$('command-status').textContent,'Stopped');assert.equal(ui.$('command-start').disabled,false);
+  assert.equal(ui.$('message-input').value,'Keep coding while the server runs');
+  assert.equal(ui.requests.filter(request=>/\/(messages|continue)$/.test(request.path)).length,0);
+});
+
+test('project command configuration and sessions stay separate across actions and workspaces',async()=>{
+  const ui=await browser({commandsUI:true,moreProjects:true});ui.$('open-commands').click();await flush();
+  ui.$('command-text').value='npm run dev';ui.fire('command-text','input');ui.$('command-start').click();await flush();
+  ui.$('command-tab-test').click();await flush();assert.equal(ui.$('command-text').value,'');ui.$('command-text').value='npm test';ui.fire('command-text','input');ui.$('command-save').click();await flush();
+  ui.$('command-tab-run').click();await flush();assert.equal(ui.$('command-text').value,'npm run dev');assert.equal(ui.$('command-stop').disabled,false);
+  await ui.switchProject('project-two');assert.equal(ui.$('command-text').value,'');assert.equal(ui.$('command-stop').disabled,true);assert.equal(ui.$('command-output').textContent,'Output will appear here when you start a command.');
+  ui.$('command-text').value='python app.py';ui.fire('command-text','input');
+  await ui.switchProject('project-one');assert.equal(ui.$('command-text').value,'npm run dev');assert.equal(ui.$('command-stop').disabled,false);
+  ui.$('command-tab-test').click();await flush();assert.equal(ui.$('command-text').value,'npm test');
+  assert.equal(ui.requests.filter(request=>request.path.endsWith('/stop')).length,0);
+});
+
+test('stale command detection cannot replace another workspace draft and output is literal text',async()=>{
+  const ui=await browser({commandsUI:true,moreProjects:true});ui.$('open-commands').click();await flush();const held=deferred();
+  ui.setIntercept((request,next)=>request.path==='/api/commands/detect'?held.promise.then(next):next());
+  ui.$('command-detect').click();await flush();await ui.switchProject('project-two');ui.$('command-text').value='other draft';ui.fire('command-text','input');
+  held.resolve();await flush();assert.equal(ui.$('command-text').value,'other draft');assert.equal(ui.$('command-start').disabled,false);
+  ui.setIntercept((request,next)=>request.path==='/api/commands'?response({commands:{},sessions:{run:{status:'failed',command:'echo fixture',cwd:'/workspace/other/api',output:'<script>untrusted</script>',exitCode:1,urls:['javascript:alert(1)','http://evil.example','http://user:pass@localhost:42','http://localhost:42']}}}):next());
+  await ui.window.relayCommands.refresh();assert.equal(ui.$('command-output').textContent,'<script>untrusted</script>');assert.equal(ui.$('command-links').children.length,1);
 });

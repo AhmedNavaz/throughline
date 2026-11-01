@@ -8,3 +8,4 @@ sharing/.data/
 *.code-workspace
 .env
 .env.*
+skills/

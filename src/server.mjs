@@ -7,6 +7,7 @@ import { CollaborationService } from './collaboration.mjs';
 import { SharingClient, validateSharingURL } from './sharing-client.mjs';
 import { collaborationRoute } from './collaboration-routes.mjs';
 import { closeAccountConnections } from './providers.mjs';
+import { createCommandRoutes } from './project-commands.mjs';
 import { createWorkspaceRoutes } from './workspace-routes.mjs';
 import { createConversationRoutes } from './conversation-routes.mjs';
 import { createReviewRoutes } from './agent-review-routes.mjs';
@@ -15,7 +16,7 @@ import { atomicJSON } from './patches.mjs';
 import { appearance, appearances, preferencePatch, publicPreferences } from './preferences.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const assets = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/desktop-controls.js': ['desktop-controls.js', 'text/javascript; charset=utf-8'], '/setup.js': ['setup.js', 'text/javascript; charset=utf-8'], '/polish.css': ['polish.css', 'text/css; charset=utf-8'], '/files.js': ['files.js', 'text/javascript; charset=utf-8'], '/files.css': ['files.css', 'text/css; charset=utf-8'], '/onboarding.css': ['onboarding.css', 'text/css; charset=utf-8'],
+const assets = { '/project-commands.js': ['project-commands.js', 'text/javascript; charset=utf-8'], '/project-commands.css': ['project-commands.css', 'text/css; charset=utf-8'], '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/desktop-controls.js': ['desktop-controls.js', 'text/javascript; charset=utf-8'], '/setup.js': ['setup.js', 'text/javascript; charset=utf-8'], '/polish.css': ['polish.css', 'text/css; charset=utf-8'], '/files.js': ['files.js', 'text/javascript; charset=utf-8'], '/files.css': ['files.css', 'text/css; charset=utf-8'], '/onboarding.css': ['onboarding.css', 'text/css; charset=utf-8'],
   '/model-picker.js': ['model-picker.js', 'text/javascript; charset=utf-8'], '/model-picker.css': ['model-picker.css', 'text/css; charset=utf-8'],
   '/updates.js': ['updates.js', 'text/javascript; charset=utf-8'], '/updates.css': ['updates.css', 'text/css; charset=utf-8'],
   '/local-models.js': ['local-models.js', 'text/javascript; charset=utf-8'], '/local-models.css': ['local-models.css', 'text/css; charset=utf-8'],
@@ -69,6 +70,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
   const conversationRoutes = createConversationRoutes({ registry, body, json, importer });
   const reviewRoutes = createReviewRoutes({ registry, body, json });
   const localRoutes = createLocalRoutes({ registry, body, json });
+  const commandRoutes = createCommandRoutes({ registry, body, json });
   const listeners = new Set();
   let closing = false;
   registry.on('update', update => {
@@ -153,6 +155,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
       const projectRoute=url.pathname.match(/^\/api\/projects\/([a-zA-Z0-9-]+)$/);
       if(req.method==='POST'&&projectRoute)return json(res,200,await registry.update(projectRoute[1],await body(req)));
       if(req.method==='GET'&&url.pathname==='/api/conversation')return json(res,200,registry.mainConversation(selectedProjectId(url)));
+      if (await commandRoutes.route({ req, res, url })) return;
       if (await workspaceRoutes({ req, res, url })) return;
       if (await conversationRoutes({ req, res, url })) return;
       if (await reviewRoutes({ req, res, url })) return;
@@ -204,12 +207,13 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
     closing = true;
     closeAccountConnections();
     await reviewRoutes.close();
+    await commandRoutes.close();
     await registry.close();
     clearInterval(heartbeat);
     for (const res of listeners) res.end();
     await new Promise(resolve => { server.close(resolve); if (force) server.closeAllConnections(); });
   })();
-  return { server, registry, collaboration, sharing, close,
+  return { server, registry, collaboration, sharing, commands: commandRoutes.commands, close,
     getAppearancePreference: () => appearance(config),
     getKeepAwakePreference: () => config.keepAwake === true,
     setKeepAwakePreference: enabled => { if (typeof enabled !== 'boolean') throw new Error('Keep awake must be enabled or disabled.'); saveSettings({ keepAwake: enabled }); },

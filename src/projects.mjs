@@ -154,6 +154,7 @@ export class ProjectRegistry extends EventEmitter {
   remove(id) {
     this.assertOpen(); this.reload(); const before = this.entry(id, true);
     if (before.removedAt) return { id, removed: true };
+    if (this.hasRunningCommands?.(id)) throw fail('Stop the project commands before removing this workspace.', 409);
     if (this.brokers.get(id)?.broker.running || this.brokers.get(id)?.broker.backgroundReview) throw fail('Stop the current run and background review before removing this workspace.', 409);
     const signature = rootsSignature(before.folders);
     const lease = this.mutations.acquireMany(before.folders.map(folder => folder.path), 'workspace-removal');
@@ -212,6 +213,7 @@ export class ProjectRegistry extends EventEmitter {
 
   changeFolders(id, folders, aliases) {
     this.assertOpen(); this.reload(); const before = this.entry(id); const signature = rootsSignature(before.folders);
+    if (this.hasRunningCommands?.(id)) throw fail('Stop the project commands before changing workspace folders.', 409);
     if (this.brokers.get(id)?.broker.running || this.brokers.get(id)?.broker.backgroundReview) throw fail('Stop the current run and background review before changing workspace folders.', 409);
     const lease = this.mutations.acquireMany([...new Set([...before.folders, ...folders].map(folder => folder.path))], 'workspace-membership');
     let held = null; let releaseHeld = false;

@@ -26,6 +26,8 @@
     <script src="/files.js" defer></script>
     <script src="/conversation-search.js" defer></script>
     <script src="/agent-review.js" defer></script>
+    <script src="/project-commands.js" defer></script>
+    <link rel="stylesheet" href="/project-commands.css" />
     <link rel="stylesheet" href="/polish.css" />
     <link rel="stylesheet" href="/files.css" />
     <link rel="stylesheet" href="/onboarding.css" />
@@ -62,6 +64,7 @@
             <button id="open-import" class="toolbar-button" type="button" title="Review and merge previous conversations for this workspace" disabled><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 21h14"/></svg><span class="button-label">Previous chats</span></button>
             <button id="open-export" class="toolbar-button" type="button" title="Export this conversation to share with another Throughline user"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m-4 4 4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg><span class="button-label">Export</span></button>
             <button id="ask-friend" class="toolbar-button" type="button" title="Ask a friend for help"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.5A6.5 6.5 0 0 1 21.5 20"/></svg><span class="button-label">Ask a friend</span></button>
+            <button id="open-commands" class="toolbar-button" type="button" aria-expanded="false" aria-controls="project-commands" title="Run and test this project" disabled><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg><span class="button-label">Run</span><span id="command-badge" class="command-badge" hidden></span></button>
             <button id="open-git" class="toolbar-button" type="button" aria-expanded="false" aria-controls="git-panel" title="Git activity"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="6" r="2"/><path d="M6 7v10M18 8v1a5 5 0 0 1-5 5H6"/></svg><span class="button-label">Git</span></button>
           </div>
         </header>
@@ -148,6 +151,12 @@
           <p id="permission-note" class="sr-only">Review workspace permissions in Settings.</p>
         </div>
         <div id="announcer" class="sr-only" role="status" aria-live="polite"></div>
+        <section id="project-commands" class="project-commands" aria-label="Project commands" hidden>
+          <header class="command-heading"><h2>Project commands</h2><div class="command-tabs" role="group" aria-label="Command type"><button id="command-tab-run" class="toolbar-button" type="button" aria-pressed="true">Run</button><button id="command-tab-test" class="toolbar-button" type="button" aria-pressed="false">Test</button></div><button id="close-commands" class="toolbar-button" type="button" aria-label="Hide project output">Hide</button></header>
+          <div class="command-actions"><button id="command-start" class="secondary-button" type="button">Run project</button><button id="command-stop" class="secondary-button" type="button" disabled>Stop</button><span id="command-status" class="command-status" role="status">Ready</span></div>
+          <details id="command-config" class="command-config" open><summary>Configure command</summary><div class="command-fields"><label>Attached folder<select id="command-folder" aria-label="Command folder"></select></label><label>Package subdirectory<input id="command-directory" placeholder=". (folder root)" autocomplete="off" spellcheck="false" maxlength="1024" /></label><label class="command-full">Shell command<input id="command-text" placeholder="e.g. npm run dev" autocomplete="off" spellcheck="false" maxlength="4096" /></label></div><div class="command-actions"><button id="command-detect" class="text-link" type="button">Find suggestions</button><button id="command-save" class="text-link" type="button">Save command</button></div><p id="command-detection" class="command-note"></p><div id="command-suggestions" class="command-suggestions"></div><p class="command-note">Runs with your local shell permissions, independently of the agent’s access mode. Commands can change files while the agent works. Check scripts before running; hide keeps them running, Stop or quitting ends them.</p></details>
+          <p class="command-note">Working directory: <span id="command-location"></span></p><p id="command-error" class="project-error" role="alert" hidden></p><code id="command-executed" class="command-executed"></code><div id="command-links" class="command-links"></div><p id="command-truncated" class="command-note" hidden>Older output discarded. Showing the latest 64K characters.</p><pre id="command-output" class="command-output" tabindex="0" aria-label="Command output"></pre>
+        </section>
       </main>
 
       <aside id="git-panel" class="git-panel" aria-label="Git activity" hidden>

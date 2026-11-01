@@ -150,3 +150,13 @@ export function resolveBinary(provider, {
   }
   return provider === 'codex' ? firstExecutable(extensionExecutables(extensionRoots, platform, arch)) : null;
 }
+
+// Finder launches have a minimal PATH. Project commands need the user's Node/package
+// manager installations, but never resolve executables from an empty/relative entry.
+export function commandEnvironment(env = process.env, home = os.homedir()) {
+  const result = Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('AI_RELAY_') && !['ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS'].includes(key)));
+  const key = process.platform === 'win32' && !('PATH' in result) && 'Path' in result ? 'Path' : 'PATH';
+  const directories = (result[key] || '').split(path.delimiter).filter(value => path.isAbsolute(value));
+  result[key] = [...new Set([...directories, ...nvmBinDirs(home, env), path.join(home, '.volta/bin'), path.join(home, '.bun/bin'), path.join(home, 'Library/pnpm'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'])].join(path.delimiter);
+  return result;
+}
