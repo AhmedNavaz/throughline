@@ -41,14 +41,21 @@ The fastest way to make Throughline better is to use it on your real projects an
 | Full auto-approval with an explicit workspace permission mode | [0.12.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.12.0) |
 | Gemini conversation discovery, preview and import with an agent filter | [0.12.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.12.0) |
 | Project command controls with Run, Test and Stop actions, package suggestions and live output | [0.13.0](https://github.com/AhmedNavaz/throughline/releases/tag/v0.13.0) |
+| A clearer conversation: prompt bubbles, one-line live activity, pinned prompts and a quiet run status ([#45](https://github.com/AhmedNavaz/throughline/issues/45)) | Next release |
+| Searchable model picker, and a reasoning effort slider that follows each model's levels | Next release |
+| Agent handoffs that keep the task's intent ahead of tool logs ([#69](https://github.com/AhmedNavaz/throughline/issues/69)) | Next release |
+| Continue a stopped task with any agent and model, or wait for a usage limit to reset and continue automatically ([#32](https://github.com/AhmedNavaz/throughline/issues/32)) | Next release |
+| Ask before changes: read-only actions in the workspace run without approval ([#68](https://github.com/AhmedNavaz/throughline/issues/68)) | Next release |
+| Dock badge and alerts when a run finishes, stops or needs approval ([#46](https://github.com/AhmedNavaz/throughline/issues/46)) | Next release |
+| Reliable Gemini connection on networks where Google stalls over IPv6 | Next release |
 
 ## Now
 
 | Feature | Status | Issue |
 | --- | --- | --- |
 | More agents and models, including Google's supported coding-agent integration, free cloud tiers and local models, on your own accounts | First milestones shipped in 0.10.0: Gemini CLI over ACP and explicit Ollama local-model handoffs through Codex tools; Google personal-account support now uses Antigravity ACP with native sign-in and model discovery in 0.11.0; further provider adapters remain ahead of automatic routing | [#4](https://github.com/AhmedNavaz/throughline/issues/4) |
-| Compact workspace activity with clear actions, results and expandable details | Planned, help wanted | [#45](https://github.com/AhmedNavaz/throughline/issues/45) |
-| Persistent approval indicators and desktop notifications that open the right request | Planned | [#46](https://github.com/AhmedNavaz/throughline/issues/46) |
+| Persistent approval indicators and desktop notifications that open the right request | Dock badge and alerts ship in the next release; a needs-approval marker in the workspace list and notification settings remain | [#46](https://github.com/AhmedNavaz/throughline/issues/46) |
+| Fewer repeated approvals: allow an action for a run or remember it for a workspace, with rules you can review and revoke | Read-only actions run without asking from the next release; run and workspace scopes are next | [#68](https://github.com/AhmedNavaz/throughline/issues/68) |
 | Notarized macOS builds, so downloads open without a security prompt | Waiting on an Apple Developer account | [#1](https://github.com/AhmedNavaz/throughline/issues/1) |
 | Update button: get new versions from inside the app with one click | Planned | [#2](https://github.com/AhmedNavaz/throughline/issues/2) |
 | Install with Homebrew: `brew install --cask throughline` | Depends on #1 | [#3](https://github.com/AhmedNavaz/throughline/issues/3) |
@@ -58,7 +65,7 @@ The fastest way to make Throughline better is to use it on your real projects an
 | Feature | Status | Issue |
 | --- | --- | --- |
 | Adaptive agent, model and effort selection with Cost Saving, Balanced and Maximum Quality modes | Follows the first additional provider in #4; [scope and stages below](#adaptive-agent-and-model-routing) | [#12](https://github.com/AhmedNavaz/throughline/issues/12) |
-| Resume when limits reset: continue on whichever agent resets first, and queue prompts until then | In progress: waiting for a reset is built; the prompt queue is next | [#32](https://github.com/AhmedNavaz/throughline/issues/32) |
+| Resume when limits reset: continue on whichever agent resets first, and queue prompts until then | Waiting for a reset ships in the next release; the prompt queue is next | [#32](https://github.com/AhmedNavaz/throughline/issues/32) |
 | Windows and Linux builds | Planned, help wanted | [#5](https://github.com/AhmedNavaz/throughline/issues/5) |
 | Commit reviewed changes from the Git panel | Planned | [#6](https://github.com/AhmedNavaz/throughline/issues/6) |
 | Integrated workspace terminal | Follows project command controls; PTY design needed | [#7](https://github.com/AhmedNavaz/throughline/issues/7) |

@@ -18,10 +18,12 @@ Each project becomes a continuous working thread: its folders, conversation, sav
 
 - One permanent conversation per project, shared by all its folders, such as frontend, backend and website.
 - Switch between Claude Code, Codex and Gemini mid-task, for example when one hits its usage limit. The next agent picks up the shared context.
+- When a usage limit stops a run, continue with any agent and model, or let the task wait and continue on whichever agent has room first once a limit resets.
 - **Continue locally** with a downloaded Ollama coding model when cloud allowances run out. The same project thread carries over, using Codex's workspace tools and approvals with separate local-model attribution. See [setup and limits](docs/guide.md#local-models).
 - Choose cloud agents and downloaded local models in one searchable picker, then use the same composer.
 - Choose the model, reasoning effort and access (read only or can edit files) for every message.
-- Approve agent actions in the app and follow each run live: current step, tool calls, elapsed time and token counts.
+- Approve agent actions in the app and follow each run live: current step, tool calls, elapsed time and token counts. **Ask before changes** lets reading the workspace run without approval and asks before edits, installs, scripts or network access.
+- When you are in another app, the Dock shows what finished or needs your approval.
 - Run agents in several workspaces at once; the sidebar shows which ones are busy.
 - Find earlier messages and code with Cmd/Ctrl+F, highlighted matches and next/previous navigation.
 - Get a second opinion with **Review**: a background agent checks a saved snapshot of selected changes in a side panel while you continue the next task. Findings become outdated when those files change.
@@ -31,7 +33,7 @@ Each project becomes a continuous working thread: its folders, conversation, sav
 - Git activity for each folder: changed files with diffs, and recent commits.
 - A file browser with syntax-highlighted previews. Attach files and images by clicking, dragging or pasting.
 - Plan usage for Claude Code and Codex in the status bar, with reset times, plus per-run context usage when reported.
-- Keep awake: your Mac stays awake while agents are working and sleeps normally once they finish.
+- Keep awake: your Mac stays awake while agents are working or waiting for a usage limit to reset, and sleeps normally once they finish.
 - Native desktop menus for workspaces, agents, conversation search, appearance and Help, with keyboard shortcuts and current selections.
 
 **Context portability and human collaboration**
@@ -79,7 +81,7 @@ Inference starts only when you explicitly send a task, continue one or start a r
 
 ## Roadmap
 
-Next up: notarized macOS builds, automatic updates, resuming work as soon as a usage limit resets, Windows and Linux builds, and more agents and models such as Grok and DeepSeek. Further out: voice mode (say what you want, hear a short summary of what changed), automatic model and effort choice for each request, live progress in your Mac's menu bar or notch, and agents that review each other's work. See [ROADMAP.md](ROADMAP.md) for what has shipped and the full plan.
+Next up: notarized macOS builds, automatic updates, a queue of prompts that run as usage limits allow, Windows and Linux builds, and more agents and models such as Grok and DeepSeek. Further out: voice mode (say what you want, hear a short summary of what changed), automatic model and effort choice for each request, live progress in your Mac's menu bar or notch, and agents that review each other's work. See [ROADMAP.md](ROADMAP.md) for what has shipped and the full plan.
 
 ## Support Throughline
 
