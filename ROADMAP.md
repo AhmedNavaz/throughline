@@ -108,7 +108,7 @@ Larger ideas for bringing project context, execution and collaboration into one 
 | --- | --- |
 | **Voice mode.** Say what you want, the agent does it, then reads back a short spoken summary. Ask about the project out loud too. | [#11](https://github.com/AhmedNavaz/throughline/issues/11) |
 | **Live status at a glance.** Progress and input requests in the Mac menu bar and around the notch, extending the desktop approval alerts in [#46](https://github.com/AhmedNavaz/throughline/issues/46). | [#13](https://github.com/AhmedNavaz/throughline/issues/13) |
-| **Play while it works.** Small built-in games for long runs that pause the moment the agent needs you. | [#14](https://github.com/AhmedNavaz/throughline/issues/14) |
+| **Focus and downtime.** Optional timers, ambient audio, reading and short games during agent runs, with persistent status and a clear return to the project when attention is needed. [Scope and stages below](#focus-and-downtime). | [#14](https://github.com/AhmedNavaz/throughline/issues/14) |
 | **Automatic tag-team cycles.** Extend cross-agent review with an opt-in handoff from builder to reviewer and user-approved fix cycles. | [#15](https://github.com/AhmedNavaz/throughline/issues/15) |
 | **Race mode.** Two agents take the same task in separate worktrees; keep the better result. | [#16](https://github.com/AhmedNavaz/throughline/issues/16) |
 | **Budget-aware handoff.** Offer an eligible agent when allowance runs low or a usage limit stops the run, following the selected routing mode, allowed providers and spending limits. | [#17](https://github.com/AhmedNavaz/throughline/issues/17) |
@@ -119,6 +119,24 @@ Larger ideas for bringing project context, execution and collaboration into one 
 | **"While you were away" recaps.** A short written or spoken briefing of what ran and what is waiting. | [#22](https://github.com/AhmedNavaz/throughline/issues/22) |
 | **Approve from your phone.** Extend desktop approval alerts to a paired phone, with run progress and iPhone Live Activities. | [#23](https://github.com/AhmedNavaz/throughline/issues/23) |
 | **Live multiplayer.** Teammates in the same conversation in real time, each on their own subscription. | [#24](https://github.com/AhmedNavaz/throughline/issues/24) |
+
+### Focus and downtime
+
+Explore an optional space for focus, breaks and enjoyable downtime while agents work. Users should be able to listen, read, play briefly or step away, then return with a clear account of what changed and what needs their attention. Keep the project conversation, execution and review central; the whole space should be easy to disable.
+
+Deliver in stages, starting with agent awareness:
+
+1. **Stay informed and return easily.** Build on compact activity in [#45](https://github.com/AhmedNavaz/throughline/issues/45) and actionable approval alerts in [#46](https://github.com/AhmedNavaz/throughline/issues/46). Keep status visible within the app and notifications useful outside it; extend those surfaces through [#13](https://github.com/AhmedNavaz/throughline/issues/13). Link a factual return recap in [#22](https://github.com/AhmedNavaz/throughline/issues/22) to the result, changed files and outstanding requests.
+2. **Try a small local experience.** Offer a configurable focus or break timer, a clock and optional ambient audio. Start without a network service, model calls or extra account requirements. Timers can be paused, snoozed or dismissed; no fixed routine is imposed.
+3. **Validate optional activities.** Experiment with a short pauseable game, saved reading links or user-selected feeds. Add music or video integrations only when users request them and the provider supports the intended desktop experience. General browsing, film and series playback, weather and quote widgets need separate justification before expanding the scope.
+
+Design boundaries:
+
+- Distinguish running, needs input, failed and ready to review. Show actual reported activity; do not invent progress percentages or completion times. An attention indicator opens the correct workspace and request.
+- Keep approvals in trusted application UI. Consuming media never grants permission or enables auto-approval. Pause a built-in game when attention is required; pausing or lowering media volume requires the user's preference, and unrelated external players remain under their control.
+- Keep remote articles and players isolated from coding capabilities, project files, credentials and the desktop bridge. Prefer official integrations or opening the user's external application. Free APIs and open-source tools still require checks of licenses, content access, account requirements and maintenance costs.
+- Load optional services only after the user chooses them. Avoid autoplay, infinite feeds, streaks and incentives to remain in the app. OS notifications remain available when users choose another application or a physical break.
+- Trial the small experience with interested users and people who prefer a plain workspace. Evaluate enjoyment, missed requests, time to return and review, unwanted distraction and task completion. Expand based on usefulness rather than time spent inside Throughline; do not claim productivity gains before measuring them.
 
 ## Good places to start
 
