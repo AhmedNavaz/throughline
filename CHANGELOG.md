@@ -6,6 +6,7 @@ Notable changes to Throughline. The format follows [Keep a Changelog](https://ke
 
 ### Added
 
+- **Allow for this run** and **Always allow in this workspace** on approvals (#68): an approved action can run again without asking, for the rest of the run or remembered for the workspace. A rule covers only the exact action: the agent, the exact command and its folder (single commands only), or the exact file to edit. The activity log names the rule that allowed an action, and **Workspace settings** lists remembered approvals to revoke one or all. Rules stay with their workspace.
 - **Continue when a limit resets** (#32): after a run stops on a usage limit, the task can wait and continue on whichever connected agent has room first, using each agent's reported reset time or checking every ten minutes when none is reported. The continued run keeps the access shown on the wait and never gets more; full auto-approval applies only if you keep it when you choose to wait. When you are in another app, the Dock badge counts what happened and bounces when an approval is waiting; system notifications are added where macOS allows them, which requires a signed build (#1). This covers every run, not only continued ones. The wait survives restarts, Keep awake covers it, and it ends after a day, when cancelled, or when you send a message yourself.
 
 ### Changed

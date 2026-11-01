@@ -87,7 +87,7 @@
   }
   async function api(path, options = {}, projectId = state.projectId) {
     const providerEndpoint = /^\/api\/providers(?:\/|$)/.test(path);
-    if (/^\/api\/(?:status|conversation|conversations|collaboration|git|imports|files|attachments|reviews|local-models|commands)(?:\/|$|\?)/.test(path) || (providerEndpoint && projectId)) {
+    if (/^\/api\/(?:status|conversation|conversations|collaboration|git|imports|files|attachments|reviews|local-models|commands|permissions)(?:\/|$|\?)/.test(path) || (providerEndpoint && projectId)) {
       if (!projectId) throw new Error("Choose a project first.");
       path += `${path.includes("?") ? "&" : "?"}projectId=${encodeURIComponent(projectId)}`;
     }
@@ -407,6 +407,8 @@
       // The row shows a short verb with the path beside it; the full action describes the live run.
       return { kind: 'tool', icon, action, verb, detail: filePath || input.command || input.url || '', toolName: name, input, filePath, raw: text };
     }
+    // Remembered approvals say which rule allowed the action.
+    if (/^Allowed (?:by your rule|for this run|and remembered)/.test(text)) return { kind: 'approval', icon: 'approval', action: text.split('\n')[0].slice(0, 160), raw: text };
     if (text.includes('Approval allowed') || text.includes('auto-approved')) {
       return { kind: 'approval', icon: 'approval', action: 'Tool approved', raw: text };
     }
@@ -1042,11 +1044,30 @@
   }
   function openWorkspaceOptions(id) {
     const project = state.projects.find(item => item.id === id); if (!project || projectBusy()) return;
-    optionsProjectId = id; renderFolderSettings(id); $('rename-workspace-name').value = project.name; $('workspace-options-error').hidden = true;
+    optionsProjectId = id; renderFolderSettings(id); renderPermissions(id); $('rename-workspace-name').value = project.name; $('workspace-options-error').hidden = true;
     $('workspace-remove').disabled = Boolean(project.runningConversationId || id === state.projectId && isRunning());
     $('workspace-remove').title = $('workspace-remove').disabled ? 'Stop the current run before removing this workspace.' : '';
     $('workspace-options-dialog').showModal(); $('rename-workspace-name').focus();
   }
+  // Approvals remembered for this workspace, each revocable; a rule allows only the exact action it names.
+  async function renderPermissions(id, change = null) {
+    const list = $('workspace-permission-list'), empty = $('workspace-permissions-empty'), reset = $('workspace-permissions-reset');
+    let rules;
+    try { rules = (change ? await post('/api/permissions', change, id) : await api('/api/permissions', {}, id)).rules || []; }
+    catch (error) { $('workspace-options-error').textContent = error.message; $('workspace-options-error').hidden = false; return; }
+    if (optionsProjectId !== id) return;
+    list.replaceChildren(...rules.map(rule => {
+      const item = element('li', 'workspace-permission'), text = element('div', 'workspace-permission-text');
+      const used = rule.uses ? `used ${rule.uses} time${rule.uses === 1 ? '' : 's'}` : 'not used yet';
+      text.append(element('code', '', rule.label), element('span', '', `${label(rule.provider)} · ${rule.kind === 'command' ? 'command' : 'file edit'} · ${used}`));
+      const revoke = element('button', 'secondary-button', 'Revoke'); revoke.type = 'button';
+      revoke.setAttribute('aria-label', `Revoke ${rule.label}`);
+      revoke.addEventListener('click', () => renderPermissions(id, { revoke: rule.id }));
+      item.append(text, revoke); return item;
+    }));
+    empty.hidden = rules.length > 0; reset.hidden = rules.length < 2;
+  }
+  $('workspace-permissions-reset').addEventListener('click', () => { if (optionsProjectId) renderPermissions(optionsProjectId, { reset: true }); });
   $('close-workspace-options').addEventListener('click',()=>{ if (!state.projectSaving) $('workspace-options-dialog').close(); });
   $('workspace-options-dialog').addEventListener('cancel',event=>{if(state.projectSaving)event.preventDefault();});
   $('workspace-remove').addEventListener('click',()=>{ $('workspace-options-dialog').close(); confirmRemoveWorkspace(optionsProjectId); });

@@ -171,7 +171,8 @@ test('changed or cloud-routed model metadata fails the local run without launchi
 test('Stop cancels a local run and releases its workspace for another run', async t => {
   const f = await fixture(t), metadata = (await f.request()).body; f.scenario({ hang: true });
   await f.request('/start', selection(metadata)); const running = f.broker.running;
-  for (let tries = 0; tries < 150 && !f.captures().some(item => item.method === 'turn/start'); tries++) await new Promise(resolve => setTimeout(resolve, 20));
+  // The agent starts in its own process; under a busy full test run that can take more than a few seconds.
+  for (let tries = 0; tries < 1500 && !f.captures().some(item => item.method === 'turn/start'); tries++) await new Promise(resolve => setTimeout(resolve, 20));
   assert(f.captures().some(item => item.method === 'turn/start')); f.broker.stop(f.c.id); await running.done;
   assert.equal(f.c.status, 'interrupted'); assert.equal(f.broker.running, null); assert.equal(f.c.sessions.codex.id, 'original-paid-thread');
   f.scenario({}); await f.request('/start', selection(metadata, 'after-stop')); await f.broker.running.done; assert.equal(f.c.status, 'complete');

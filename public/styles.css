@@ -774,3 +774,16 @@ button.commit-hash:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Remembered approvals in Workspace settings. */
+.workspace-permission-section { margin-top: 18px; }
+.workspace-permission-section h3 { margin: 0 0 6px; color: var(--text-strong); font-size: 13px; font-weight: 600; }
+.workspace-permissions-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.workspace-permission-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.workspace-permission { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); }
+.workspace-permission:first-child { border-top: 0; }
+.workspace-permission-text { display: grid; flex: 1; min-width: 0; gap: 1px; }
+.workspace-permission-text code { overflow: hidden; color: var(--text); font: 12px/1.5 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.workspace-permission-text span { color: var(--faint); font-size: 11px; }
+.workspace-permission .secondary-button { height: 24px; padding: 0 10px; }
+#workspace-permissions-reset { margin-top: 8px; }

@@ -115,3 +115,32 @@ export function readOnlyRequest(request = {}, { workspaces = [] } = {}) {
   }
   return false;
 }
+
+// What an approval can be remembered as: the exact action, never a broader one. A command is its agent, its exact words
+// and the folder it runs in, and only a single command without pipes, chaining or redirection qualifies. A file edit is
+// its agent and that exact file inside the workspace. Anything else can only be allowed once.
+const editTools = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'edit', 'write_file', 'replace', 'edit_file']);
+export function approvalScope(request = {}, { provider, workspaces = [] } = {}) {
+  const roots = workspaces.map(root => path.resolve(root)), kind = String(request.kind || '');
+  const input = request.input && typeof request.input === 'object' ? request.input : {};
+  if (!roots.length || !provider) return null;
+  if (commandTools.has(kind)) {
+    let command = request.command ?? input.command ?? request.toolCall?.rawInput?.command;
+    if (Array.isArray(command) && command.length === 3 && ['-c', '-lc'].includes(command[1]) && /(?:^|\/)(?:ba|z)?sh$/.test(command[0])) command = command[2];
+    const segments = typeof command === 'string' ? words(command) : null;
+    if (!segments || segments.length !== 1) return null;
+    const cwd = path.resolve(request.cwd || input.directory || input.cwd || roots[0]);
+    if (!insideAny(cwd, roots)) return null;
+    const argv = segments[0], label = argv.map(word => /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word}'`).join(' ');
+    return { kind: 'command', key: JSON.stringify([provider, 'command', cwd, argv]), label, cwd };
+  }
+  if (editTools.has(kind)) {
+    const target = input.file_path || input.path || input.absolute_path || input.notebook_path || request.toolCall?.locations?.[0]?.path;
+    if (typeof target !== 'string' || target.startsWith('~')) return null;
+    const file = path.resolve(roots[0], target);
+    if (!insideAny(file, roots)) return null;
+    const root = roots.find(candidate => file.startsWith(candidate + path.sep)) || roots[0];
+    return { kind: 'edit', key: JSON.stringify([provider, 'edit', file]), label: `Edit ${path.relative(root, file) || path.basename(file)}`, path: file };
+  }
+  return null;
+}

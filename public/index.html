@@ -204,6 +204,7 @@
       <form id="rename-workspace-form"><label for="rename-workspace-name">Workspace name</label><input id="rename-workspace-name" maxlength="120" required autocomplete="off" /><div class="form-actions"><button id="save-workspace-name" class="primary-button" type="submit">Save name</button></div></form>
       <p id="workspace-options-error" class="project-error" role="alert" hidden></p>
       <section class="workspace-folder-section" aria-labelledby="workspace-folders-title"><h3 id="workspace-folders-title">Folders</h3><div id="workspace-folder-settings"></div></section>
+      <section class="workspace-permission-section" aria-labelledby="workspace-permissions-title"><h3 id="workspace-permissions-title">Remembered approvals</h3><p id="workspace-permissions-empty" class="workspace-permissions-empty">None yet. When approving an action, choose <strong>Always allow in this workspace</strong> to stop being asked for that exact action.</p><ul id="workspace-permission-list" class="workspace-permission-list"></ul><button id="workspace-permissions-reset" class="secondary-button quiet-danger" type="button" hidden>Revoke all</button></section>
       <div class="workspace-removal-option"><p>Remove this workspace from the sidebar. Project files and saved chat are kept.</p><button id="workspace-remove" class="secondary-button quiet-danger" type="button">Remove workspace…</button></div>
     </dialog>
     <dialog id="folder-options-dialog" class="compact-dialog" aria-labelledby="folder-options-title">

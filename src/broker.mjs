@@ -15,7 +15,8 @@ import { AttachmentStore } from './attachments.mjs';
 import { processStart, reused } from './mutation-lock.mjs';
 import { parseReviewResult, publicReview, reviewPrompt } from './agent-review.mjs';
 import { ResumeScheduler } from './resume.mjs';
-import { readOnlyRequest } from './approval-rules.mjs';
+import { readOnlyRequest, approvalScope } from './approval-rules.mjs';
+import { PermissionRules } from './permission-rules.mjs';
 
 export const PROVIDERS = ['codex', 'claude', 'gemini'];
 const transportFor = (provider, transport, configured) => transport === 'auto' ? provider === 'gemini' ? 'acp' : configured ? 'cli' : provider === 'codex' ? 'app-server' : 'sdk' : transport;
@@ -129,6 +130,7 @@ export class Broker extends EventEmitter {
         this.record(conversation, { type: 'review_result', id: review.id, result: { status: 'interrupted', summary: 'Background review was interrupted. Start a new review when ready.', findings: [] } });
       }
     }
+    this.permissions = new PermissionRules(dataDir);
     this.resume = new ResumeScheduler(this);
     this.resume.arm();
     // The first check of a wait saved before a restart runs once startup has finished.
@@ -295,13 +297,19 @@ export class Broker extends EventEmitter {
 
   updateContext(c, input) { const context = validateContext(input, c.context); this.record(c, { type: 'context', context }); return this.view(c); }
 
-  approve(runId, approvalId, allow) {
+  // `remember` keeps an allowed action's exact scope for the rest of the run ('run') or for the workspace ('workspace').
+  approve(runId, approvalId, allow, remember = null) {
     const run = this.running;
     if (!run || run.id !== runId || !run.approvals.has(approvalId)) throw Object.assign(new Error('This approval is no longer pending.'), { status: 409 });
     if (typeof allow !== 'boolean') throw Object.assign(new Error('Choose allow or deny.'), { status: 400 });
+    if (remember !== null && !['run', 'workspace'].includes(remember)) throw Object.assign(new Error('Choose this run or this workspace.'), { status: 400 });
+    const approval = run.approvals.get(approvalId);
+    if (remember && (!allow || !approval.scope)) throw Object.assign(new Error('Only an allowed action with an exact scope can be remembered.'), { status: 400 });
     run.approvals.delete(approvalId);
+    if (remember === 'run') (run.allowances ||= new Set()).add(approval.scope.key);
+    if (remember === 'workspace') this.permissions.remember(approval.scope, run.provider);
     run.child?.send({ type: 'approval-result', id: approvalId, allow });
-    this.message(run.c, 'activity', `Approval ${allow ? 'allowed' : 'denied'} by the user.`, run.provider);
+    this.message(run.c, 'activity', remember ? `Allowed ${remember === 'run' ? 'for this run' : 'and remembered for this workspace'}: ${approval.scope.label}` : `Approval ${allow ? 'allowed' : 'denied'} by the user.`, run.provider);
     return { resolved: true };
   }
 
@@ -468,7 +476,16 @@ export class Broker extends EventEmitter {
               }
               // Ask before changes: an action that only reads the workspace folders goes ahead without asking.
               if (!review && run.mode === 'edit' && readOnlyRequest(message.request, { workspaces: this.workspaces })) { run.child.send({ type: 'approval-result', id: message.request.id, allow: true }); return; }
-              const approval = { ...message.request, runId, provider }; run.approvals.set(approval.id, approval); this.emit('update', { conversationId: c.id });
+              // A rule the person chose earlier, for this run or this workspace, allows the same exact action again.
+              const scope = !review && run.mode === 'edit' ? approvalScope(message.request, { provider, workspaces: this.workspaces }) : null;
+              const rule = scope && !run.allowances?.has(scope.key) ? this.permissions.find(scope.key) : null;
+              if (scope && (run.allowances?.has(scope.key) || rule)) {
+                if (rule) this.permissions.used(rule);
+                run.child.send({ type: 'approval-result', id: message.request.id, allow: true });
+                this.message(c, 'activity', `Allowed by your rule for ${rule ? 'this workspace' : 'this run'}: ${scope.label}`, run.provider);
+                return;
+              }
+              const approval = { ...message.request, runId, provider, ...(scope ? { scope } : {}) }; run.approvals.set(approval.id, approval); this.emit('update', { conversationId: c.id });
               // The run pauses here until the person answers, so tell them.
               this.emit('notify', { conversationId: c.id, kind: 'approval', title: 'Approval needed', body: `${provider === 'claude' ? 'Claude' : provider === 'gemini' ? 'Gemini' : 'Codex'} is waiting for your permission: ${String(approval.title || approval.command || approval.kind || 'a tool').slice(0, 120)}` });
             }

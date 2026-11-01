@@ -1804,3 +1804,32 @@ test('after a usage limit any agent and model can continue the task, including t
   const continued = ui.requests.filter(request => request.path.endsWith('/continue'));
   assert.equal(continued.length, 1); assert.equal(continued[0].body.provider, 'codex'); assert.equal(continued[0].body.model, 'model-one');
 });
+
+test('an approval with an exact scope can be allowed for the run or remembered for the workspace, and remembered approvals can be revoked',async()=>{
+  const ui=await browser({workbench:true}),conversation=ui.canonical.get('project-one'),answers=[],permissionRequests=[];
+  let rules=[{id:'rule-one',provider:'codex',kind:'command',label:'npm test',uses:3}];
+  ui.setIntercept((request,next)=>{
+    if(request.path.endsWith('/approval')){answers.push(request.body);conversation.pendingApprovals=[];return response({resolved:true});}
+    if(request.path==='/api/permissions'){permissionRequests.push(request);if(request.body?.revoke)rules=rules.filter(rule=>rule.id!==request.body.revoke);return response({rules});}
+    return next();
+  });
+  conversation.status='running';conversation.activeRun={id:'run-one',provider:'codex'};
+  conversation.pendingApprovals=[{id:'scoped',runId:'run-one',provider:'codex',kind:'command',command:'npm test',scope:{kind:'command',label:'npm test',key:'k'}},{id:'plain',runId:'run-one',provider:'codex',kind:'fileChange'}];
+  await ui.window.relayUI.refresh();
+  const cards=ui.$('pending-approvals').querySelectorAll('article');
+  assert(cards[0].querySelector('.approval-more'),'An action with an exact scope offers more ways to allow it.');
+  assert.equal(cards[1].querySelector('.approval-more'),null,'An action without one can only be allowed once.');
+  const menu=cards[0].querySelector('.approval-scope-menu');assert.equal(menu.hidden,true);
+  cards[0].querySelector('.approval-more').click();assert.equal(menu.hidden,false);
+  const options=menu.querySelectorAll('button');assert.match(options[0].textContent,/Allow for this run.*npm test/);assert.match(options[1].textContent,/Always allow in this workspace.*npm test/);
+  options[1].click();await flush();
+  assert.deepEqual(answers,[{runId:'run-one',approvalId:'scoped',allow:true,remember:'workspace'}]);
+
+  ui.window.relayUI.commands['workspace-settings']();await flush();
+  const listed=ui.$('workspace-permission-list').querySelectorAll('li');assert.equal(listed.length,1);assert.match(listed[0].textContent,/npm test/);assert.match(listed[0].textContent,/used 3 times/);
+  assert.equal(ui.$('workspace-permissions-empty').hidden,true);
+  listed[0].querySelector('button').click();await flush();
+  assert.deepEqual(permissionRequests.at(-1).body,{revoke:'rule-one'});
+  assert.deepEqual(permissionRequests.map(request=>request.projectId),['project-one','project-one'],'Rules are read and revoked for that workspace.');
+  assert.equal(ui.$('workspace-permission-list').querySelectorAll('li').length,0);assert.equal(ui.$('workspace-permissions-empty').hidden,false);
+});

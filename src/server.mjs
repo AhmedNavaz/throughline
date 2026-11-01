@@ -174,6 +174,16 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
         return json(res, 200, { ...await broker.status(), projectId, project: registry.get(projectId) });
       }
       if (req.method === 'GET' && url.pathname === '/api/conversations') return json(res, 200, selectedBroker(url).list());
+      // Remembered approvals for the selected workspace: list, revoke one, or reset all.
+      if (url.pathname === '/api/permissions') {
+        const broker = selectedBroker(url);
+        if (req.method === 'GET') return json(res, 200, { rules: broker.permissions.list() });
+        if (req.method === 'POST') {
+          const input = await body(req);
+          if (input.reset === true) broker.permissions.reset(); else broker.permissions.revoke(String(input.revoke || ''));
+          return json(res, 200, { rules: broker.permissions.list() });
+        }
+      }
       if (req.method === 'POST') {
         if (url.pathname === '/api/conversations') {
           await body(req);
@@ -192,7 +202,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
           const input = await body(req);
           if (closing) return json(res, 503, { error: 'Throughline is stopping.' });
           if (match[2] === 'context') return json(res, 200, await broker.updateContext(c, input));
-          if (match[2] === 'approval') return json(res, 200, await broker.approve(input.runId, input.approvalId, input.allow === true));
+          if (match[2] === 'approval') return json(res, 200, await broker.approve(input.runId, input.approvalId, input.allow === true, input.remember ?? null));
           if (match[2] === 'provider') return json(res, 200, await broker.settings(c, input));
           if (match[2] === 'stop') return json(res, 200, broker.stop(c.id));
           if (match[2] === 'resume') return json(res, 200, input.cancel === true ? broker.cancelResume(c) : broker.scheduleResume(c, input));

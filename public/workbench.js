@@ -336,13 +336,30 @@
       if (command) output(card, command).classList.add('approval-command'); else if (target) card.append(node('p', target, 'approval-target')); else card.append(node('p', files ? 'Review the requested file changes before continuing.' : `Requested action: ${item.kind || 'tool use'}`, 'approval-title'));
       const choices = [['Approve', true, 'primary'], ['Deny', false]].map(([text, allow, cls]) => { const choice = node('button', text, cls); choice.type = 'button'; choice.addEventListener('click', () => answer(choices, state.conversation.id, item, allow)); return choice; });
       const footer = node('div', undefined, 'approval-footer'); card.append(footer);
-      diagnostics(footer, item, 'Full request'); actions(footer, choices[1], choices[0]); host.append(card);
+      // An action with an exact scope can also be allowed for the rest of the run or remembered for the workspace.
+      const scoped = [];
+      if (item.scope) {
+        const more = node('button', undefined, 'primary approval-more'); more.type = 'button'; more.setAttribute('aria-label', 'More ways to allow'); more.setAttribute('aria-expanded', 'false'); more.title = 'Allow for this run or always in this workspace';
+        const menu = node('div', undefined, 'approval-scope-menu'); menu.hidden = true; menu.setAttribute('role', 'menu');
+        for (const [remember, title, detail] of [['run', 'Allow for this run', 'Until this run ends'], ['workspace', 'Always allow in this workspace', 'You can revoke it in Workspace settings']]) {
+          const option = node('button', undefined, 'approval-scope-option'); option.type = 'button'; option.setAttribute('role', 'menuitem');
+          option.append(node('strong', title), node('span', `${item.scope.label} · ${detail}`));
+          option.addEventListener('click', () => { menu.hidden = true; answer([...choices, ...scoped], state.conversation.id, item, true, remember); });
+          menu.append(option); scoped.push(option);
+        }
+        more.addEventListener('click', () => { menu.hidden = !menu.hidden; more.setAttribute('aria-expanded', String(!menu.hidden)); if (!menu.hidden) menu.querySelector('button')?.focus?.(); });
+        menu.addEventListener('keydown', event => { if (event.key === 'Escape') { menu.hidden = true; more.setAttribute('aria-expanded', 'false'); more.focus(); } });
+        scoped.push(more);
+        const split = node('span', undefined, 'approval-split'); split.append(choices[0], more, menu);
+        diagnostics(footer, item, 'Full request'); actions(footer, choices[1], split);
+      } else { diagnostics(footer, item, 'Full request'); actions(footer, choices[1], choices[0]); }
+      host.append(card);
     }
   }
   // Approval cards sit outside the dialog, so a failed answer is shown in the page notice. The refresh afterwards removes a request that is no longer pending.
-  async function answer(choices, conversationId, item, allow) {
+  async function answer(choices, conversationId, item, allow, remember = null) {
     choices.forEach(choice => { choice.disabled = true; });
-    try { await api().post(`/api/conversations/${conversationId}/approval`, { runId: item.runId, approvalId: item.id, allow }); }
+    try { await api().post(`/api/conversations/${conversationId}/approval`, { runId: item.runId, approvalId: item.id, allow, ...(remember ? { remember } : {}) }); }
     catch (e) { api().showNotice(e.message || 'This action could not be completed. Please try again.'); }
     finally { choices.forEach(choice => { choice.disabled = false; }); await api().refresh(); }
   }
