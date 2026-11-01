@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import test from 'node:test';
-import { withFileGuard, processStart } from '../src/mutation-lock.mjs';
+import { withFileGuard, processStart, ABANDONED_EMPTY_GUARD_MS } from '../src/mutation-lock.mjs';
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'throughline-guard-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -54,14 +54,20 @@ test('a lost recovery claim retries macOS rename races without hiding other rena
     assert(injected);if(!disappeared){assert(fs.existsSync(filename+'.guard'));withFileGuard(filename,()=>{});}assert(!fs.existsSync(filename+'.guard'));
   }
 });
-test('legacy empty guards and unknown guard contents stay protected for manual inspection', t => {
+test('a guard never exists without its owner, and an empty one left by an earlier version is replaced at once', { skip: process.platform === 'win32' }, t => {
   const { filename } = fixture(t), guard = filename + '.guard'; fs.mkdirSync(guard);
-  assert.throws(() => withFileGuard(filename, () => assert.fail()), /only after all Throughline instances are stopped/);
-  fs.writeFileSync(path.join(guard, 'unknown'), 'preserve');
-  assert.throws(() => withFileGuard(filename, () => assert.fail()), { status: 409 }); assert.equal(fs.readFileSync(path.join(guard, 'unknown'), 'utf8'), 'preserve');
+  assert.equal(withFileGuard(filename, () => fs.readdirSync(guard).filter(name => name.startsWith('owner-')).length), 1, 'The guard holds its owner from the moment it exists.');
+  assert(!fs.existsSync(guard));
+  fs.mkdirSync(guard); fs.writeFileSync(path.join(guard, 'unknown'), 'preserve');
+  assert.throws(() => withFileGuard(filename, () => assert.fail()), { status: 409 }, 'Unknown contents stay protected.');
+  assert.equal(fs.readFileSync(path.join(guard, 'unknown'), 'utf8'), 'preserve');
   fs.unlinkSync(path.join(guard, 'unknown'));
   const marker = `owner-${process.pid}-${Buffer.from('unrecognized start time').toString('base64url')}-00000000-0000-4000-8000-000000000000.json`; fs.writeFileSync(path.join(guard, marker), '{}');
   assert.throws(() => withFileGuard(filename, () => assert.fail()), { status: 409 }); assert(fs.existsSync(path.join(guard, marker)));
+  // A staging folder left by a process stopped before its rename is swept once it is old.
+  fs.rmSync(guard, { recursive: true }); const stale = filename + '.guard.new-left-behind'; fs.mkdirSync(stale);
+  const old = new Date(Date.now() - 120000); fs.utimesSync(stale, old, old);
+  withFileGuard(filename, () => {}); assert(!fs.existsSync(stale));
 });
 test('guard symlinks never redirect automatic recovery into another folder', t => {
   const { root, filename } = fixture(t), target = path.join(root, 'target'); fs.mkdirSync(target); fs.writeFileSync(path.join(target, 'keep'), 'preserve'); fs.symlinkSync(target, filename + '.guard');
@@ -76,9 +82,9 @@ test('a reused process ID is distinguished from the guard’s recorded process s
 });
 test('failed ownership writes and callback errors release the guard', t => {
   const { filename } = fixture(t), original = fs.writeFileSync;
-  fs.writeFileSync = function (file, ...args) { if (String(file).includes(filename + '.guard/owner-')) throw Object.assign(new Error('Full disk'), { code: 'ENOSPC' }); return original.call(fs, file, ...args); };
+  fs.writeFileSync = function (file, ...args) { if (String(file).includes(filename + '.guard.new-') && String(file).includes('/owner-')) throw Object.assign(new Error('Full disk'), { code: 'ENOSPC' }); return original.call(fs, file, ...args); };
   try { assert.throws(() => withFileGuard(filename, () => assert.fail()), { code: 'ENOSPC' }); } finally { fs.writeFileSync = original; }
-  assert(!fs.existsSync(filename + '.guard'));
+  assert(!fs.existsSync(filename + '.guard')); assert.deepEqual(fs.readdirSync(path.dirname(filename)).filter(name => name.includes('.guard')), [], 'No staging folder is left behind.');
   assert.throws(() => withFileGuard(filename, () => { throw new Error('Transaction failed'); }), /Transaction failed/);
   assert(!fs.existsSync(filename + '.guard')); withFileGuard(filename, () => {});
 });
