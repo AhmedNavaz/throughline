@@ -663,7 +663,7 @@
       return label(provider) + (status?.limited === false ? " (ready)" : status?.resetsAt ? ` (resets ${time(status.resetsAt)})` : status ? " (checking every 10 min)" : "");
     });
     const list = agents.length > 1 ? `${agents.slice(0, -1).join(", ")} or ${agents.at(-1)}` : agents[0];
-    const access = `${resume.mode === "read" ? "Read only" : "Can edit files"} · ${resume.approvalPolicy === "auto" ? "full auto-approval" : "asks before tools run"}`;
+    const access = `${resume.mode === "read" ? "Read only" : "Can edit files"} · ${resume.approvalPolicy === "auto" ? "full auto-approval" : "asks before changes"}`;
     return `Waiting for a usage limit to reset. Continues with ${list}, whichever has room first. ${access}.`;
   }
   async function scheduleResume(approvalPolicy) {

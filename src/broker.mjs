@@ -15,6 +15,7 @@ import { AttachmentStore } from './attachments.mjs';
 import { processStart, reused } from './mutation-lock.mjs';
 import { parseReviewResult, publicReview, reviewPrompt } from './agent-review.mjs';
 import { ResumeScheduler } from './resume.mjs';
+import { readOnlyRequest } from './approval-rules.mjs';
 
 export const PROVIDERS = ['codex', 'claude', 'gemini'];
 const transportFor = (provider, transport, configured) => transport === 'auto' ? provider === 'gemini' ? 'acp' : configured ? 'cli' : provider === 'codex' ? 'app-server' : 'sdk' : transport;
@@ -460,6 +461,8 @@ export class Broker extends EventEmitter {
                 this.message(c, 'activity', `Tool ${message.request.kind || message.request.title || 'use'} auto-approved by policy.`, run.provider);
                 return;
               }
+              // Ask before changes: an action that only reads the workspace folders goes ahead without asking.
+              if (!review && run.mode === 'edit' && readOnlyRequest(message.request, { workspaces: this.workspaces })) { run.child.send({ type: 'approval-result', id: message.request.id, allow: true }); return; }
               const approval = { ...message.request, runId, provider }; run.approvals.set(approval.id, approval); this.emit('update', { conversationId: c.id });
               // Work that continued while the person was away pauses here, so tell them.
               if (run.resume) this.emit('notify', { conversationId: c.id, kind: 'approval', title: 'Approval needed', body: `${provider === 'claude' ? 'Claude' : provider === 'gemini' ? 'Gemini' : 'Codex'} is waiting for your permission: ${String(approval.title || approval.command || approval.kind || 'a tool').slice(0, 120)}` });

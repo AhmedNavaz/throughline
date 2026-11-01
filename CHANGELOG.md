@@ -10,6 +10,7 @@ Notable changes to Throughline. The format follows [Keep a Changelog](https://ke
 
 ### Changed
 
+- **Ask for permission** is now **Ask before changes**: actions that only read your workspace folders, such as reading and searching files and read-only commands like `ls`, `rg`, `git status` and `git diff`, run without asking. Editing or deleting files, installing, running scripts or tests, network access, reads outside the workspace and any command Throughline cannot fully judge still ask (#68).
 - A calmer conversation: your prompts are bubbles, agent replies read as open text under one header per run, and workspace activity is a single line that shows the current step live and opens into one row per action with its output a click away. Run status, permission requests, errors and **Continue** are quiet lines with pill buttons instead of boxed panels.
 - Once a prompt scrolls out of view, a one-line copy stays pinned at the top until the next prompt, so it is always clear which request the work below belongs to; clicking it returns to the prompt. Run status, permission requests, **Continue** and follow-up actions appear under the latest turn instead of between the conversation and the message box.
 - The message box keeps its controls on one line, turning access and permission pickers into icons when space is short.

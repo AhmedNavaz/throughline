@@ -1775,7 +1775,7 @@ test('after a usage limit the task can wait for a reset without raising access, 
 
   assert.equal(ui.$('resume-waiting').hidden, false); assert.equal(ui.$('continuation').hidden, true);
   assert.match(ui.$('resume-waiting-text').textContent, /Codex \(resets .+\)/); assert.match(ui.$('resume-waiting-text').textContent, /checking every 10 min/);
-  assert.match(ui.$('resume-waiting-text').textContent, /asks before tools run/);
+  assert.match(ui.$('resume-waiting-text').textContent, /asks before changes/);
   assert.equal(ui.$('conversation-state').textContent, 'Waiting for reset');
 
   ui.$('resume-cancel').click(); await flush();
