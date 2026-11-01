@@ -4,6 +4,12 @@ Notable changes to Throughline. The format follows [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+### Changed
+
+- A calmer conversation: your prompts are bubbles, agent replies read as open text under one header per run, and workspace activity is a single line that shows the current step live and opens into one row per action with its output a click away. Run status, permission requests, errors and **Continue** are quiet lines with pill buttons instead of boxed panels.
+- Once a prompt scrolls out of view, a one-line copy stays pinned at the top until the next prompt, so it is always clear which request the work below belongs to; clicking it returns to the prompt. Run status, permission requests, **Continue** and follow-up actions appear under the latest turn instead of between the conversation and the message box.
+- The message box keeps its controls on one line, turning access and permission pickers into icons when space is short.
+
 ### Fixed
 
 - Gemini (Google Antigravity) connects reliably and faster. On networks where Google's servers stall secure connections over IPv6, the runtime used to hang for ten seconds and fail with "Internal error", so status showed Checking, Not verified or unavailable and models rarely loaded. Throughline now gives the runtime a local relay that reaches Google over IPv4 first, falling back to IPv6. The relay only tunnels encrypted connections to Google, and a proxy you configured yourself still takes precedence. Opening the app checks the account and its models together in one runtime start, reuses a signed-in result for a minute, and reports a Google network failure in plain words.

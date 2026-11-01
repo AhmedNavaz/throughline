@@ -102,6 +102,27 @@
           <section id="provider-empty-state" class="empty-state" aria-label="Connect an assistant" hidden><span class="empty-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M9 7V3M15 7V3M6 7h12v4a6 6 0 0 1-12 0zM12 17v4"/></svg></span><h2>Connect an assistant</h2><p>Install or connect Codex, Claude or Gemini in Settings to send messages. Your saved work remains available.</p><button id="connect-assistant" class="primary-button" type="button">Open settings</button></section>
           <section id="empty-state" class="empty-state" aria-label="Conversation"><span class="empty-mark" aria-hidden="true"><img src="/icon.svg" alt="" width="44" height="44" /></span><h2>Start a task</h2><p>Describe what you need, or import a conversation to pick up where you left off.</p><div class="starter-prompts"><button type="button" data-prompt="Explore this project and explain how it works."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><strong>Explore the project</strong><small>Explain how it works</small></button><button type="button" data-prompt="Review the current changes and help me find any bugs."><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg><strong>Review my changes</strong><small>Find bugs in the current diff</small></button></div></section>
           <div id="messages" class="messages" role="log" aria-label="Conversation messages" aria-live="off"></div>
+          <div id="transcript-footer" class="transcript-footer">
+            <section id="run-progress" class="run-progress" role="region" aria-label="Run status" hidden>
+              <details id="run-details-disclosure" class="run-details-disclosure">
+                <summary class="run-progress-top" aria-label="Run status and details">
+                  <span id="run-phase" class="run-phase sr-only" role="status" aria-live="polite">Starting</span>
+                  <span id="run-action" class="run-action">Starting agent</span>
+                  <span id="run-elapsed" class="run-elapsed"></span>
+                  <span class="disclosure-chevron" aria-hidden="true"></span>
+                </summary>
+                <div class="run-expanded-details">
+                  <div id="run-meta-summary" class="run-meta-summary"></div>
+                  <p id="run-detail"></p>
+                  <div id="run-metrics" class="run-metrics"></div>
+                  <button id="run-jump-prompt" class="run-jump-prompt text-link" type="button" hidden title="Jump to the request that started this run">View prompt</button>
+                </div>
+              </details>
+            </section>
+            <section id="review-summary" class="review-strip" aria-label="Latest code review" hidden><span id="review-summary-text"></span><button id="view-review" class="text-link" type="button">View review</button></section>
+            <div id="continuation" class="continuation" hidden><span id="continuation-text">The last run stopped.</span><button id="continue-button" type="button">Continue with Codex <span aria-hidden="true">→</span></button><button id="continue-locally" type="button" hidden>Continue locally →</button></div>
+            <section id="next-actions" class="next-actions" aria-label="After this run" hidden><span id="next-actions-text"></span><div><button id="next-review" class="text-link" type="button">Review changes…</button><button id="next-friend" class="text-link" type="button">Ask a friend…</button><button id="dismiss-next-actions" class="icon-button" type="button" aria-label="Dismiss next steps"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div></section>
+          </div>
         </div>
 
         <section id="file-preview" class="file-preview" aria-label="File preview" hidden>
@@ -111,14 +132,7 @@
         </section>
         <div id="composer-region" class="composer-region">
           <button id="jump-latest" class="jump-latest" type="button" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5.5 12.5 12 19l6.5-6.5"/></svg>Jump to latest</button>
-          <section id="run-progress" class="run-progress" role="region" aria-label="Run status" hidden>
-            <div class="run-progress-top"><span id="run-phase" class="run-phase" role="status" aria-live="polite">Starting</span><span id="run-elapsed" class="run-elapsed"></span></div>
-            <p id="run-detail"></p><div id="run-metrics" class="run-metrics"></div>
-          </section>
           <div id="other-running" class="running-notice" hidden><span>This workspace has an active run.</span><button id="view-running" type="button">Refresh status</button></div>
-          <section id="review-summary" class="review-strip" aria-label="Latest code review" hidden><span id="review-summary-text"></span><button id="view-review" class="text-link" type="button">View review</button></section>
-          <section id="next-actions" class="next-actions" aria-label="After this run" hidden><span id="next-actions-text"></span><div><button id="next-review" class="text-link" type="button">Review changes…</button><button id="next-friend" class="text-link" type="button">Ask a friend…</button><button id="dismiss-next-actions" class="icon-button" type="button" aria-label="Dismiss next steps"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div></section>
-          <div id="continuation" class="continuation" hidden><span id="continuation-text">The last run stopped.</span><button id="continue-button" type="button">Continue with Codex <span aria-hidden="true">→</span></button><button id="continue-locally" type="button" hidden>Continue locally →</button></div>
           <div id="connection-notice" class="connection-notice" role="status" hidden><span id="connection-notice-text"></span><div class="connection-notice-actions"><button id="connection-install" class="secondary-action" type="button" hidden>How to install ↗</button><button id="connection-action" type="button">Connect account</button></div></div>
           <form id="composer" class="composer">
             <div id="custom-model-editor" class="custom-model-editor" hidden><label for="custom-model-input">Custom model ID</label><input id="custom-model-input" maxlength="200" placeholder="Enter a supported model identifier" /><button id="save-custom-model" type="button">Use model</button><button id="cancel-custom-model" type="button">Cancel</button></div>

@@ -32,6 +32,8 @@
   --icon-file: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5'/%3E%3C/svg%3E");
   --icon-more: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Ccircle cx='5.5' cy='12' r='1.6'/%3E%3Ccircle cx='12' cy='12' r='1.6'/%3E%3Ccircle cx='18.5' cy='12' r='1.6'/%3E%3C/svg%3E");
   --icon-minus-circle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='8.5'/%3E%3Cpath d='M8.5 12h7'/%3E%3C/svg%3E");
+  --icon-search: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='6.5'/%3E%3Cpath d='m20 20-4.2-4.2'/%3E%3C/svg%3E");
+  --icon-pencil: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z'/%3E%3Cpath d='m13.5 6.5 4 4'/%3E%3C/svg%3E");
   --icon-terminal: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 7 5 5-5 5M12 18h7'/%3E%3C/svg%3E");
 }
 
@@ -45,6 +47,13 @@
   --surface-raised: #252526;
   --surface-input: #2a2a2a;
   --surface-strong: #3a3a3c;
+  --bubble-bg: #2d2d30;
+  /* Reasoning effort, from light to heaviest: cool to warm. */
+  --effort-low: #4ec9b0;
+  --effort-medium: #4daafc;
+  --effort-high: #dcb862;
+  --effort-xhigh: #f0883e;
+  --effort-max: #f47171;
   --code-bg: #181818;
   --code-inline-bg: #ffffff14;
   --hover: #ffffff0f;
@@ -101,6 +110,12 @@
   --surface-raised: #f8f8f8;
   --surface-input: #ffffff;
   --surface-strong: #ffffff;
+  --bubble-bg: #f0f0f2;
+  --effort-low: #16825d;
+  --effort-medium: #005fb8;
+  --effort-high: #9a6700;
+  --effort-xhigh: #bc4c00;
+  --effort-max: #c72e2e;
   --code-bg: #f8f8f8;
   --code-inline-bg: #0000000d;
   --hover: #0000000a;

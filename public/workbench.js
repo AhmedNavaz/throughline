@@ -325,15 +325,18 @@
     const permissions = details(content, 'Permissions and account details'); permissions.append(node('p', 'Codex read-only uses its native sandbox. Claude and the advanced Gemini CLI connection restrict tools. Antigravity coding uses native approvals and workspace trust; choose Codex or Claude for read-only work. Managed runs disable project hooks where supported; administrator policy may still apply. Tool approval requests appear in the workspace chat.')); permissions.append(node('p', 'Sign-in uses the provider’s own flow. Account credentials stay with the provider. There is no automatic switch to API billing.'));
   }
   function approvals() {
-    let host = $('pending-approvals'); if (!host) { host = node('section', undefined, 'pending-approvals'); host.id = 'pending-approvals'; $('composer-region').prepend(host); }
+    let host = $('pending-approvals'); if (!host) { host = node('section', undefined, 'pending-approvals'); host.id = 'pending-approvals'; $('transcript-footer').prepend(host); }
     const state = api().getState(), pending = state.conversation?.pendingApprovals || [], signature = describe(pending); if (host.dataset.signature === signature) return; host.dataset.signature = signature; host.replaceChildren();
     for (const item of pending) {
-      const card = node('article'); card.append(node('h3', `${providerName(item.provider)} needs your permission`));
-      if (item.title) card.append(node('p', item.title));
-      const command = item.command || item.input?.command; if (command) output(card, command); else if (item.input?.file_path || item.input?.path) card.append(node('p', item.input.file_path || item.input.path)); else card.append(node('p', item.kind?.includes('fileChange') ? 'Review the requested file changes before continuing.' : `Requested action: ${item.kind || 'tool use'}`));
-      diagnostics(card, item, 'Review full request');
+      // The heading says what the agent wants to do; the exact command or file follows, and the full request stays one click away.
+      const command = item.command || item.input?.command, target = item.input?.file_path || item.input?.path, files = item.kind?.includes('fileChange') || target;
+      const card = node('article', undefined, 'approval-card'), head = node('header'), mark = node('span', undefined, 'approval-icon'); mark.setAttribute('aria-hidden', 'true');
+      head.append(mark, node('h3', `${providerName(item.provider)} ${command ? 'wants to run a command' : files ? 'wants to change files' : 'needs your permission'}`)); card.append(head);
+      if (item.title && item.title !== command) card.append(node('p', item.title, 'approval-title'));
+      if (command) output(card, command).classList.add('approval-command'); else if (target) card.append(node('p', target, 'approval-target')); else card.append(node('p', files ? 'Review the requested file changes before continuing.' : `Requested action: ${item.kind || 'tool use'}`, 'approval-title'));
       const choices = [['Approve', true, 'primary'], ['Deny', false]].map(([text, allow, cls]) => { const choice = node('button', text, cls); choice.type = 'button'; choice.addEventListener('click', () => answer(choices, state.conversation.id, item, allow)); return choice; });
-      actions(card, ...choices); host.append(card);
+      const footer = node('div', undefined, 'approval-footer'); card.append(footer);
+      diagnostics(footer, item, 'Full request'); actions(footer, choices[1], choices[0]); host.append(card);
     }
   }
   // Approval cards sit outside the dialog, so a failed answer is shown in the page notice. The refresh afterwards removes a request that is no longer pending.

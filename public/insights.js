@@ -3,7 +3,7 @@
   const $ = id => document.getElementById(id), api = window.relayUI;
   const el = (tag, text, cls) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (cls) node.className = cls; return node; };
   const name = provider => provider === 'gemini' ? 'Gemini' : provider === 'claude' ? 'Claude' : 'Codex';
-  const title = value => value ? value[0].toUpperCase() + value.slice(1) : 'Provider default';
+  const title = value => value === 'xhigh' ? 'X-High' : value ? value[0].toUpperCase() + value.slice(1) : 'Provider default';
   const duration = ms => { const seconds = Math.max(0, Math.floor(ms / 1000)); return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`; };
   const date = value => !value || Number.isNaN(new Date(value).getTime()) ? 'Date unavailable' : new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const action = (text, fn, cls) => { const button = el('button', text, cls); button.type = 'button'; button.addEventListener('click', fn); return button; };
@@ -97,29 +97,88 @@
     const quiet = running && !c.pendingApprovals?.length && silence > 30000;
     const phaseLabel = { starting: 'Starting agent', working: 'Working', reasoning: 'Reasoning', responding: 'Writing response', tool: 'Running tools', compacting: 'Organizing context', approval: 'Waiting for approval' }[phase] || 'Working';
     $('run-phase').textContent = running ? state.streamConnected === false ? 'Reconnecting to app' : quiet ? 'Waiting for provider' : phaseLabel : run.status === 'complete' ? 'Completed' : run.errorCategory === 'quota' ? 'Usage limit reached' : 'Run stopped';
-    $('run-phase').className = `run-phase ${running ? quiet ? 'quiet' : phase === 'approval' ? 'approval' : 'active' : run.status === 'complete' ? 'complete' : 'quiet'}`;
-    $('run-elapsed').textContent = `${running ? 'Elapsed ' : ''}${Number.isFinite(elapsed) ? duration(elapsed) : 'Duration not recorded'}`;
+    $('run-phase').className = `run-phase sr-only ${running ? quiet ? 'quiet' : phase === 'approval' ? 'approval' : 'active' : run.status === 'complete' ? 'complete' : 'quiet'}`;
+    // A finished run states its duration in the action text.
+    $('run-elapsed').textContent = running && Number.isFinite(elapsed) ? duration(elapsed) : '';
+    $('run-progress').dataset.state = running ? state.streamConnected === false ? 'quiet' : phase === 'approval' ? 'approval' : quiet ? 'quiet' : 'active' : run.status === 'complete' ? 'complete' : 'quiet';
     const model = run.effectiveModel && run.effectiveModel !== 'unknown' ? run.effectiveModel : run.model || 'Provider default';
     const agent = run.connection === 'local' ? 'Local · Ollama' : name(run.provider);
     const effort = run.effectiveEffort || run.effort;
-    const policySuffix = run.approvalPolicy === 'auto' ? ' · Full auto-approval' : '';
-    $('run-detail').textContent = running ? state.streamConnected === false ? 'The app connection was interrupted. The agent may still be running; reconnecting to restore its live status.' : phase === 'approval' ? 'Review the permission request below to let the agent continue.' : quiet ? `No provider activity for ${duration(silence)}. This can happen during a long request; you can wait or stop the run.` : phase === 'reasoning' ? `${name(run.provider)} reported reasoning activity. Its private reasoning stays private.` : phase === 'tool' ? `${name(run.provider)} is using workspace tools${run.approvalPolicy === 'auto' ? ' with full auto-approval' : ''}. Open workspace activity to see commands and file changes.` : phase === 'responding' ? 'The response is arriving live.' : 'The agent is running. New activity appears here as it arrives.' : `${name(run.provider)} · ${model}${effort ? ' · ' + title(effort) + ' effort' : ''}${policySuffix}`;
+
+    const actionEl = $('run-action');
+    if (actionEl) {
+      let actionText = '';
+      if (running) {
+        if (state.streamConnected === false) actionText = 'Reconnecting to app';
+        else if (c.pendingApprovals?.length) actionText = 'Waiting for tool approval';
+        else if (quiet) actionText = `No provider activity for ${duration(silence)}`;
+        else if (phase === 'reasoning') actionText = 'Reasoning about task';
+        else if (phase === 'tool') {
+          const latest = c.messages?.filter(message => message.role === 'activity' && message.runId === run.id).at(-1);
+          actionText = latest && api.describeActivity ? api.describeActivity(latest.text).action : 'Running workspace tools';
+        }
+        else if (phase === 'responding') actionText = 'Writing response';
+        else if (phase === 'compacting') actionText = 'Organizing context';
+        else actionText = phase === 'starting' ? 'Starting agent' : 'Working on your request';
+      } else {
+        if (run.status === 'complete') actionText = `Completed in ${Number.isFinite(elapsed) ? duration(elapsed) : 'recorded duration'}`;
+        else if (run.errorCategory === 'quota') actionText = 'Usage limit reached';
+        else actionText = 'Run stopped';
+      }
+      actionEl.textContent = actionText;
+    }
+
+    const jumpPrompt = $('run-jump-prompt');
+    if (jumpPrompt) {
+      const userMsg = run.id ? c.messages?.find(m => m.runId === run.id && m.role === 'user') : c.messages?.filter(m => m.role === 'user').slice(-1)[0];
+      if (userMsg) {
+        jumpPrompt.hidden = false;
+        jumpPrompt.onclick = () => {
+          const target = document.getElementById('message-' + userMsg.id);
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            target.classList.add('message-highlight');
+            setTimeout(() => target.classList.remove('message-highlight'), 2000);
+          }
+        };
+      } else {
+        jumpPrompt.hidden = true;
+      }
+    }
+
+    const metaSummary = $('run-meta-summary');
+    if (metaSummary) {
+      metaSummary.replaceChildren();
+      metaSummary.append(el('span', `${agent} · ${model}${effort ? ' · ' + title(effort) + ' effort' : ''}`, 'run-meta-chip run-meta-agent'));
+      if (run.approvalPolicy === 'auto') metaSummary.append(el('span', 'Full auto-approval', 'run-meta-chip run-meta-policy'));
+      if (run.toolCount) metaSummary.append(el('span', `${run.toolCount} tool step${run.toolCount === 1 ? '' : 's'}`, 'run-meta-chip run-meta-steps'));
+      if (running && !quiet && silence < 30000) metaSummary.append(el('span', 'Active', 'run-meta-chip run-meta-live'));
+    }
+
+    $('run-detail').textContent = running ? state.streamConnected === false ? 'The app connection was interrupted. The agent may still be running; reconnecting to restore its live status.' : phase === 'approval' ? 'Review the permission request below to let the agent continue.' : quiet ? `No provider activity for ${duration(silence)}. This can happen during a long request; you can wait or stop the run.` : phase === 'reasoning' ? `${name(run.provider)} reported reasoning activity. Its private reasoning stays private.` : phase === 'tool' ? `${name(run.provider)} is using workspace tools${run.approvalPolicy === 'auto' ? ' with full auto-approval' : ''}. Open workspace activity to see commands and file changes.` : phase === 'responding' ? 'The response is arriving live.' : 'The agent is running. New activity appears here as it arrives.' : '';
     const metrics = [];
-    if (run.connection === 'local') $('run-detail').textContent = running ? `${agent} · ${model} · No cloud model charges` : `${agent} · ${model}`;
-    if (running) metrics.push(`${agent} · ${model}${effort ? ' · ' + title(effort) : ''}`, `${state.streamConnected === false ? 'Reconnecting to app' : 'Live updates'}`, `Last activity ${duration(silence)} ago`);
-    if (run.approvalPolicy === 'auto') metrics.push('Full auto-approval');
-    if (run.toolCount) metrics.push(`${run.toolCount} tool step${run.toolCount === 1 ? '' : 's'}`);
+    // The agent, model, policy and step count are on the line above; these add what it does not say.
+    if (run.connection === 'local') $('run-detail').textContent = running ? 'No cloud model charges' : '';
+    if (running) metrics.push(state.streamConnected === false ? 'Reconnecting to app' : `Last activity ${duration(silence)} ago`);
     // Codex's inputTokens include its cached input; Claude reports the input it read from and wrote to its cache apart from input_tokens.
     const usage = run.usage?.total || run.usage, output = usage?.outputTokens ?? usage?.output_tokens;
     const input = usage?.inputTokens ?? (typeof usage?.input_tokens === 'number' ? usage.input_tokens + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0) : undefined);
     if (typeof input === 'number') metrics.push(`${input.toLocaleString()} input tokens`);
     if (typeof output === 'number') metrics.push(`${output.toLocaleString()} output tokens`);
     if (typeof usage?.used === 'number') metrics.push(`${usage.used.toLocaleString()}${typeof usage.size === 'number' ? ' / ' + usage.size.toLocaleString() : ''} context tokens`);
-    $('run-metrics').replaceChildren(...metrics.map(value => el('span', value)));
+    const handed = run.context;
+    if (handed?.sessionMode) {
+      metrics.push(handed.sessionMode === 'fresh' ? 'Fresh session · shared history' : 'Resumed native session');
+      if (handed.sessionReason === 'cross-agent-handoff') metrics.push('Cross-agent handoff');
+      if (Number.isSafeInteger(handed.includedMessages)) metrics.push(`${handed.includedMessages} history messages included · ${handed.omittedMessages || 0} omitted`);
+      if (handed.shortenedMessages) metrics.push(`${handed.shortenedMessages} history excerpts`);
+      if (handed.compactedActivityMessages) metrics.push(`${handed.compactedActivityMessages} tool logs compacted`);
+    }
+    $('run-metrics').replaceChildren(...metrics.map(value => el('span', value, 'run-metric-item')));
     if (run.purpose === 'review') {
       const report = c.reviews?.find(review => review.id === run.reviewId);
       $('run-phase').textContent = running ? 'Review · ' + $('run-phase').textContent : report?.status === 'complete' ? 'Review complete' : 'Review needs attention';
-      if (!running && report?.status !== 'complete') $('run-phase').className = 'run-phase quiet';
+      if (!running && report?.status !== 'complete') $('run-phase').className = 'run-phase sr-only quiet';
       $('run-detail').textContent = `${name(run.provider)} · Read-only review${report?.summary ? ' · ' + report.summary : ''}`;
     }
   }
@@ -233,7 +292,7 @@
     }
     const chip = $('usage-chip'), rows = usageWindows(state.provider), tightest = rows.reduce((low, row) => !low || remaining(row) < remaining(low) ? row : low, null);
     chip.hidden = !tightest;
-    if (tightest) { chip.className = 'usage-chip ' + usageLevel(remaining(tightest)); chip.textContent = `${shortLabel(tightest.label)} · ${remaining(tightest)}% left`; chip.title = `${name(state.provider)} plan usage. ${rows.map(describeWindow).join('. ')}.`; }
+    if (tightest) { chip.className = 'usage-chip ' + usageLevel(remaining(tightest)); chip.replaceChildren(el('span', `${shortLabel(tightest.label)} · `, 'usage-chip-label'), el('span', `${remaining(tightest)}% left`)); chip.title = `${name(state.provider)} plan usage. ${rows.map(describeWindow).join('. ')}.`; }
   }
   async function loadUsage(provider, refresh = false) {
     if (usageLoading[provider] || api.getState().accounts?.[provider]?.authenticated !== true) return;

@@ -3,8 +3,8 @@
   const $ = id => document.getElementById(id), api = window.relayUI;
   const bar = $('conversation-search'), input = $('conversation-search-input'), count = $('conversation-search-count'), messages = $('messages'), scroller = $('messages-scroll');
   const mac = /Mac|iPhone|iPad/.test(navigator.platform || '');
-  // Author names, times, code language labels, activity summaries and buttons are interface text, not conversation text.
-  const skipped = node => ['BUTTON', 'SUMMARY'].includes(node.tagName) || node.classList.contains('message-heading') || node.classList.contains('code-head');
+  // Author names, times, code language labels, activity summaries, buttons and the run's status and actions are interface text, not conversation text.
+  const skipped = node => ['BUTTON', 'SUMMARY'].includes(node.tagName) || ['message-heading', 'message-actions', 'code-head', 'transcript-footer'].some(name => node.classList.contains(name));
   // Text inside these elements continues the surrounding text, so a match can cross formatting and syntax colors but not two paragraphs.
   const inline = new Set(['A', 'ABBR', 'B', 'CODE', 'DEL', 'EM', 'I', 'KBD', 'MARK', 'S', 'SMALL', 'SPAN', 'STRONG', 'SUB', 'SUP', 'U']);
   // Highlights paint over the rendered text, so the message elements stay as app.js built them.
@@ -64,6 +64,17 @@
     if (!scroll || !range) return;
     const group = collapsed(range);
     if (group) group.open = true;
+    let ancestor = range.startContainer.parentNode;
+    while (ancestor && ancestor !== messages) {
+      if (ancestor.tagName === 'DETAILS' && !ancestor.open) ancestor.open = true;
+      if (ancestor.classList?.contains('activity-output') && ancestor.hidden) {
+        ancestor.hidden = false;
+        const toggle = ancestor.parentElement?.querySelector('.activity-output-toggle');
+        if (toggle) { toggle.title = 'Hide details'; toggle.setAttribute('aria-expanded', 'true'); }
+        ancestor.parentElement?.classList.add('open');
+      }
+      ancestor = ancestor.parentNode;
+    }
     const view = scroller.getBoundingClientRect(), rect = range.getBoundingClientRect();
     if (rect.top < view.top || rect.bottom > view.bottom) scroller.scrollTop += rect.top - view.top - (view.height - rect.height) / 2;
   }

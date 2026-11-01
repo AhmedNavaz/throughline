@@ -111,11 +111,25 @@
 #workbench .verification-command { color: var(--muted); font: 12px/1.7 var(--mono); }
 
 .pending-approvals:empty { display: none; }
-.pending-approvals article { margin: 0 0 6px; padding: 12px 14px; border: 1px solid var(--warning-border); border-radius: var(--radius); background: var(--warning-bg); color: var(--text); font-size: 12px; }
-.pending-approvals h3 { margin: 0 0 6px; color: var(--text-strong); font-size: 13px; font-weight: 600; }
-.pending-approvals .workbench-details { border-color: var(--border); background: transparent; }
-.pending-approvals .workbench-details summary { padding: 6px 10px 6px 6px; font-size: 12px; }
-.pending-approvals .workbench-actions { margin-top: 10px; }
+/* A permission request: what the agent wants, the exact command or file, and Deny / Approve on the right. */
+.pending-approvals .approval-card { margin: 0 0 8px; padding: 12px 14px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-raised); box-shadow: var(--shadow-sm); color: var(--text); font-size: 12.5px; }
+.approval-card > header { display: flex; align-items: center; gap: 8px; }
+.approval-icon { flex: none; width: 15px; height: 15px; background: var(--warning); -webkit-mask: var(--icon-access) center / contain no-repeat; mask: var(--icon-access) center / contain no-repeat; }
+.pending-approvals h3 { margin: 0; color: var(--text-strong); font-size: 13px; font-weight: 600; }
+.approval-title, .approval-target { margin: 4px 0 0 23px; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.approval-target { color: var(--text); font: 12px/1.5 var(--mono); }
+.pending-approvals .approval-command { margin: 8px 0 0 23px; padding: 8px 10px; border: 0; border-radius: 6px; background: var(--code-bg); color: var(--text-strong); font: 12px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
+.pending-approvals .approval-command::before { content: "$ "; color: var(--faint); }
+.approval-footer { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 0 17px; }
+.approval-footer > .workbench-details { flex: 1; min-width: 0; margin: 0; border: 0; background: transparent; }
+.approval-footer > .workbench-details > summary { width: fit-content; height: 26px; padding: 0 8px 0 4px; border: 0; border-radius: 5px; color: var(--faint); font-weight: 400; }
+.approval-footer > .workbench-details > summary:hover { color: var(--text); background: var(--hover); }
+.approval-footer > .workbench-details > .review-output { margin: 4px 0 0 6px; max-height: 220px; overflow: auto; }
+.approval-footer > .workbench-actions { flex: none; gap: 6px; margin: 0; }
+.pending-approvals .approval-footer button { height: 26px; padding: 0 14px; border: 0; border-radius: 13px; background: var(--chip-bg); color: var(--text-strong); }
+.pending-approvals .approval-footer button:hover:enabled { background: var(--surface-strong); }
+.pending-approvals .approval-footer button.primary { background: var(--accent); color: var(--on-accent); }
+.pending-approvals .approval-footer button.primary:hover:enabled { background: var(--accent-strong); }
 
 @media (max-width: 900px) {
   #workbench { width: calc(100vw - 24px); height: calc(100vh - 24px); }

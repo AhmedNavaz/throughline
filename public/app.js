@@ -371,48 +371,126 @@
       renderInline(block, quote ? quote[1] : line);
     }
   }
+  function parseActivity(raw) {
+    const text = String(raw || '').trim();
+    if (text.startsWith('$ ')) {
+      const firstNewline = text.indexOf('\n');
+      const cmd = firstNewline === -1 ? text.slice(2).trim() : text.slice(2, firstNewline).trim();
+      const output = firstNewline === -1 ? '' : text.slice(firstNewline + 1).trim();
+      let action = 'Run command';
+      if (/^(?:npm|pnpm|yarn|bun)\s+(?:test|run\s+test)/.test(cmd)) action = 'Running tests';
+      else if (/^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build/.test(cmd)) action = 'Building project';
+      else if (/^git\s+status/.test(cmd)) action = 'Checking Git status';
+      else if (/^git\s+diff/.test(cmd)) action = 'Checking Git diff';
+      else if (/^git\s+/.test(cmd)) action = `Running git ${cmd.split(/\s+/)[1] || ''}`.trim();
+      else if (cmd) action = `Run ${cmd.split(/\s+/)[0]}`;
+      return { kind: 'command', icon: 'command', action, detail: cmd, cmd, output, raw: text };
+    }
+    if (text.startsWith('File changes:')) {
+      let files = [];
+      try { files = JSON.parse(text.slice('File changes:'.length)); } catch {}
+      const count = files.length;
+      const paths = files.map(f => f.path || f.file || '').filter(Boolean);
+      const action = count === 1 ? `Updating ${paths[0] || 'file'}` : `Changed ${count} file${count === 1 ? '' : 's'}`;
+      return { kind: 'file', icon: 'edit', action, detail: count > 1 ? paths.map(file => file.split('/').pop()).join(', ') : '', files, paths, raw: text };
+    }
+    const toolMatch = text.match(/^([A-Za-z_]+)\n(\{[\s\S]*\})$/);
+    if (toolMatch) {
+      const name = toolMatch[1];
+      let input = {};
+      try { input = JSON.parse(toolMatch[2]); } catch {}
+      const filePath = input.file_path || input.path || input.pattern || '';
+      let action = name, verb = name, icon = 'tool';
+      if (['Edit', 'Write', 'write_file', 'edit_file'].includes(name)) { action = filePath ? `Updating ${filePath}` : 'Updating file'; verb = name === 'Write' || name === 'write_file' ? 'Write' : 'Edit'; icon = 'edit'; }
+      else if (['Read', 'read_file'].includes(name)) { action = filePath ? `Reading ${filePath}` : 'Reading file'; verb = 'Read'; icon = 'read'; }
+      else if (['Glob', 'Grep', 'search_web'].includes(name)) { action = filePath ? `Searching ${filePath}` : 'Searching files'; verb = 'Search'; icon = 'search'; }
+      // The row shows a short verb with the path beside it; the full action describes the live run.
+      return { kind: 'tool', icon, action, verb, detail: filePath || input.command || input.url || '', toolName: name, input, filePath, raw: text };
+    }
+    if (text.includes('Approval allowed') || text.includes('auto-approved')) {
+      return { kind: 'approval', icon: 'approval', action: 'Tool approved', raw: text };
+    }
+    if (text.includes('Approval denied')) {
+      return { kind: 'approval', icon: 'denied', action: 'Tool approval denied', error: true, raw: text };
+    }
+    if (text.includes('diagnostic') || text.includes('failed') || text.includes('error')) {
+      return { kind: 'error', icon: 'error', action: 'Diagnostic reported', error: true, raw: text };
+    }
+    return { kind: 'general', icon: 'general', action: text.split('\n')[0].slice(0, 60), raw: text };
+  }
+
   function renderMessage(message) {
     if (message.role === "error") {
-      const error = element("div", "message-error", message.text || "The assistant stopped before finishing.");
+      const error = element("div", "message-error");
+      error.append(element("span", "message-error-text", message.text || "The assistant stopped before finishing."));
       error.setAttribute("role", "note");
+      if (message.id) error.id = "message-" + message.id;
       return error;
     }
-    if (message.role === "system") return element("div", "message-system", message.text || "");
+    if (message.role === "system") {
+      const sys = element("div", "message-system", message.text || "");
+      if (message.id) sys.id = "message-" + message.id;
+      return sys;
+    }
     const user = message.role === "user";
     const provider = message.provider || state.conversation?.provider || "codex";
     const streaming = !user && (message.status === "streaming" || message.status === "running");
     const row = element("article", `message ${user ? "message-user" : "message-assistant"}${streaming ? " message-streaming" : ""}`);
+    if (message.id) {
+      row.id = "message-" + message.id;
+      row.dataset.messageId = message.id;
+    }
+    if (message.runId) row.dataset.runId = message.runId;
+    row.setAttribute("aria-label", user ? "Your message" : `${label(provider)} response`);
+    // A reply opens with one line naming the agent. Time and copy sit in a row beneath every message and appear on hover.
     const heading = element("div", "message-heading");
-    const avatar = element("span", `message-avatar ${user ? "user" : message.connection === 'local' ? 'local' : provider}`);
-    avatar.setAttribute("aria-hidden", "true");
-    heading.append(avatar, element("span", "message-author", user ? "You" : message.connection === 'local' ? 'Local · Ollama' : label(provider)));
-    if (!user && message.model && message.model !== "unknown") heading.append(element("span", "message-model", message.model));
-    if (!user && message.effort) heading.append(element("span", "message-effort", message.effort + " effort"));
-    if (message.imported) heading.append(element("span", "message-label", "Imported"));
-    if (streaming) heading.append(element("span", "message-label", "Working"));
+    if (!user) {
+      const avatar = element("span", `message-avatar ${message.connection === 'local' ? 'local' : provider}`);
+      avatar.setAttribute("aria-hidden", "true");
+      heading.append(avatar, element("span", "message-author", message.connection === 'local' ? 'Local · Ollama' : label(provider)));
+      const details = [message.model && message.model !== "unknown" ? message.model : "", message.effort ? message.effort + " effort" : ""].filter(Boolean).join(" · ");
+      if (details) heading.append(element("span", "message-model", details));
+      if (message.imported) heading.append(element("span", "message-label", "Imported"));
+    }
+    const actions = element("div", "message-actions");
     const time = element("time", "message-time", messageTime(message.createdAt));
     if (message.createdAt) time.dateTime = message.createdAt;
-    heading.append(time);
-    if (message.text) heading.append(copyButton("message-copy", "Copy message", message.text));
+    actions.append(time);
+    if (user && message.runId) {
+      const jumpRun = element("button", "message-action message-jump-run", "Activity");
+      jumpRun.type = "button";
+      jumpRun.title = "Jump to this run's activity";
+      jumpRun.addEventListener("click", () => {
+        const node = ui.messages.querySelector(`details[data-run-id="${message.runId}"]`) || ui.messages.querySelector(`article[data-run-id="${message.runId}"]:not(.message-user)`);
+        if (!node) return;
+        node.scrollIntoView({ behavior: "smooth", block: "center" });
+        node.classList.add("activity-highlight");
+        setTimeout(() => node.classList.remove("activity-highlight"), 2000);
+      });
+      actions.append(jumpRun);
+    }
+    if (message.text) actions.append(copyButton("message-copy", "Copy message", message.text));
     const body=element('div',user?'message-text':'message-text markdown');
     if (!user && message.reviewId) {
       const review = state.conversation?.reviews?.find(item => item.id === message.reviewId);
       body.append(element('p', '', review?.summary || (streaming ? 'Read-only review in progress…' : 'Read-only review response.')));
       if (review) { const view = element('button', 'secondary-button', 'View review'); view.type = 'button'; view.addEventListener('click', () => window.relayReviews?.open(message.reviewId)); body.append(view); }
       const raw = element('details', 'review-raw'); raw.append(element('summary', '', 'Agent response'), element('pre', '', message.text || 'Waiting for the reviewer…')); body.append(raw);
-      row.append(heading, body); return row;
+      row.append(heading, body, actions); return row;
     }
     const text=message.text || (streaming ? '' : 'No text response.');
     const parts=text.split(/```([^\n`]*)\n([\s\S]*?)```/g);
     for(let i=0;i<parts.length;i+=3){if(parts[i]){if(user)body.append(document.createTextNode(parts[i]));else renderProse(body,parts[i]);}if(parts[i+2]!==undefined){const block=element('div','code-block'),head=element('div','code-head'),pre=element('pre');head.append(element('span','code-language',parts[i+1].trim()||'code'),copyButton('code-copy','Copy code',parts[i+2]));pre.append(highlightedCode(parts[i+2],parts[i+1].trim()));block.append(head,pre);body.append(block);}}
-    row.append(heading,body);
+    if (!user) row.append(heading);
+    row.append(body);
     window.relayFiles?.renderMessageAttachments(row, message.attachments);
+    row.append(actions);
     return row;
   }
   function updateJump() { $("jump-latest").hidden = ui.scroll.scrollHeight - ui.scroll.scrollTop - ui.scroll.clientHeight < 240; }
   function renderMessages(forceScroll = false) {
     const messages = state.conversation?.messages || [];
-    const signature = JSON.stringify([state.projectId, state.conversation?.id, messages, state.conversation?.reviews?.map(({ id, status, summary }) => [id, status, summary])]);
+    const signature = JSON.stringify([state.projectId, state.conversation?.id, messages, state.conversation?.reviews?.map(({ id, status, summary }) => [id, status, summary]), state.conversation?.status, state.conversation?.activeRun?.id, state.conversation?.pendingApprovals?.map(({ id, runId }) => [id, runId])]);
     const noProvider=state.ready&&!messages.length&&!['codex','claude','gemini'].some(available);
     ui.empty.hidden = messages.length > 0 || !state.ready || noProvider;
     if($('provider-empty-state'))$('provider-empty-state').hidden=!noProvider;
@@ -420,23 +498,154 @@
     state.messagesSignature = signature;
     const nearBottom = ui.scroll.scrollHeight - ui.scroll.scrollTop - ui.scroll.clientHeight < 110;
     const oldTop = ui.scroll.scrollTop;
-    const openActivity = new Set([...ui.messages.querySelectorAll("details[open]")].map((node) => node.dataset.group));
+    const openActivity = new Set([...ui.messages.querySelectorAll("details")].filter(d => d.open).map((node) => node.getAttribute("data-group") || node.dataset?.group));
+    const openOutputs = new Set([...ui.messages.querySelectorAll(".activity-output")].filter(node => !node.hidden).map(node => node.getAttribute("data-entry-id") || node.dataset?.entryId));
+    const openEarlier = new Set([...ui.messages.querySelectorAll("details")].filter(node => node.open && node.classList.contains("activity-earlier")).map(node => node.getAttribute("data-group") || node.dataset?.group));
     const fragment = document.createDocumentFragment();
+    // Each prompt starts a turn holding everything that answers it, so the prompt stays pinned while its results scroll.
+    // Later replies from the same agent in the same run continue the first one, without repeating its name.
+    let speaker = null, turn = null;
+    const place = node => (turn || fragment).append(node);
     for (let index = 0; index < messages.length; index++) {
       const message = messages[index];
-      if (message.role !== "activity") { fragment.append(renderMessage(message)); continue; }
+      if (message.role !== "activity") {
+        const row = renderMessage(message);
+        if (message.role === "user") { turn = element("section", "turn"); fragment.append(turn); }
+        const key = message.role === "assistant" && message.runId ? [message.runId, message.provider, message.connection].join("|") : null;
+        if (key && key === speaker) row.classList.add("message-continued");
+        speaker = key;
+        place(row);
+        // Once the prompt scrolls away, a one-line copy stays at the top until the next prompt. The marker takes no
+        // space, so pinning never moves the conversation; a prompt that changed size when pinned made scrolling flicker.
+        if (message.role === "user") {
+          const pin = element("div", "turn-pin"), card = element("button", "turn-pin-card");
+          card.type = "button";
+          card.title = "Back to this prompt";
+          card.append(element("span", "turn-pin-text", (message.text || "").replace(/\s+/g, " ").trim() || "Attached files"));
+          card.addEventListener("click", () => row.scrollIntoView({ behavior: "smooth", block: "start" }));
+          const band = element("div", "turn-pin-band");
+          band.append(card);
+          pin.append(band);
+          turn.append(pin);
+        }
+        continue;
+      }
       const activities = [message];
-      while (messages[index + 1]?.role === "activity") activities.push(messages[++index]);
-      const groupKey = String(message.id || `${message.runId || "run"}-${index}`);
+      while (messages[index + 1]?.role === "activity" && (messages[index + 1].runId || "") === (message.runId || "")) activities.push(messages[++index]);
+      const runId = message.runId || activities.find(a => a.runId)?.runId || "";
+      const groupKey = String(message.id || `${runId || "run"}-${index}`);
       const details = element("details", "activity-group");
+      details.setAttribute("data-group", groupKey);
       details.dataset.group = groupKey;
+      if (runId) {
+        details.setAttribute("data-run-id", runId);
+        details.dataset.runId = runId;
+      }
       details.open = openActivity.has(groupKey);
-      const summary = element("summary", "", "Workspace activity");
-      summary.append(element("span", "", `${activities.length} ${activities.length === 1 ? "event" : "events"}`));
+
+      let fileChanges = 0, commands = 0, errors = 0;
+      const parsedItems = activities.map(act => {
+        const parsed = parseActivity(act.text);
+        if (parsed.kind === "command") commands++;
+        if (parsed.kind === "file" || (parsed.kind === "tool" && ["Edit", "Write", "write_file", "edit_file"].includes(parsed.toolName))) {
+          fileChanges += parsed.files?.length || 1;
+        }
+        if (parsed.error || parsed.kind === "error") errors++;
+        return { ...parsed, message: act };
+      });
+
+      const current = state.conversation?.status === "running" && state.conversation?.activeRun?.id === runId;
+      const latest = parsedItems.at(-1);
+      details.classList.toggle("activity-running", Boolean(current));
+      // One line: what is happening now while the run is live, otherwise what the run did. The chevron opens each step.
+      const summary = element("summary", "activity-summary");
+      summary.setAttribute("aria-label", "Workspace activity: " + (current ? latest?.action || "Working" : `${activities.length} action${activities.length === 1 ? "" : "s"}`));
+      if (current) summary.append(element("span", "activity-spinner"));
+      summary.append(element("span", "activity-summary-action", current ? latest?.action || "Working" : `Worked through ${activities.length} action${activities.length === 1 ? "" : "s"}`));
+      const summaryInfo = element("span", "activity-summary-info");
+      const counts = [];
+      if (fileChanges > 0) counts.push(`${fileChanges} file${fileChanges === 1 ? "" : "s"} changed`);
+      if (commands > 0) counts.push(`${commands} command${commands === 1 ? "" : "s"} run`);
+      if (!counts.length) counts.push(`${activities.length} ${activities.length === 1 ? "event" : "events"}`);
+      summaryInfo.append(element("span", "activity-counts", counts.join(" · ")));
+
+      const hasPending = (state.conversation?.pendingApprovals || []).some(ap => !runId || ap.runId === runId);
+      if (hasPending && state.conversation?.status === "running") {
+        summaryInfo.append(element("span", "activity-badge badge-warning", "Waiting for approval"));
+      }
+      if (errors > 0) {
+        summaryInfo.append(element("span", "activity-badge badge-danger", `${errors} ${errors === 1 ? "issue" : "issues"}`));
+      }
+      summary.append(summaryInfo, element("span", "disclosure-chevron"));
+
       details.append(summary);
-      activities.forEach((activity) => details.append(element("div", "activity-entry", activity.text || "Working…")));
-      fragment.append(details);
+
+      const renderEntry = ({ kind, icon, action, verb, detail, raw, message: act }, idx) => {
+        const entryId = act.id || `${groupKey}-${idx}`;
+        const open = openOutputs.has(entryId);
+        const entry = element("div", `activity-entry activity-entry-${kind}`);
+        entry.setAttribute("data-entry-id", entryId);
+        entry.dataset.entryId = entryId;
+        const head = element("div", "activity-entry-header");
+        const hasExtra = Boolean(raw && raw !== action);
+        // A step with more to show is a button; one that is only its line stays text, which keeps it searchable.
+        const toggle = element(hasExtra ? "button" : "div", "activity-output-toggle");
+        if (hasExtra) {
+          toggle.type = "button";
+          toggle.title = open ? "Hide details" : "Show details";
+          toggle.setAttribute("aria-expanded", String(open));
+        }
+        const glyph = element("span", `activity-icon icon-${icon || kind}`);
+        glyph.setAttribute("aria-hidden", "true");
+        toggle.append(glyph, element("span", "activity-entry-title", verb && detail ? verb : action));
+        if (kind === "command" && detail) toggle.append(element("code", "activity-cmd-inline", `$ ${detail}`));
+        else if (detail && (verb || kind === "file")) toggle.append(element("span", "activity-entry-detail", detail));
+        if (hasExtra) toggle.append(element("span", "disclosure-chevron"));
+        head.append(toggle, copyButton("activity-copy", "Copy output", raw));
+        entry.append(head);
+        if (hasExtra) {
+          const pre = element("pre", "activity-output", raw);
+          const outputId = "activity-output-" + entryId;
+          pre.id = outputId;
+          pre.setAttribute("data-entry-id", entryId);
+          pre.dataset.entryId = entryId;
+          pre.hidden = !open;
+          toggle.setAttribute("aria-controls", outputId);
+          toggle.addEventListener("click", () => {
+            const willOpen = pre.hidden;
+            pre.hidden = !willOpen;
+            entry.classList.toggle("open", willOpen);
+            toggle.title = willOpen ? "Hide details" : "Show details";
+            toggle.setAttribute("aria-expanded", String(willOpen));
+            if (willOpen) openOutputs.add(entryId); else openOutputs.delete(entryId);
+          });
+          entry.classList.toggle("open", open);
+          entry.append(pre);
+        }
+        return entry;
+      };
+
+      const list = element("div", "activity-list");
+      if (parsedItems.length > 5) {
+        const earlierItems = parsedItems.slice(0, parsedItems.length - 3);
+        const recentItems = parsedItems.slice(parsedItems.length - 3);
+        const earlierDisclosure = element("details", "activity-earlier");
+        earlierDisclosure.setAttribute("data-group", `${groupKey}-earlier`);
+        earlierDisclosure.dataset.group = `${groupKey}-earlier`;
+        earlierDisclosure.open = openEarlier.has(`${groupKey}-earlier`);
+        const earlierSummary = element("summary", "activity-earlier-toggle", `${earlierItems.length} earlier actions`);
+        earlierDisclosure.append(earlierSummary);
+        earlierItems.forEach((item, idx) => earlierDisclosure.append(renderEntry(item, idx)));
+        list.append(earlierDisclosure);
+        recentItems.forEach((item, idx) => list.append(renderEntry(item, idx + earlierItems.length)));
+      } else {
+        parsedItems.forEach((item, idx) => list.append(renderEntry(item, idx)));
+      }
+      details.append(list);
+
+      place(details);
     }
+    place($("transcript-footer"));
     ui.messages.replaceChildren(fragment);
     if (forceScroll || nearBottom) requestAnimationFrame(() => { ui.scroll.scrollTop = ui.scroll.scrollHeight; updateJump(); });
     else { ui.scroll.scrollTop = oldTop; updateJump(); }
@@ -474,6 +683,11 @@
     ui.stop.disabled = busy;
     ui.stop.lastChild.textContent = state.pending === "stop" ? " Stopping…" : " Stop";
     ui.otherRunning.hidden = !otherRunning;
+    // A narrow composer shows these pickers as icons, so each names its current choice on hover.
+    for (const select of [$("effort-select"), ui.mode, ui.approval]) {
+      const picker = select?.closest(".picker"), choice = [...(select?.options || select?.querySelectorAll?.("option") || [])].find(option => option.value === select.value);
+      if (picker && choice) picker.title = `${picker.dataset.name ||= picker.title}: ${choice.textContent}`;
+    }
     const incomplete = ["incomplete", "interrupted"].includes(state.conversation?.status);
     const lastMessage = state.conversation?.messages?.at(-1);
     const canContinue = !running && state.conversation?.lastRun?.purpose !== 'review' && (incomplete || lastMessage?.role === "error");
@@ -924,6 +1138,10 @@
     else if (/^[1-9]$/.test(event.key) && !event.shiftKey) run("workspace", Number(event.key));
   });
   ui.scroll.addEventListener("scroll", updateJump, { passive: true });
+  // Status, permission requests and Continue appear under the latest turn without a new message; a reader at the end keeps seeing them.
+  let following = true;
+  ui.scroll.addEventListener("scroll", () => { following = ui.scroll.scrollHeight - ui.scroll.scrollTop - ui.scroll.clientHeight < 110; }, { passive: true });
+  if (typeof ResizeObserver === "function") new ResizeObserver(() => { if (following) ui.scroll.scrollTop = ui.scroll.scrollHeight; }).observe($("transcript-footer"));
   $("jump-latest").addEventListener("click", () => { ui.scroll.scrollTo({ top: ui.scroll.scrollHeight, behavior: "smooth" }); ui.input.focus(); });
   ui.projectSelect.addEventListener("change", () => selectProject(ui.projectSelect.value));
   ui.addProject.addEventListener("click", () => toggleProjectForm(ui.projectPanel.hidden));
@@ -973,7 +1191,7 @@
   window.addEventListener('relay-billing',()=>{renderStatus();renderControls();});
   window.addEventListener("beforeunload", saveDraft);
   window.relayUI = {
-    getState: () => state, api, post, refresh, renderControls, showNotice, selectProject, refreshAccounts, refreshProjects, announce, selectedFolderId: () => selectedFolderId(), selectFolder, highlightLines,
+    getState: () => state, describeActivity: parseActivity, api, post, refresh, renderControls, showNotice, selectProject, refreshAccounts, refreshProjects, announce, selectedFolderId: () => selectedFolderId(), selectFolder, highlightLines,
     commands, isRunning, filteredProjects,
     ensureConversation: ensureCanonicalConversation,
     selectLocalModel(model) {
