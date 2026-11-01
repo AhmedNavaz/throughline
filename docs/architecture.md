@@ -31,6 +31,7 @@ flowchart TD
 | Temporary development profiles and data migration | `desktop/launch.mjs`, `desktop/storage.mjs` |
 | Workspace identity, folders and one permanent conversation | `src/projects.mjs` |
 | Conversation journal, accepted submissions, approvals and run lifecycle | `src/broker.mjs` |
+| Waiting for a usage limit to reset and continuing on the first agent with room (#32) | `src/resume.mjs` |
 | Loopback relay that reaches Google over IPv4 first for the Antigravity runtime | `src/google-relay.mjs` |
 | Shared prompt context | `src/context.mjs` |
 | Agent protocol adapters and worker entry point | `src/gemini.mjs`, `src/providers.mjs`, `src/provider-worker.mjs`, `src/resolve-binary.mjs` |

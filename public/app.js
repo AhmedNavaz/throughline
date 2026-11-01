@@ -651,6 +651,40 @@
     else { ui.scroll.scrollTop = oldTop; updateJump(); }
   }
 
+  // Agents a wait can continue with: the one that stopped and the one selected first, then any other connected agent.
+  function resumeProviders() {
+    const connected = ["codex", "claude", "gemini"].filter(provider => available(provider) && !connection(provider).blocked);
+    return [...new Set([state.conversation?.lastRun?.provider, state.provider, ...connected])].filter(provider => connected.includes(provider));
+  }
+  function resumeText(resume) {
+    const time = iso => { const date = new Date(iso), today = date.toDateString() === new Date().toDateString(); return date.toLocaleString(undefined, today ? { hour: "numeric", minute: "2-digit" } : { weekday: "short", hour: "numeric", minute: "2-digit" }); };
+    const agents = resume.providers.map(provider => {
+      const status = resume.agents?.[provider];
+      return label(provider) + (status?.limited === false ? " (ready)" : status?.resetsAt ? ` (resets ${time(status.resetsAt)})` : status ? " (checking every 10 min)" : "");
+    });
+    const list = agents.length > 1 ? `${agents.slice(0, -1).join(", ")} or ${agents.at(-1)}` : agents[0];
+    const access = `${resume.mode === "read" ? "Read only" : "Can edit files"} · ${resume.approvalPolicy === "auto" ? "full auto-approval" : "asks before tools run"}`;
+    return `Waiting for a usage limit to reset. Continues with ${list}, whichever has room first. ${access}.`;
+  }
+  async function scheduleResume(approvalPolicy) {
+    const id = state.conversation?.id, projectId = state.projectId;
+    if (!id || state.pending) return;
+    state.resumeChoice = null; state.pending = "resume"; renderControls();
+    try {
+      await post(endpoint(id, "resume"), { providers: resumeProviders(), mode: state.mode, approvalPolicy, billingConfirmed: window.relayBillingConfirmed === true }, projectId);
+      await refresh();
+    } catch (error) { showNotice(error.message); }
+    finally { state.pending = null; renderControls(); }
+  }
+  async function cancelResume() {
+    const id = state.conversation?.id, projectId = state.projectId;
+    if (!id || state.pending) return;
+    state.pending = "resume"; renderControls();
+    try { await post(endpoint(id, "resume"), { cancel: true }, projectId); await refresh(); }
+    catch (error) { showNotice(error.message); }
+    finally { state.pending = null; renderControls(); }
+  }
+
   function renderControls() {
     const running = isRunning();
     const otherRunning = isOtherRunning();
@@ -691,7 +725,8 @@
     const incomplete = ["incomplete", "interrupted"].includes(state.conversation?.status);
     const lastMessage = state.conversation?.messages?.at(-1);
     const canContinue = !running && state.conversation?.lastRun?.purpose !== 'review' && (incomplete || lastMessage?.role === "error");
-    ui.continuation.hidden = !canContinue;
+    const resume = state.conversation?.resume;
+    ui.continuation.hidden = !canContinue || Boolean(resume);
     const previous=state.conversation?.lastRun;
     const reason={quota:'Usage limit reached.',authentication:'Sign-in required.',permission:'A permission request was declined.',protocol:'The assistant connection stopped.',interrupted:'Run stopped.'}[previous?.errorCategory] || 'The previous run did not finish.';
     ui.continueText.textContent = reason;
@@ -700,6 +735,13 @@
     state.continuationProvider=continuationProvider;
     ui.continueButton.replaceChildren(document.createTextNode(state.pending === "continue" ? "Continuing…" : `Continue with ${label(continuationProvider)} `), element("span", "", "→"));
     ui.continueButton.disabled = busy || otherRunning || connection(continuationProvider).blocked;
+    // After a usage limit, the task can wait for a reset and continue on whichever agent has room first.
+    const quotaStop = canContinue && previous?.errorCategory === 'quota', choosing = quotaStop && state.resumeChoice === state.conversation?.id;
+    $("resume-button").hidden = !quotaStop || choosing;
+    $("resume-choice").hidden = !choosing;
+    for (const id of ["resume-button", "resume-ask", "resume-auto"]) $(id).disabled = busy || otherRunning || !resumeProviders().length;
+    $("resume-waiting").hidden = !resume;
+    if (resume) $("resume-waiting-text").textContent = resumeText(resume);
     const hasMessages = Boolean(state.conversation?.messages?.length);
     ui.title.textContent=state.loading&&state.projectId?'Opening workspace…':currentProject()?.name||'Throughline';
     const run=state.conversation?.activeRun || state.conversation?.lastRun;
@@ -712,9 +754,10 @@
     if (state.localSelections[state.projectId] && !running) status = 'Local selected';
     if (running && run?.purpose === 'review') status = 'Reviewing';
     if(incomplete && run?.provider===state.provider)status='Stopped';
+    if(resume && !running)status='Waiting for reset';
     if(state.pending==='stop')status='Stopping…';else if(state.pending==='send'||state.pending==='continue')status='Sending…';
     ui.state.lastElementChild.textContent=status;
-    ui.state.dataset.status=running?(approvals?'approval':'running'):incomplete?'stopped':!state.localSelections[state.projectId] && selectedConnection.blocked?'setup':'ready';
+    ui.state.dataset.status=running?(approvals?'approval':'running'):resume?'waiting':incomplete?'stopped':!state.localSelections[state.projectId] && selectedConnection.blocked?'setup':'ready';
     renderConnectionNotice();
     document.title = currentProject() ? currentProject().name + " · Throughline" : "Throughline · Your project workspaces";
   }
@@ -1124,6 +1167,7 @@
     "add-folder": () => { if (covered()) return false; toggleFolderForm(true); return true; },
     agent: provider => ["codex", "claude", "gemini"].includes(provider) && press("select-" + provider)(),
     continue: () => !ui.continuation.hidden && press("continue-button")(),
+    "open-workspace": id => { if (typeof id !== "string" || !state.projects.some(project => project.id === id)) return false; if (id !== state.projectId) selectProject(id); return true; },
     appearance: value => { if (!["system", "graphite", "light"].includes(value)) return false; window.relayTheme?.choose(value); return true; },
     "workspace-settings": () => { if (covered() || !state.projectId) return false; openWorkspaceOptions(state.projectId); return true; },
     "remove-workspace": () => { if (covered() || !state.projectId) return false; confirmRemoveWorkspace(state.projectId); return true; },
@@ -1175,6 +1219,14 @@
   ui.approval?.addEventListener("change", () => changeSettings(state.provider, state.mode, ui.approval.value));
   ui.stop.addEventListener("click", stop);
   ui.continueButton.addEventListener("click", () => {const target=state.continuationProvider||state.provider;if(target!==state.provider)changeSettings(target,state.mode,state.approvalPolicy);run(true);});
+  // Waiting never raises access: with full auto-approval on, the person chooses whether it applies while they are away.
+  $("resume-button").addEventListener("click", () => {
+    if (state.mode === "edit" && state.approvalPolicy === "auto") { state.resumeChoice = state.conversation?.id; renderControls(); return; }
+    scheduleResume(state.approvalPolicy || "ask");
+  });
+  $("resume-ask").addEventListener("click", () => scheduleResume("ask"));
+  $("resume-auto").addEventListener("click", () => scheduleResume("auto"));
+  $("resume-cancel").addEventListener("click", cancelResume);
   ui.viewRunning.addEventListener("click",refresh);
   ui.dismiss.addEventListener("click", hideNotice);
   ui.retry.addEventListener("click", () => { const retry = state.noticeRetry; hideNotice(); if (retry) retry(); });

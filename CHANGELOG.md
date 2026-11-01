@@ -4,6 +4,10 @@ Notable changes to Throughline. The format follows [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+### Added
+
+- **Continue when a limit resets** (#32): after a run stops on a usage limit, the task can wait and continue on whichever connected agent has room first, using each agent's reported reset time or checking every ten minutes when none is reported. The continued run keeps the access shown on the wait and never gets more; full auto-approval applies only if you keep it when you choose to wait. Desktop notifications say when the work continues, needs your approval, finishes or stops. The wait survives restarts, Keep awake covers it, and it ends after a day, when cancelled, or when you send a message yourself.
+
 ### Changed
 
 - A calmer conversation: your prompts are bubbles, agent replies read as open text under one header per run, and workspace activity is a single line that shows the current step live and opens into one row per action with its output a click away. Run status, permission requests, errors and **Continue** are quiet lines with pill buttons instead of boxed panels.

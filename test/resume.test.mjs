@@ -1,0 +1,125 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import test from 'node:test';
+import { Broker } from '../src/broker.mjs';
+import { continuationRequest } from '../src/context.mjs';
+import { limitState, RESUME_EXPIRES_MS } from '../src/resume.mjs';
+
+const fixture = fileURLToPath(new URL('./mock-cli.mjs', import.meta.url));
+
+function setup(t, scenarios = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'throughline-resume-'));
+  const workspace = path.join(root, 'workspace'), dataDir = path.join(root, 'data');
+  fs.mkdirSync(workspace);
+  fs.writeFileSync(path.join(workspace, '.mock-scenarios.json'), JSON.stringify({ 'Quota stop': { behavior: 'quota' }, ...scenarios }));
+  const bins = {};
+  for (const provider of ['codex', 'claude']) {
+    bins[provider] = path.join(root, `${provider}-mock.mjs`);
+    fs.writeFileSync(bins[provider], `#!${process.execPath}\nimport ${JSON.stringify(pathToFileURL(fixture).href)};\n`, { mode: 0o700 });
+  }
+  const brokers = [];
+  t.after(async () => { await Promise.all(brokers.map(broker => broker.close())); fs.rmSync(root, { recursive: true, force: true }); });
+  return {
+    dataDir, marker: path.join(dataDir, 'resume-pending'),
+    open() { const broker = new Broker({ workspace, dataDir, bins }); brokers.push(broker); return broker; },
+    captures() { const file = path.join(workspace, '.mock-captures.jsonl'); return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []; },
+  };
+}
+async function run(broker, c, text, provider) { broker.start(c, { text, provider, mode: 'edit' }); await broker.running.done; }
+// A broker whose clock and plan usage the test controls.
+function controlled(broker, usage) {
+  const clock = { now: Date.now() };
+  broker.resume.now = () => clock.now;
+  broker.resume.usage = async provider => usage[provider] ?? { available: false };
+  return clock;
+}
+const full = resetsAt => ({ available: true, windows: [{ id: 'primary', usedPercent: 100, resetsAt }] });
+const room = { available: true, windows: [{ id: 'primary', usedPercent: 12, resetsAt: null }] };
+
+test('plan usage tells whether an agent is limited and when every full window resets', () => {
+  assert.deepEqual(limitState({ available: false }), { limited: null, resetsAt: null });
+  assert.deepEqual(limitState(room), { limited: false, resetsAt: null });
+  assert.deepEqual(limitState({ available: true, windows: [{ usedPercent: 100, resetsAt: '2026-11-02T10:00:00Z' }, { usedPercent: 100, resetsAt: '2026-11-03T10:00:00Z' }] }), { limited: true, resetsAt: '2026-11-03T10:00:00.000Z' });
+  assert.deepEqual(limitState({ available: true, windows: [{ usedPercent: 100 }] }), { limited: true, resetsAt: null }, 'A full window without a reset time stays unknown.');
+  assert.equal(limitState({ available: true, windows: [{ usedPercent: 100, scope: 'opus', resetsAt: '2026-11-03T10:00:00Z' }] }, 'sonnet').limited, null, 'A limit on another model does not apply.');
+});
+
+test('a run stopped on a limit waits, then continues on whichever agent resets first with the access chosen when it was scheduled', async t => {
+  const env = setup(t), broker = env.open(), c = broker.get(broker.create().id), notices = [];
+  broker.on('notify', notice => notices.push(notice));
+  await run(broker, c, 'Quota stop', 'codex');
+  assert.equal(c.lastRun.errorCategory, 'quota');
+  const usage = {}, clock = controlled(broker, usage);
+  usage.codex = full(new Date(clock.now + 3600000).toISOString());
+  usage.claude = full(new Date(clock.now + 1800000).toISOString());
+  const view = broker.scheduleResume(c, { providers: ['codex', 'claude'], mode: 'edit', approvalPolicy: 'ask' });
+  assert.deepEqual(view.resume.providers, ['codex', 'claude']);
+  await broker.resume.tick();
+  assert.equal(broker.running, null, 'Nothing starts while every agent is limited.');
+  assert.equal(broker.view(c).resume.agents.claude.resetsAt, usage.claude.windows[0].resetsAt);
+  assert(fs.existsSync(env.marker), 'The wait is marked so it survives a restart.');
+
+  clock.now += 1800000 + 20000; usage.claude = room;
+  await broker.resume.tick();
+  assert.equal(broker.running?.provider, 'claude', 'Claude reset first, so it continues.');
+  assert.equal(broker.running.approvalPolicy, 'ask');
+  await broker.running.done;
+  assert.equal(c.resume, null); assert.equal(c.resumeEnded.outcome, 'started'); assert.equal(c.resumeEnded.provider, 'claude');
+  assert.equal(c.lastRun.status, 'complete');
+  const sent = env.captures().at(-1);
+  assert.equal(sent.context.currentRequest, continuationRequest);
+  assert.equal(sent.args.includes('--resume'), false, 'The other agent continues from the shared conversation.');
+  assert(c.messages.some(message => message.role === 'system' && /Claude has room again/.test(message.text)));
+  assert.deepEqual(notices.map(notice => notice.kind), ['started', 'finished']);
+  assert.equal(fs.existsSync(env.marker), false);
+});
+
+test('a wait survives a restart, ends when cancelled, and gives way to a message sent by hand', async t => {
+  const env = setup(t), first = env.open(), c = first.get(first.create().id);
+  await run(first, c, 'Quota stop', 'codex');
+  controlled(first, { codex: full(new Date(Date.now() + 3600000).toISOString()) });
+  first.scheduleResume(c, { providers: ['codex'], mode: 'edit', approvalPolicy: 'ask' });
+  await first.resume.tick(); await first.close();
+
+  const reopened = env.open(), again = reopened.get(c.id);
+  controlled(reopened, { codex: full(new Date(Date.now() + 3600000).toISOString()) });
+  assert.equal(again.resume.providers[0], 'codex'); assert.equal(reopened.waitingResumes, 1);
+  reopened.cancelResume(again);
+  assert.equal(again.resume, null); assert.equal(again.resumeEnded.outcome, 'cancelled'); assert.equal(fs.existsSync(env.marker), false);
+
+  reopened.scheduleResume(again, { providers: ['codex'], mode: 'edit', approvalPolicy: 'ask' });
+  await reopened.resume.tick();
+  await run(reopened, again, 'Done by hand', 'claude');
+  assert.equal(again.resumeEnded.outcome, 'superseded'); assert.equal(reopened.waitingResumes, 0);
+});
+
+test('a wait ends after a day, and a resumed run that reaches another limit waits again', async t => {
+  const env = setup(t, { [continuationRequest]: { behavior: 'quota' } }), broker = env.open(), c = broker.get(broker.create().id), notices = [];
+  broker.on('notify', notice => notices.push(notice));
+  await run(broker, c, 'Quota stop', 'codex');
+  const usage = { codex: room }, clock = controlled(broker, usage);
+  broker.scheduleResume(c, { providers: ['codex'], mode: 'edit', approvalPolicy: 'ask' });
+  await broker.resume.tick(); await broker.running.done;
+  assert.equal(c.lastRun.errorCategory, 'quota');
+  assert(c.resume, 'The continued run reached a limit again, so the task waits again.'); assert.equal(c.resume.attempts, 1);
+  assert(notices.some(notice => notice.kind === 'waiting'));
+
+  usage.codex = full(null);
+  clock.now += RESUME_EXPIRES_MS + 1000;
+  await broker.resume.tick();
+  assert.equal(c.resume, null); assert.equal(c.resumeEnded.outcome, 'expired');
+  assert(c.messages.at(-1).text.includes('stopped waiting'));
+  assert(notices.some(notice => notice.kind === 'expired'));
+});
+
+test('a wait is offered only after a usage limit, for connected agents, and never with settings a run would refuse', async t => {
+  const env = setup(t), broker = env.open(), c = broker.get(broker.create().id);
+  assert.throws(() => broker.scheduleResume(c, { providers: ['codex'] }), /after a run stops on a usage limit/);
+  await run(broker, c, 'Quota stop', 'codex');
+  assert.throws(() => broker.scheduleResume(c, { providers: ['nonexistent'] }), /connected agent/);
+  assert.throws(() => broker.scheduleResume(c, { providers: ['codex'], mode: 'read', approvalPolicy: 'auto' }), /read/i);
+  assert.equal(c.resume, null);
+});

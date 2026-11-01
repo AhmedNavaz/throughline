@@ -1749,3 +1749,36 @@ test('run details expose fresh versus resumed context and actual handoff omissio
   chat.activeRun.context={sessionMode:'resumed',sessionReason:'same-agent-continuation',includedMessages:0,omittedMessages:0};await ui.window.relayUI.refresh();
   assert.match(ui.$('run-metrics').textContent,/Resumed native session/);assert.doesNotMatch(ui.$('run-metrics').textContent,/Cross-agent handoff|tool logs compacted/);
 });
+
+test('after a usage limit the task can wait for a reset without raising access, shows the wait and can cancel it', async () => {
+  const ui = await browser(), conversation = ui.canonical.get('project-one');
+  const response = (body, status = 200) => ({ status, ok: status < 400, json: async () => body, text: async () => JSON.stringify(body) });
+  ui.setIntercept((request, next) => {
+    if (!request.path.endsWith('/resume')) return next();
+    if (request.body.cancel) { conversation.resume = null; return response(conversation); }
+    conversation.resume = { id: 'wait-one', providers: request.body.providers, mode: request.body.mode, approvalPolicy: request.body.approvalPolicy, agents: { codex: { limited: true, resetsAt: '2026-11-02T22:23:00.000Z' }, claude: { limited: true, resetsAt: null } } };
+    return response(conversation);
+  });
+  conversation.status = 'incomplete'; conversation.lastRun = { provider: 'codex', errorCategory: 'quota' };
+  await ui.window.relayUI.refresh();
+  assert.equal(ui.$('resume-button').hidden, false); assert.equal(ui.$('resume-waiting').hidden, true);
+
+  // With full auto-approval on, the person chooses whether it applies while they are away.
+  ui.state().approvalPolicy = 'auto'; ui.state().mode = 'edit';
+  ui.$('resume-button').click(); await flush();
+  assert.equal(ui.$('resume-choice').hidden, false); assert.equal(ui.$('resume-button').hidden, true);
+  assert.equal(ui.requests.filter(request => request.path.endsWith('/resume')).length, 0, 'Nothing is scheduled before the choice.');
+  ui.$('resume-ask').click(); await flush();
+  const scheduled = ui.requests.filter(request => request.path.endsWith('/resume'));
+  assert.equal(scheduled.length, 1); assert.equal(scheduled[0].body.approvalPolicy, 'ask'); assert.equal(scheduled[0].body.mode, 'edit');
+  assert.equal(scheduled[0].body.providers[0], 'codex', 'The agent that stopped is tried first.');
+
+  assert.equal(ui.$('resume-waiting').hidden, false); assert.equal(ui.$('continuation').hidden, true);
+  assert.match(ui.$('resume-waiting-text').textContent, /Codex \(resets .+\)/); assert.match(ui.$('resume-waiting-text').textContent, /checking every 10 min/);
+  assert.match(ui.$('resume-waiting-text').textContent, /asks before tools run/);
+  assert.equal(ui.$('conversation-state').textContent, 'Waiting for reset');
+
+  ui.$('resume-cancel').click(); await flush();
+  assert.equal(ui.requests.filter(request => request.path.endsWith('/resume')).at(-1).body.cancel, true);
+  assert.equal(ui.$('resume-waiting').hidden, true); assert.equal(ui.$('continuation').hidden, false);
+});

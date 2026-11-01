@@ -1,4 +1,4 @@
-import {app,BrowserWindow,Menu,dialog,ipcMain,nativeTheme,shell,powerSaveBlocker} from 'electron';
+import {app,BrowserWindow,Menu,Notification,dialog,ipcMain,nativeTheme,shell,powerSaveBlocker} from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
@@ -34,8 +34,18 @@ else {
       // A clicked checkbox or radio item ticks itself, so the menu is rebuilt to show the page's answer instead.
       send:(...command)=>{if(win&&!win.isDestroyed())win.webContents.send('relay:menu-command',...command);updateMenu();}})));
     app.setAboutPanelOptions({applicationName:'Throughline',applicationVersion:app.getVersion(),version:''});
+    // Work that continues while the person is away reports through system notifications. While the window is in
+    // front the page already shows the change. Clicking a notification opens its workspace.
+    function notify({kind,title,body,projectId,projectName}){
+      if(win&&!win.isDestroyed()&&win.isFocused())return;
+      if(kind==='approval')app.dock?.bounce('informational');
+      if(!Notification.isSupported())return;
+      const notice=new Notification({title:projectName?`${title} · ${projectName}`:title,body:String(body||'').slice(0,240),silent:kind==='started'});
+      notice.on('click',()=>{if(!win||win.isDestroyed())return;if(win.isMinimized())win.restore();win.show();win.focus();if(projectId)win.webContents.send('relay:menu-command','open-workspace',projectId);});
+      notice.show();
+    }
     async function start(){
-      relay=createRelayServer({dataRoot:data,accessToken:token,onAppearance:preference=>{appearance.set(preference);updateMenu();}});
+      relay=createRelayServer({dataRoot:data,accessToken:token,onAppearance:preference=>{appearance.set(preference);updateMenu();},onNotify:notify});
       appearance.set(relay.getAppearancePreference());
       keepAwake=createKeepAwake({registry:relay.registry,blocker:powerSaveBlocker,enabled:relay.getKeepAwakePreference(),save:relay.setKeepAwakePreference,onChange:state=>{awake=state.enabled;if(win&&!win.isDestroyed())win.webContents.send('relay:keep-awake-changed',state);updateMenu();}});
       await new Promise((resolve,reject)=>{relay.server.once('error',reject);relay.server.listen(0,'127.0.0.1',resolve);});

@@ -159,6 +159,7 @@ summary::-webkit-details-marker { display: none; }
 .conversation-state > i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .conversation-state[data-status="ready"] { color: var(--success); background: var(--success-bg); }
 .conversation-state[data-status="stopped"], .conversation-state[data-status="setup"], .conversation-state[data-status="approval"] { color: var(--warning); background: var(--warning-bg); }
+.conversation-state[data-status="waiting"] { color: var(--link); background: var(--chip-bg); }
 .conversation-state.running { color: var(--link); }
 .conversation-state.running > i { animation: pulse 1.4s ease-in-out infinite; }
 
@@ -399,7 +400,8 @@ div.activity-output-toggle { cursor: default; }
 /* Under the latest turn: permission requests, the run's status line, Continue and follow-up actions. */
 .transcript-footer { display: grid; gap: 4px; margin: 0 0 4px 24px; }
 .transcript-footer:not(:has(> :not([hidden], :empty))) { display: none; }
-.main-panel:has(#continuation:not([hidden])) #run-progress { display: none; }
+/* Continue and a wait for a reset each explain how the last run ended, so its status line steps aside. */
+.main-panel:has(#continuation:not([hidden]), #resume-waiting:not([hidden])) #run-progress { display: none; }
 /* The error above says why the run stopped, so Continue offers only its actions. */
 #continuation-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .transcript-footer .continuation { justify-content: flex-start; padding: 0; }
@@ -414,6 +416,14 @@ div.activity-output-toggle { cursor: default; }
 }
 .continuation button:hover:enabled, .running-notice button:hover:enabled, .connection-notice button:hover:enabled, .pill-button:hover:enabled { background: var(--hover-strong, var(--surface-strong)); }
 #continue-button, #connection-action { background: var(--accent); color: var(--on-accent); }
+/* Waiting for a usage limit to reset: a clock, what happens next, and Cancel. */
+.resume-icon { flex: none; width: 14px; height: 14px; background: currentColor; -webkit-mask: var(--icon-clock) center / contain no-repeat; mask: var(--icon-clock) center / contain no-repeat; }
+.resume-choice { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; color: var(--muted); font-size: 12.5px; }
+.resume-waiting { display: flex; align-items: center; gap: 8px; min-height: 30px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.resume-waiting > .resume-icon { color: var(--link); animation: pulse 2s ease-in-out infinite; }
+#resume-waiting-text { flex: 1; min-width: 0; }
+#resume-cancel { flex: none; height: 26px; padding: 0 12px; border: 0; border-radius: 13px; background: var(--chip-bg); color: var(--text-strong); font-size: 12px; font-weight: 500; }
+#resume-cancel:hover:enabled { background: var(--surface-strong); }
 #continue-button:hover:enabled, #connection-action:hover:enabled { background: var(--accent-strong); }
 .composer { border: 1px solid var(--input-border); border-radius: var(--radius-lg); background: var(--surface-input); box-shadow: var(--shadow-sm); transition: border-color .12s; }
 .composer:focus-within { border-color: var(--focus); }

@@ -48,7 +48,7 @@ async function body(req, limit = 3 * 1024 * 1024) {
   } catch { throw Object.assign(new Error('Invalid JSON request.'), { status: 400 }); }
 }
 
-export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDir, bins, lock = true, sharingURL = process.env.AI_RELAY_SHARING_URL, accessToken, importer, onAppearance = () => {} } = {}) {
+export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDir, bins, lock = true, sharingURL = process.env.AI_RELAY_SHARING_URL, accessToken, importer, onAppearance = () => {}, onNotify = () => {} } = {}) {
   const registry = new ProjectRegistry({ dataRoot: dataRoot || dataDir || path.join(root, '.data'), bins, lock });
   for (const folder of [...(workspace ? [workspace] : []), ...workspaces]) registry.add({ path: folder });
   const collaboration = new CollaborationService({ registry, dataRoot: registry.dataRoot });
@@ -80,6 +80,12 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
   registry.on('projects', () => {
     for (const res of listeners) res.write('event: projects\ndata: {}\n\n');
   });
+  registry.on('notify', notice => { try { onNotify(notice); } catch (error) { console.error('Throughline could not show a notification:', error.message); } });
+  // Workspaces waiting for a usage limit to reset reopen at startup, so the wait continues after a restart.
+  for (const project of registry.list()) {
+    if (!fs.existsSync(path.join(registry.dataRoot, project.id, 'resume-pending'))) continue;
+    try { registry.broker(project.id); } catch (error) { console.error(`Throughline could not resume waiting work in ${project.name}:`, error.message); }
+  }
   function selectedProjectId(url) {
     const id=url.searchParams.get('projectId');
     if(id){registry.get(id);return id;}
@@ -176,7 +182,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
           return json(res,existed?200:201,registry.mainConversation(projectId));
         }
       }
-      const match = url.pathname.match(/^\/api\/conversations\/([\da-f-]{36})(?:\/(messages|continue|stop|provider|context|approval))?$/);
+      const match = url.pathname.match(/^\/api\/conversations\/([\da-f-]{36})(?:\/(messages|continue|stop|provider|context|approval|resume))?$/);
       if (match) {
         const broker = selectedBroker(url);
         const c = broker.get(match[1]);
@@ -189,6 +195,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
           if (match[2] === 'approval') return json(res, 200, await broker.approve(input.runId, input.approvalId, input.allow === true));
           if (match[2] === 'provider') return json(res, 200, await broker.settings(c, input));
           if (match[2] === 'stop') return json(res, 200, broker.stop(c.id));
+          if (match[2] === 'resume') return json(res, 200, input.cancel === true ? broker.cancelResume(c) : broker.scheduleResume(c, input));
           if (match[2] === 'messages') return json(res, 202, await broker.start(c, input));
           if (match[2] === 'continue') return json(res, 202, await broker.start(c, { ...input,
             fresh: true,

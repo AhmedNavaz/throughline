@@ -14,6 +14,7 @@ import { workspaceBaseline } from './workspace-baseline.mjs';
 import { AttachmentStore } from './attachments.mjs';
 import { processStart, reused } from './mutation-lock.mjs';
 import { parseReviewResult, publicReview, reviewPrompt } from './agent-review.mjs';
+import { ResumeScheduler } from './resume.mjs';
 
 export const PROVIDERS = ['codex', 'claude', 'gemini'];
 const transportFor = (provider, transport, configured) => transport === 'auto' ? provider === 'gemini' ? 'acp' : configured ? 'cli' : provider === 'codex' ? 'app-server' : 'sdk' : transport;
@@ -127,11 +128,23 @@ export class Broker extends EventEmitter {
         this.record(conversation, { type: 'review_result', id: review.id, result: { status: 'interrupted', summary: 'Background review was interrupted. Start a new review when ready.', findings: [] } });
       }
     }
+    this.resume = new ResumeScheduler(this);
+    this.resume.arm();
+    // The first check of a wait saved before a restart runs once startup has finished.
+    if (this.resume.waiting) setTimeout(() => this.resume.tick(), 0);
   }
+
+  // Waiting for a usage limit to reset (#32).
+  get waitingResumes() { return this.resume.waiting; }
+  availableProviders() { return PROVIDERS.filter(provider => resolveBinary(provider, { override: this.configuredBins[provider], googleRoot: this.googleRoot })); }
+  checkRunSettings(provider, mode, approvalPolicy) { checkSettings(provider, mode, approvalPolicy); }
+  usageOptions(provider) { return { bin: resolveBinary(provider, { override: this.configuredBins[provider], googleRoot: this.googleRoot }), workspace: this.workspace, googleRoot: this.googleRoot, refresh: true }; }
+  scheduleResume(c, input = {}) { return this.resume.schedule(c, input); }
+  cancelResume(c) { return this.resume.cancel(c); }
 
   empty(id) {
     return { id, title: 'New conversation', provider: 'codex', mode: 'edit', approvalPolicy: 'ask', status: 'idle', messages: [],
-      sessions: {}, models: {}, efforts: {}, effort: null, imports: {}, transports: {}, requests: {}, reviewRequests: {}, reviews: [], context: emptyContext(), model: null, transport: 'auto', settingsRevision: 0, lastRun: null, records: 0, activeRun: null, createdAt: null, updatedAt: null };
+      sessions: {}, models: {}, efforts: {}, effort: null, imports: {}, transports: {}, requests: {}, reviewRequests: {}, reviews: [], context: emptyContext(), model: null, transport: 'auto', settingsRevision: 0, lastRun: null, records: 0, activeRun: null, resume: null, resumeEnded: null, createdAt: null, updatedAt: null };
   }
 
   apply(c, record) {
@@ -140,6 +153,8 @@ export class Broker extends EventEmitter {
     if (record.type === 'created') Object.assign(c, { createdAt: record.at, title: record.title });
     if (record.type === 'settings') { Object.assign(c, { provider: record.provider, mode: record.mode, approvalPolicy: record.approvalPolicy || 'ask', model: record.model ?? null, transport: record.transport || c.transport, settingsRevision: record.seq }); c.models[record.provider] = record.model ?? null; c.transports[record.provider] = record.transport || c.transport; }
     if (record.type === 'context') c.context = record.context;
+    if (record.type === 'resume') c.resume = record.resume;
+    if (record.type === 'resume_end' && c.resume?.id === record.id) { c.resume = null; c.resumeEnded = { id: record.id, outcome: record.outcome, provider: record.provider || null, at: record.at }; }
     if (['settings', 'submission'].includes(record.type) && !record.review && !record.local) {
       c.effort = record.effort ?? null;
       c.efforts[record.provider] ||= {};
@@ -221,7 +236,7 @@ export class Broker extends EventEmitter {
 
   view(c) {
     const { sessions, requests, reviewRequests, records, imports, reviews, ...visible } = c;
-    return { ...visible, reviews: reviews.map(publicReview), pendingApprovals: this.running?.c.id === c.id ? [...this.running.approvals.values()] : [], messages: c.messages.map(({ seq, ...m }) => m) };
+    return { ...visible, resume: c.resume ? { ...c.resume, ...this.resume?.view(c) } : null, reviews: reviews.map(publicReview), pendingApprovals: this.running?.c.id === c.id ? [...this.running.approvals.values()] : [], messages: c.messages.map(({ seq, ...m }) => m) };
   }
 
   list() {
@@ -317,7 +332,7 @@ export class Broker extends EventEmitter {
 
   prompt(c, text, fresh = false) { return prepareContext(c, text, { workspace: this.workspace, workspaceFolders: this.workspaceFolders, fresh: fresh || c.sessions[c.provider]?.workspaceSignature !== this.workspaceSignature }).prompt; }
 
-  start(c, { text, attachments: attachmentIds = [], provider = c.provider, mode = c.mode, approvalPolicy = c.approvalPolicy || 'ask', fresh = false, model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', requestId = randomUUID(), billingConfirmed = false, effort = c.efforts[provider]?.[model || 'default'] ?? null }, { review, verifyReview, local, verifyLocal } = {}) {
+  start(c, { text, attachments: attachmentIds = [], provider = c.provider, mode = c.mode, approvalPolicy = c.approvalPolicy || 'ask', fresh = false, model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', requestId = randomUUID(), billingConfirmed = false, effort = c.efforts[provider]?.[model || 'default'] ?? null }, { review, verifyReview, local, verifyLocal, resume } = {}) {
     if (review) { mode = 'read'; approvalPolicy = 'ask'; fresh = true; attachmentIds = []; }
     if (local) { if (review || typeof verifyLocal !== 'function') throw Object.assign(new Error('Invalid local run.'), { status: 400 }); provider = 'codex'; model = local.model; transport = 'app-server'; effort = null; fresh = true; }
     checkSettings(provider, mode, approvalPolicy);
@@ -360,7 +375,7 @@ export class Broker extends EventEmitter {
     try { if (review) verifyReview(); baseline = review ? { kind: 'review', git: true, digest: review.snapshot.digest, capturedAt: new Date().toISOString() } : workspaceBaseline(this.workspace, this.workspaceFolders); } catch (error) { lease.release(); throw error; }
     const runId = randomUUID();
     const run = { id: runId, c, provider, mode, approvalPolicy, child: null, terminalSuccess: false, failed: false, stopped: false,
-      stderr: '', tools: new Map(), approvals: new Map(), currentClaudeMessage: null, killTimer: null, done: null, lease, review, local, errorCategory: null, workspaceSignature: this.workspaceSignature };
+      stderr: '', tools: new Map(), approvals: new Map(), currentClaudeMessage: null, killTimer: null, done: null, lease, review, local, resume: resume || null, errorCategory: null, workspaceSignature: this.workspaceSignature };
     let finish;
     run.done = new Promise(resolve => { finish = resolve; });
     try {
@@ -368,6 +383,8 @@ export class Broker extends EventEmitter {
         ...(local ? { local } : {}), ...(review ? { review } : {}), ...(c.messages.every(m => m.role !== 'user') ? { title: text.slice(0, 64) } : {}),
         message: { id: randomUUID(), role: 'user', text, ...(local ? { connection: 'local' } : {}), ...(review ? { reviewId: runId } : {}), ...(attachments.length ? { attachments } : {}), provider, createdAt: new Date().toISOString(), runId } });
     } catch (error) { lease.release(); throw error; }
+    // A message sent by hand takes the place of a wait for a reset.
+    if (c.resume && !resume && !review) this.resume.end(c, 'superseded');
     this.running = run; this.bins[provider] = bin;
     let finished = false;
     const complete = (code, signal, error) => {
@@ -387,7 +404,11 @@ export class Broker extends EventEmitter {
         this.record(c, { type: 'run_end', status: run.stopped ? 'interrupted' : success ? 'complete' : 'incomplete', errorCategory: run.errorCategory });
         if (success && !review && !local && c.sessions[provider]) this.record(c, { type: 'checkpoint', provider });
       } catch (persistError) { success = false; run.persistenceError = persistError.message; }
-      finally { try { lease.release(); } catch (releaseError) { success = false; run.persistenceError ||= releaseError.message; } finally { this.running = null; this.emit('update', { conversationId: c.id }); finish({ success, error: run.persistenceError }); } }
+      finally { try { lease.release(); } catch (releaseError) { success = false; run.persistenceError ||= releaseError.message; } finally {
+        this.running = null; this.emit('update', { conversationId: c.id }); finish({ success, error: run.persistenceError });
+        // A run that continued after a reset reports how it ended, and may wait again if it reached another limit.
+        try { this.resume.runEnded(c, run, run.stopped ? 'interrupted' : success ? 'complete' : 'incomplete'); } catch (error) { console.error('Throughline could not report a resumed run:', error.message); }
+      } }
     };
     const launch = async () => {
       try {
@@ -440,6 +461,8 @@ export class Broker extends EventEmitter {
                 return;
               }
               const approval = { ...message.request, runId, provider }; run.approvals.set(approval.id, approval); this.emit('update', { conversationId: c.id });
+              // Work that continued while the person was away pauses here, so tell them.
+              if (run.resume) this.emit('notify', { conversationId: c.id, kind: 'approval', title: 'Approval needed', body: `${provider === 'claude' ? 'Claude' : provider === 'gemini' ? 'Gemini' : 'Codex'} is waiting for your permission: ${String(approval.title || approval.command || approval.kind || 'a tool').slice(0, 120)}` });
             }
           } catch (error) { run.failed = true; run.errorCategory = classifyError(error); run.stderr = error.message; this.cancel(run); }
         });
@@ -569,6 +592,7 @@ export class Broker extends EventEmitter {
   }
 
   async close() {
+    this.resume.close();
     if (this.running) {
       const run = this.running;
       this.stop(run.c.id);

@@ -58,7 +58,7 @@ The fastest way to make Throughline better is to use it on your real projects an
 | Feature | Status | Issue |
 | --- | --- | --- |
 | Adaptive agent, model and effort selection with Cost Saving, Balanced and Maximum Quality modes | Follows the first additional provider in #4; [scope and stages below](#adaptive-agent-and-model-routing) | [#12](https://github.com/AhmedNavaz/throughline/issues/12) |
-| Resume when limits reset: continue on whichever agent resets first, and queue prompts until then | Planned, help wanted | [#32](https://github.com/AhmedNavaz/throughline/issues/32) |
+| Resume when limits reset: continue on whichever agent resets first, and queue prompts until then | In progress: waiting for a reset is built; the prompt queue is next | [#32](https://github.com/AhmedNavaz/throughline/issues/32) |
 | Windows and Linux builds | Planned, help wanted | [#5](https://github.com/AhmedNavaz/throughline/issues/5) |
 | Commit reviewed changes from the Git panel | Planned | [#6](https://github.com/AhmedNavaz/throughline/issues/6) |
 | Integrated workspace terminal | Follows project command controls; PTY design needed | [#7](https://github.com/AhmedNavaz/throughline/issues/7) |

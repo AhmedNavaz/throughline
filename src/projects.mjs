@@ -205,7 +205,7 @@ export class ProjectRegistry extends EventEmitter {
   retireBroker(id, keepLock = false, message = 'Workspace folders changed. Refresh the project before continuing.') {
     const existing = this.brokers.get(id); if (!existing) return null;
     if (existing.broker.running || existing.broker.backgroundReview) throw fail('Stop the current run and background review before changing workspace folders.', 409);
-    existing.broker.close().catch(() => {}); existing.broker.off('update', existing.update);
+    existing.broker.close().catch(() => {}); existing.broker.off('update', existing.update); if (existing.notify) existing.broker.off('notify', existing.notify);
     existing.broker.record = () => { throw fail(message, 409); };
     existing.broker.start = () => { throw fail(message, 409); };
     this.brokers.delete(id); if (!keepLock) existing.unlock(); return existing;
@@ -263,8 +263,10 @@ export class ProjectRegistry extends EventEmitter {
     broker.list = (options = {}) => { this.mainConversation(entry.id); return rawList().filter(conversation => options.archived ? conversation.id !== broker.mainConversationId : conversation.id === broker.mainConversationId); };
     broker.archivedConversations = () => broker.list({ archived: true });
     const update = ({ conversationId }) => this.emit('update', { projectId: entry.id, conversationId }); broker.on('update', update);
-    this.brokers.set(entry.id, { broker, unlock, update });
-    try { this.mainConversation(entry.id); } catch (error) { broker.off('update', update); this.brokers.delete(entry.id); throw error; }
+    // Notifications name the workspace, so the desktop app can say where work happened and open it.
+    const notify = notice => this.emit('notify', { ...notice, projectId: entry.id, projectName: this.entry(entry.id)?.name || entry.name }); broker.on('notify', notify);
+    this.brokers.set(entry.id, { broker, unlock, update, notify });
+    try { this.mainConversation(entry.id); } catch (error) { broker.off('update', update); broker.off('notify', notify); this.brokers.delete(entry.id); throw error; }
     return broker;
   }
 
