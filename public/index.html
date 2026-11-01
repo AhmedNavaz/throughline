@@ -144,6 +144,7 @@
               <div class="composer-controls">
                 <button id="attach-files" class="attach-files" type="button" title="Attach images or text files · also paste or drop files" aria-label="Attach images or text files"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9M6 15l8-8"/></svg><span>Attach</span></button>
                 <button id="model-picker-button" class="model-picker-button" type="button" aria-haspopup="dialog" aria-controls="model-picker-popover" aria-expanded="false"><i id="picked-agent-icon" class="agent-icon codex" aria-hidden="true"></i><span><span id="picked-agent">Codex</span><span id="picked-model">Provider default</span></span><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+                <button id="effort-button" class="effort-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="effort-popover" hidden><span id="effort-bars" class="effort-bars" aria-hidden="true"></span><span id="effort-button-label">Auto</span></button>
                 <span id="assistant-label" class="sr-only">Assistant</span>
                 <div class="provider-selector" hidden role="group" aria-labelledby="assistant-label"><button id="select-codex" class="provider-button selected" type="button" aria-pressed="true"><i class="agent-icon codex" aria-hidden="true"></i>Codex</button><button id="select-claude" class="provider-button" type="button" aria-pressed="false"><i class="agent-icon claude" aria-hidden="true"></i>Claude</button><button id="select-gemini" class="provider-button" type="button" aria-pressed="false"><i class="agent-icon gemini" aria-hidden="true"></i>Gemini</button></div>
                 <label class="picker agent-picker" title="Agent"><span class="sr-only">Agent</span><select id="agent-select" aria-label="Agent"><option value="codex">Codex</option><option value="claude">Claude</option><option value="gemini">Gemini</option><option value="local">Local (Ollama)…</option></select></label>
@@ -260,16 +261,27 @@
       <header class="local-heading"><div><p class="local-eyebrow">KEEP THE THREAD · RUN LOCALLY</p><h2 id="local-title" tabindex="-1">Continue locally</h2><p id="local-description">Use a downloaded model with this project’s saved context and workspace tools.</p></div><button id="local-close" class="icon-button" type="button" aria-label="Close local models"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
       <div class="local-body"><p id="local-status" class="local-status" role="status"></p><label class="local-field" for="local-model">Local model<select id="local-model"></select></label><p id="local-model-detail" class="local-model-detail"></p><label class="local-field" for="local-task">Task to continue<textarea id="local-task" maxlength="16000" rows="3"></textarea></label><p id="local-context" class="local-context"></p><p class="local-requirements">Requires Codex CLI, Ollama and a downloaded model with tool support. A ChatGPT subscription is not needed for this connection. For longer coding tasks, configure Ollama with at least 64K context. Your composer draft stays saved.</p><p id="local-error" class="local-error" role="alert" hidden></p></div><footer class="local-actions"><button id="local-setup-guide" class="text-link" type="button">Setup guide ↗</button><div><button id="local-refresh" class="secondary-button" type="button">Refresh models</button><button id="local-start" class="primary-button" type="button" disabled>Continue locally</button></div></footer>
     </dialog>
+    <div id="effort-popover" class="effort-popover" popover="auto" role="dialog" aria-label="Reasoning effort">
+      <div class="effort-head"><span class="effort-title">Reasoning effort</span><label class="effort-auto"><span>Auto</span><input id="effort-auto" type="checkbox" role="switch" /></label></div>
+      <div class="effort-slider">
+        <div id="effort-ticks" class="effort-ticks" aria-hidden="true"></div>
+        <input id="effort-range" type="range" min="0" max="4" step="1" value="0" aria-label="Reasoning effort level" />
+      </div>
+      <div id="effort-stops" class="effort-stops"></div>
+      <p id="effort-hint" class="effort-hint"></p>
+    </div>
     <div id="model-picker-popover" class="model-popover" popover="auto" role="dialog" aria-label="Choose agent and model">
-      <nav id="picker-agents" aria-label="Agents"></nav>
+      <label class="picker-search"><span class="sr-only">Search models</span><input id="picker-search" type="search" placeholder="Search models" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="picker-models" aria-autocomplete="list" /></label>
       <p id="picker-status" class="picker-status" role="status"></p>
-      <div id="picker-models" class="picker-models"></div>
+      <div id="picker-models" class="picker-models" role="listbox" aria-label="Models"></div>
       <footer>
-        <button id="picker-custom-button" class="text-link" type="button">Enter a model ID…</button>
+        <button id="picker-custom-button" class="picker-row picker-custom-button" type="button"><span class="picker-row-name">Use a model ID…</span></button>
         <div id="picker-custom" hidden>
-          <input id="picker-custom-id" maxlength="200" aria-label="Custom model ID" placeholder="Available model ID" />
-          <button id="picker-custom-save" class="secondary-button" type="button">Use model</button>
+          <input id="picker-custom-id" maxlength="200" aria-label="Custom model ID" placeholder="Model ID available to your account" />
+          <button id="picker-custom-save" type="button">Use</button>
         </div>
+      </footer>
+    </div>
       </footer>
     </div>
 

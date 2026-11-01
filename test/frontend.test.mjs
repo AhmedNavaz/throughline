@@ -1424,7 +1424,8 @@ test('the grouped picker selects a downloaded local model for normal Send withou
   ui.$('message-input').value = 'Continue with a local model'; ui.fire('message-input','input');
   await ui.window.relayFiles.addSnapshots([{name:'notes.md',data:'bm90ZXM='}]); await flush(); const attachment = ui.window.relayFiles.ids()[0];
   ui.$('model-picker-button').click(); await flush();
-  const local = ui.$('picker-agents').querySelectorAll('button').find(item=>item.textContent==='Local · Ollama'); local.click(); await flush();
+  // One menu lists every agent; downloaded models appear in their own section.
+  assert(ui.$('picker-models').querySelectorAll('.picker-section').some(section=>section.textContent.includes('Local · Ollama')));
   const option = ui.$('picker-models').querySelectorAll('button').find(item=>item.textContent.includes('fixture-local:8b')); assert(option); option.click(); await flush();
   assert.equal(ui.state().localSelections['project-one'].model,'fixture-local:8b'); assert.equal(ui.state().model,'saved-cloud-model'); assert.equal(ui.state().effort,'high');
   assert.equal(ui.$('picked-agent').textContent,'Local · Ollama'); assert.equal(ui.$('send-button').disabled,false);

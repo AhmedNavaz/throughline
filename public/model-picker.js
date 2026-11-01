@@ -1,184 +1,269 @@
 (() => {
   'use strict';
+  // One searchable menu for every agent: a section per agent, compact rows and "More models" for the long tail.
+  // Reasoning effort has its own control beside it, because the levels depend on the model chosen here.
   const $ = id => document.getElementById(id), api = window.relayUI, popup = $('model-picker-popover'), trigger = $('model-picker-button');
-  const names = { codex: 'Codex', claude: 'Claude', gemini: 'Gemini', local: 'Local · Ollama' }, cache = new Map();
-  let provider = 'codex', scope = null, revision = 0, loading = false, saving = false, result = null, failure = '';
+  const names = { codex: 'Codex', claude: 'Claude', gemini: 'Gemini', local: 'Local · Ollama' }, cache = new Map(), loadingAgents = new Set(), failures = new Map();
+  const shortList = 4;
+  let scope = null, saving = false, failure = '', query = '', active = -1;
   let preloadedProject = null;
+  const expanded = new Set();
 
   const node = (tag, text, cls) => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; if (cls) value.className = cls; return value; };
-  const button = (text, fn, cls) => { const value = node('button', text, cls); value.type = 'button'; value.addEventListener('click', fn); return value; };
   const open = () => popup?.matches?.(':popover-open');
+  const choices = select => [...(select?.options || select?.children || [])];
+  const modelId = row => row.id || row.model || row.value || '';
+  const modelName = row => row.displayName || row.name || modelId(row) || 'Auto';
+  const effortName = text => String(text || '').replace(/ \(saved\)$/, '');
 
   function position() {
     if (!open()) return;
-    const anchor = trigger.getBoundingClientRect(), width = Math.min(360, window.innerWidth - 24);
+    const anchor = trigger.getBoundingClientRect(), width = Math.min(320, window.innerWidth - 24);
     popup.style.width = width + 'px';
     popup.style.left = Math.max(12, Math.min(anchor.left, window.innerWidth - width - 12)) + 'px';
     popup.style.bottom = Math.max(12, window.innerHeight - anchor.top + 8) + 'px';
-    popup.style.maxHeight = Math.max(200, anchor.top - 24) + 'px';
+    // The list scrolls inside the menu, so the effort submenu can open beside it.
+    popup.style.setProperty?.('--picker-list-max', Math.max(160, Math.min(360, anchor.top - 150)) + 'px');
   }
 
-  function close() { ++revision; loading = false; if (open()) popup.hidePopover(); trigger.setAttribute('aria-expanded', 'false'); }
+  function close() { if (open()) popup.hidePopover(); trigger.setAttribute('aria-expanded', 'false'); }
 
+  function selectedRow(provider) {
+    const state = api.getState(), rows = cache.get(state.projectId + ':' + provider)?.models || [];
+    return rows.find(row => modelId(row) === state.model);
+  }
   function label() {
     const state = api.getState(), local = state.localSelections?.[state.projectId], actual = local ? 'local' : state.provider;
     $('picked-agent').textContent = names[actual];
-    $('picked-model').textContent = local?.model || state.model || 'Provider default';
+    $('picked-model').textContent = local?.model || (state.model ? modelName(selectedRow(state.provider) || { id: state.model }) : 'Auto');
     $('picked-agent-icon').className = 'agent-icon ' + (actual === 'local' ? 'codex' : actual);
     trigger.disabled = !state.ready || !state.projectId || Boolean(state.pending || state.settingsPending || api.isRunning());
-    trigger.setAttribute('aria-label', `Choose agent and model. Current: ${names[actual]}, ${local?.model || state.model || 'provider default'}`);
+    trigger.setAttribute('aria-label', `Choose agent and model. Current: ${names[actual]}, ${$('picked-model').textContent}`);
     if (local) {
       $('model-description').textContent = `Local · ${local.model} · Downloaded model · No cloud model charges`;
       $('effort-select').disabled = true;
     }
     if (open() && scope !== state.projectId) close();
+    effortControl();
     if (state.projectId && state.projectId !== preloadedProject) {
       preloadedProject = state.projectId;
       preloadAll(state.projectId);
     }
   }
 
-  function render() {
-    const state = api.getState(), choices = $('picker-agents');
-    if (choices) {
-      choices.replaceChildren();
-      for (const value of Object.keys(names)) {
-        const choice = button('', () => {
-          provider = value;
-          if ($('picker-custom')) $('picker-custom').hidden = true;
-          load();
-        }, 'agent-choice');
-        choice.disabled = saving;
-        choice.setAttribute('aria-pressed', String(provider === value));
-        const icon = node('i', undefined, 'agent-icon ' + (value === 'local' ? 'codex' : value));
-        icon.setAttribute('aria-hidden', 'true');
-        choice.append(icon, node('span', names[value]));
-        choices.append(choice);
-      }
-    }
+  // Agents in menu order: the one in use first, then the others, then local models.
+  function agentOrder() {
+    const state = api.getState(), current = state.localSelections?.[scope] ? 'local' : state.provider;
+    return [current, ...['codex', 'claude', 'gemini', 'local'].filter(value => value !== current)];
+  }
+  function installed(provider) {
+    const state = api.getState();
+    if (provider === 'local') return cache.get(scope + ':local')?.installed;
+    return state.status?.providers?.[provider]?.available || state.accounts?.[provider]?.available || state.accounts?.[provider]?.installed;
+  }
+  function rowsFor(provider) {
+    const data = cache.get(scope + ':' + provider);
+    if (provider === 'local') return (data?.models || []).map(row => ({ ...row, tag: row.parameterSize || '' }));
+    const reported = (data?.models || []).filter(row => row.value !== 'default').map(row => ({ ...row, tag: row.isDefault ? 'Default' : '' }));
+    return [{ id: '', displayName: 'Auto', description: `${names[provider]} chooses its default model`, tag: 'Agent default' }, ...reported];
+  }
+  function isSelected(provider, row) {
+    const state = api.getState(), local = state.localSelections?.[scope];
+    return provider === 'local' ? local?.model === modelId(row) && local.digest === row.digest : !local && state.provider === provider && (state.model || '') === modelId(row);
+  }
+  const matches = (provider, row) => !query || [modelName(row), modelId(row), row.description, names[provider]].some(text => String(text || '').toLowerCase().includes(query));
 
-    const host = $('picker-models');
+  function optionRow(provider, row) {
+    const selected = isSelected(provider, row), choice = node('button', undefined, 'picker-row model-choice');
+    choice.type = 'button';
+    choice.setAttribute('role', 'option');
+    choice.setAttribute('aria-selected', String(selected));
+    choice.setAttribute('aria-pressed', String(selected));
+    choice.dataset.nav = 'true';
+    choice.title = row.description && row.description !== modelId(row) ? row.description : modelId(row) || row.description || '';
+    choice.disabled = saving;
+    const check = node('span', undefined, 'picker-row-check'); check.setAttribute('aria-hidden', 'true');
+    choice.append(node('span', modelName(row), 'picker-row-name'), node('span', row.tag || '', 'picker-row-tag'), check);
+    choice.addEventListener('click', () => choose(provider, row));
+    return choice;
+  }
+
+  function render() {
+    const state = api.getState(), host = $('picker-models');
     if (!host) return;
     host.replaceChildren();
-
-    if ($('picker-custom-button')) $('picker-custom-button').hidden = provider === 'local';
-    if ($('picker-status')) $('picker-status').textContent = failure || (loading && !result ? 'Loading models…' : result?.message || '');
-
-    if (loading && !result) {
-      host.append(node('p', 'Loading available models…', 'picker-empty'));
-      return;
+    if ($('picker-status')) $('picker-status').textContent = failure;
+    let shown = 0;
+    for (const provider of agentOrder()) {
+      const header = node('div', undefined, 'picker-section'), icon = node('i', undefined, 'agent-icon ' + (provider === 'local' ? 'codex' : provider));
+      icon.setAttribute('aria-hidden', 'true');
+      header.setAttribute('role', 'presentation');
+      header.append(icon, node('span', names[provider], 'picker-section-name'));
+      const note = node('span', '', 'picker-section-note'); header.append(note);
+      const section = [];
+      if (loadingAgents.has(provider) && !cache.has(scope + ':' + provider)) note.textContent = 'Loading…';
+      else if (!installed(provider)) {
+        note.textContent = provider === 'local' ? 'Not set up' : 'Not connected';
+        if (!query) {
+          const setup = node('button', undefined, 'picker-row picker-setup');
+          setup.type = 'button'; setup.dataset.nav = 'true';
+          setup.append(node('span', provider === 'local' ? 'Set up local models…' : `Connect ${names[provider]}…`, 'picker-row-name'));
+          setup.addEventListener('click', () => { close(); if (provider === 'local') window.relayLocal?.open(); else $('relay-settings')?.click(); });
+          section.push(setup);
+        }
+      } else {
+        if (failures.has(provider)) note.textContent = 'Could not load models';
+        const rows = rowsFor(provider).filter(row => matches(provider, row));
+        // Without a search the list shows a few models per agent, always including the chosen one.
+        const visible = query || expanded.has(provider) ? rows : rows.filter((row, index) => index < shortList || isSelected(provider, row));
+        section.push(...visible.map(row => optionRow(provider, row)));
+        if (visible.length < rows.length) {
+          const more = node('button', undefined, 'picker-row picker-more');
+          more.type = 'button'; more.dataset.nav = 'true';
+          more.append(node('span', `More ${names[provider].replace(' · Ollama', '')} models`, 'picker-row-name'), node('span', String(rows.length - visible.length), 'picker-row-tag'));
+          more.addEventListener('click', () => { expanded.add(provider); render(); highlight(more.dataset.index ? +more.dataset.index : active); });
+          section.push(more);
+        }
+        if (!rows.length && !query) note.textContent = provider === 'local' ? 'No downloaded models' : 'No models reported';
+      }
+      if (query && !section.length) continue;
+      host.append(header, ...section);
+      shown += section.length;
     }
-    if (failure && !result) {
-      host.append(node('p', failure, 'picker-empty'));
-      return;
-    }
-
-    const installed = provider === 'local' ? result?.installed : (state.status?.providers?.[provider]?.available || state.accounts?.[provider]?.available || state.accounts?.[provider]?.installed);
-    if (!installed) {
-      host.append(node('p', provider === 'local' ? 'Install Codex CLI to use local workspace tools.' : state.accounts?.[provider]?.message || `Install and configure ${names[provider]} to use this connection.`, 'picker-empty'));
-      host.append(button('Open connection settings', () => { close(); $('relay-settings')?.click(); }, 'text-link'));
-      return;
-    }
-
-    const rows = provider === 'local'
-      ? (result?.models || [])
-      : [{ id: '', displayName: 'Provider default', description: 'Default model configured by the agent' }, ...(result?.models || []).filter(row => row.value !== 'default')];
-
-    let count = 0;
-    for (const row of rows) {
-      const id = row.id || row.model || row.value || '', title = row.displayName || row.name || id;
-      const desc = provider === 'local'
-        ? [row.parameterSize, 'Downloaded'].filter(Boolean).join(' · ')
-        : (row.description && row.description !== id ? row.description : (id ? id : 'Default configured model'));
-      const local = state.localSelections?.[scope], selected = provider === 'local'
-        ? (local?.model === id && local.digest === row.digest)
-        : (!local && state.provider === provider && (state.model || '') === id);
-
-      const choice = button('', () => choose(row), 'model-choice');
-      choice.disabled = saving;
-      choice.setAttribute('aria-pressed', String(selected));
-      const text = node('span');
-      text.append(node('strong', title), node('small', desc));
-      choice.append(text, node('span', selected ? '✓' : '', 'model-choice-check'));
-      host.append(choice);
-      count++;
-    }
-
-    if (!count) {
-      host.append(node('p', provider === 'local' ? 'No compatible models found in Ollama.' : 'No models reported.', 'picker-empty'));
-    }
+    if (!shown) host.append(node('p', query ? 'No models match your search.' : 'No agents are connected yet.', 'picker-empty'));
+    navRows().forEach((row, index) => { row.dataset.index = String(index); row.id = 'picker-row-' + index; row.addEventListener('mouseenter', () => highlight(index, false)); });
+    highlight(Math.min(Math.max(active, 0), navRows().length - 1), false);
   }
 
+  // Arrow keys move a highlight through the rows while focus stays in the search field.
+  const navRows = () => [...($('picker-models')?.querySelectorAll('.picker-row') || [])].filter(row => row.dataset.nav === 'true' && !row.disabled);
+  function highlight(index, scroll = true) {
+    const rows = navRows();
+    active = rows.length ? (index + rows.length) % rows.length : -1;
+    rows.forEach((row, position) => row.classList.toggle('active', position === active));
+    const current = rows[active];
+    if (current) { $('picker-search')?.setAttribute('aria-activedescendant', current.id); if (scroll) current.scrollIntoView?.({ block: 'nearest' }); }
+  }
+
+  // Reasoning effort: its own control beside the model, because the levels depend on the model. The button shows the
+  // level as signal bars; the panel is a slider over the levels the model supports, with Auto for the agent's default.
+  // The hidden effort select remains the source of truth and saves the choice.
+  const effortButton = $('effort-button'), effortPopup = $('effort-popover'), range = $('effort-range');
+  const effortOpen = () => effortPopup?.matches?.(':popover-open');
+  const hints = { none: 'No extra reasoning', minimal: 'Quickest replies, almost no reasoning', low: 'Fast replies with light reasoning', medium: 'Balanced speed and depth', high: 'Deeper reasoning for harder tasks', xhigh: 'Extended reasoning for complex work', max: 'Most thorough; slowest and uses the most allowance' };
+  const autoNotes = {
+    claude: 'Claude uses the model’s default level and decides on each step how much to think.',
+    gemini: 'Gemini adjusts its thinking to each prompt.',
+    codex: 'Codex uses its default level for every prompt.',
+  };
+  const effortLevels = () => choices($('effort-select')).filter(option => option.value);
+  const agentDefault = () => choices($('effort-select')).find(option => !option.value)?.textContent.match(/\((\w+)\)/)?.[1] || '';
+  function bars(host, filled, total) {
+    host.replaceChildren(...Array.from({ length: Math.max(total, 3) }, (_, index) => node('i', undefined, index < filled ? 'on' : '')));
+  }
+  function effortControl() {
+    const state = api.getState(), select = $('effort-select');
+    if (!effortButton || !select) return;
+    const levels = effortLevels(), index = levels.findIndex(option => option.value === select.value);
+    effortButton.hidden = Boolean(state.localSelections?.[state.projectId]) || select.dataset.supported !== 'true' || !levels.length;
+    effortButton.disabled = select.disabled;
+    bars($('effort-bars'), index >= 0 ? index + 1 : 0, levels.length);
+    effortButton.dataset.level = index >= 0 ? levels[index].value : 'auto';
+    $('effort-button-label').textContent = index >= 0 ? effortName(levels[index].textContent) : 'Auto';
+    effortButton.title = `Reasoning effort: ${index >= 0 ? effortName(levels[index].textContent) : 'Auto, chosen by the agent'}`;
+    effortButton.setAttribute('aria-label', effortButton.title);
+    if (effortButton.hidden && effortOpen()) effortPopup.hidePopover();
+    if (effortOpen()) renderEffortPanel();
+  }
+  // Shows a level in the panel without saving it, so dragging previews before the choice is committed.
+  function showLevel(index) {
+    const levels = effortLevels(), auto = $('effort-auto').checked, level = levels[index];
+    effortPopup.dataset.level = auto ? 'auto' : level?.value || 'auto';
+    range.value = String(index);
+    range.style.setProperty?.('--fill', levels.length > 1 ? (index / (levels.length - 1)) * 100 + '%' : '0%');
+    range.setAttribute('aria-valuetext', level ? effortName(level.textContent) : 'Auto');
+    $('effort-stops').querySelectorAll('button').forEach((stop, position) => stop.setAttribute('aria-pressed', String(!auto && position === index)));
+    const unknown = effortPopup.classList.contains('unknown');
+    $('effort-ticks').querySelectorAll('i').forEach((tick, position) => { tick.hidden = !unknown && position === index; tick.classList.toggle('passed', !unknown && position < index); });
+    const provider = api.getState().provider, fallback = agentDefault();
+    $('effort-hint').textContent = auto ? (provider === 'codex' && fallback ? `Codex uses its default, ${effortName(fallback[0].toUpperCase() + fallback.slice(1))}, for every prompt.` : autoNotes[provider] || 'The agent uses its default level.') : hints[level?.value] || 'Reasoning level reported by the model';
+    $('effort-stops').querySelectorAll('button').forEach((stop, position) => stop.classList.toggle('agent-default', auto && levels[position]?.value === fallback));
+  }
+  function renderEffortPanel() {
+    const select = $('effort-select'), levels = effortLevels(), selected = levels.findIndex(option => option.value === select.value);
+    const auto = selected < 0;
+    // Auto leaves the level to the agent, so the slider shows no position; moving it chooses a level.
+    effortPopup.classList.toggle('unknown', auto);
+    $('effort-auto').checked = auto;
+    $('effort-auto').disabled = select.disabled;
+    range.max = String(Math.max(0, levels.length - 1));
+    range.disabled = select.disabled;
+    effortPopup.classList.toggle('auto', auto);
+    $('effort-ticks').replaceChildren(...levels.map((_, index) => { const tick = node('i'); tick.style.left = levels.length > 1 ? `calc(8px + (100% - 16px) * ${index / (levels.length - 1)})` : '8px'; return tick; }));
+    $('effort-stops').replaceChildren(...levels.map((option, index) => {
+      const stop = node('button', effortName(option.textContent));
+      stop.type = 'button';
+      stop.tabIndex = -1;
+      stop.style.left = levels.length > 1 ? `calc(8px + (100% - 16px) * ${index / (levels.length - 1)})` : '8px';
+      stop.addEventListener('click', () => commit(index));
+      return stop;
+    }));
+    showLevel(auto ? Math.max(0, Math.floor((levels.length - 1) / 2)) : selected);
+  }
+  function commit(index) {
+    const select = $('effort-select'), level = index === null ? '' : effortLevels()[index]?.value;
+    if (level === undefined || select.disabled) return;
+    if (select.value !== level) { select.value = level; select.dispatchEvent(new Event('change', { bubbles: true })); }
+    renderEffortPanel();
+  }
+  range?.addEventListener('input', () => { $('effort-auto').checked = false; effortPopup.classList.remove('auto', 'unknown'); showLevel(+range.value); });
+  range?.addEventListener('change', () => commit(+range.value));
+  $('effort-auto')?.addEventListener('change', () => commit($('effort-auto').checked ? null : +range.value));
+  effortButton?.addEventListener('click', () => {
+    if (effortOpen()) { effortPopup.hidePopover(); return; }
+    effortPopup.showPopover();
+    renderEffortPanel();
+    const anchor = effortButton.getBoundingClientRect();
+    effortPopup.style.left = Math.max(12, Math.min(anchor.left, window.innerWidth - 292)) + 'px';
+    effortPopup.style.bottom = Math.max(12, window.innerHeight - anchor.top + 8) + 'px';
+    range.focus?.();
+  });
+  effortPopup?.addEventListener('toggle', () => effortButton.setAttribute('aria-expanded', String(effortOpen())));
+  effortPopup?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); effortPopup.hidePopover(); effortButton.focus(); } });
+  // The levels are rebuilt whenever the model changes, sometimes after its list loads; the control follows them.
+  if (typeof MutationObserver === 'function' && $('effort-select')) new MutationObserver(effortControl).observe($('effort-select'), { childList: true, attributes: true, attributeFilter: ['disabled', 'data-supported'] });
+  $('effort-select')?.addEventListener('change', effortControl);
+
+  async function fetchModels(projectId, provider) {
+    loadingAgents.add(provider);
+    try {
+      const data = await api.api(provider === 'local' ? '/api/local-models' : `/api/providers/${provider}/models`, {}, projectId);
+      cache.set(projectId + ':' + provider, data); cache.set(projectId + ':' + provider + ':time', Date.now()); failures.delete(provider);
+    } catch (error) { failures.set(provider, error.message); }
+    finally { loadingAgents.delete(provider); if (open() && scope === projectId) render(); label(); }
+  }
   async function preloadAll(projectId) {
     if (!projectId) return;
-    const providers = ['codex', 'claude', 'gemini', 'local'];
-    for (const p of providers) {
-      const key = projectId + ':' + p;
-      if (!cache.has(key)) {
-        try {
-          const data = await api.api(p === 'local' ? '/api/local-models' : `/api/providers/${p}/models`, {}, projectId);
-          cache.set(key, data);
-          cache.set(key + ':time', Date.now());
-        } catch {}
-      }
-    }
-    if (open()) render();
+    for (const provider of ['codex', 'claude', 'gemini', 'local']) if (!cache.has(projectId + ':' + provider)) await fetchModels(projectId, provider);
   }
-
-  async function quietRefresh(key, projectId, selectedProvider) {
-    try {
-      const data = await api.api(selectedProvider === 'local' ? '/api/local-models' : `/api/providers/${selectedProvider}/models`, {}, projectId);
-      cache.set(key, data);
-      cache.set(key + ':time', Date.now());
-      if (open() && scope === projectId && provider === selectedProvider) {
-        result = data;
-        render();
-      }
-    } catch {}
-  }
-
-  async function load(force = false) {
-    const token = ++revision, projectId = scope, selectedProvider = provider, key = projectId + ':' + selectedProvider;
-    result = cache.get(key) || null;
-    failure = '';
-    if (result && !force) {
-      loading = false;
-      render();
-      if (Date.now() - (cache.get(key + ':time') || 0) > 60000) {
-        quietRefresh(key, projectId, selectedProvider);
-      }
-      return;
-    }
-    if (selectedProvider !== 'local' && !api.getState().status?.providers?.[selectedProvider]?.available && !api.getState().accounts?.[selectedProvider]?.available && !api.getState().accounts?.[selectedProvider]?.installed) {
-      result = null; loading = false; render(); return;
-    }
-    loading = true; render();
-    try {
-      const data = await api.api(selectedProvider === 'local' ? '/api/local-models' : `/api/providers/${selectedProvider}/models`, {}, projectId);
-      cache.set(key, data);
-      cache.set(key + ':time', Date.now());
-      if (token !== revision || projectId !== api.getState().projectId) return;
-      result = data;
-    } catch (error) {
-      if (token === revision) failure = error.message;
-    } finally {
-      if (token === revision) { loading = false; render(); }
+  // Opening the menu shows what is known at once and refreshes model lists older than a minute in the background.
+  function refreshStale() {
+    for (const provider of ['codex', 'claude', 'gemini', 'local']) {
+      const key = scope + ':' + provider;
+      if (!loadingAgents.has(provider) && (!cache.has(key) || Date.now() - (cache.get(key + ':time') || 0) > 60000)) fetchModels(scope, provider);
     }
   }
 
-  async function choose(row) {
+  async function choose(provider, row) {
     if (saving || scope !== api.getState().projectId) return;
-    const token = revision, projectId = scope, selectedProvider = provider;
+    const projectId = scope;
     saving = true; failure = ''; render();
     try {
-      if (selectedProvider === 'local') api.selectLocalModel({ model: row.id, digest: row.digest });
-      else await api.selectAgentModel(selectedProvider, row.id || row.model || row.value || null);
-      if (token === revision && projectId === api.getState().projectId) {
-        close();
-        $('message-input')?.focus();
-      }
+      if (provider === 'local') api.selectLocalModel({ model: modelId(row), digest: row.digest });
+      else await api.selectAgentModel(provider, modelId(row) || null);
+      if (projectId === api.getState().projectId) { close(); $('message-input')?.focus(); }
     } catch (error) {
-      if (token === revision) failure = error.message;
+      failure = error.message;
     } finally {
       saving = false; label(); if (open()) render();
     }
@@ -187,40 +272,40 @@
   trigger.addEventListener('click', () => {
     if (open()) { close(); return; }
     const state = api.getState();
-    scope = state.projectId;
-    provider = state.localSelections?.[scope] ? 'local' : state.provider;
+    scope = state.projectId; query = ''; active = -1; failure = ''; expanded.clear();
+    if ($('picker-search')) $('picker-search').value = '';
     if ($('picker-custom')) $('picker-custom').hidden = true;
     popup.showPopover();
     trigger.setAttribute('aria-expanded', 'true');
-    position();
-    load();
+    position(); render();
+    const selected = navRows().findIndex(row => row.getAttribute('aria-selected') === 'true');
+    highlight(selected >= 0 ? selected : 0);
+    $('picker-search')?.focus();
+    refreshStale();
+  });
+
+  $('picker-search')?.addEventListener('input', () => { query = $('picker-search').value.trim().toLowerCase(); active = 0; render(); });
+  $('picker-search')?.addEventListener('keydown', event => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); highlight(active + (event.key === 'ArrowDown' ? 1 : -1)); }
+    else if (event.key === 'Enter') { event.preventDefault(); navRows()[active]?.click(); }
   });
 
   $('picker-custom-button')?.addEventListener('click', () => {
-    if ($('picker-custom')) {
-      $('picker-custom').hidden = !$('picker-custom').hidden;
-      if (!$('picker-custom').hidden) $('picker-custom-id')?.focus();
-    }
+    const custom = $('picker-custom'); if (!custom) return;
+    custom.hidden = !custom.hidden;
+    if (!custom.hidden) $('picker-custom-id')?.focus();
   });
+  const saveCustom = () => {
+    const id = $('picker-custom-id')?.value.trim(), state = api.getState();
+    if (id && id.length <= 200) choose(state.provider, { id });
+  };
+  $('picker-custom-save')?.addEventListener('click', saveCustom);
+  $('picker-custom-id')?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); saveCustom(); } });
 
-  $('picker-custom-save')?.addEventListener('click', () => {
-    const id = $('picker-custom-id')?.value.trim();
-    if (id && id.length <= 200) choose({ id });
-  });
-
-  popup.addEventListener('toggle', () => {
-    trigger.setAttribute('aria-expanded', String(open()));
-    if (!open()) ++revision;
-  });
-
+  popup.addEventListener('toggle', () => trigger.setAttribute('aria-expanded', String(open())));
   window.addEventListener('resize', position);
   window.addEventListener('relay-state', label);
   label();
   document.documentElement.classList.add('rich-model-picker');
   window.relayModelPicker = { open: () => trigger.click(), close };
-
-  setTimeout(() => {
-    const state = api?.getState?.();
-    if (state?.projectId) preloadAll(state.projectId);
-  }, 200);
 })();
