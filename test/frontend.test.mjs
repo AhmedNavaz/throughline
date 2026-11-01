@@ -20,7 +20,7 @@ class UIEvent {
   preventDefault(){this.defaultPrevented=true;}
 }
 class Element extends Events {
-  constructor(tag,document){super();this.tagName=tag.toUpperCase();this.document=document;this.childNodes=[];this.parentNode=null;this.attributes={};this.dataset={};this.style={};this.className='';this.id='';this.value='';this.disabled=false;this.hidden=false;this.checked=false;this.open=false;this.scrollTop=0;this.scrollHeight=100;this.clientHeight=500;this.classList={contains:name=>this.className.split(/\s+/).includes(name),add:name=>this.classList.toggle(name,true),remove:name=>this.classList.toggle(name,false),toggle:(name,on)=>{const set=new Set(this.className.split(/\s+/).filter(Boolean));if(on===undefined)on=!set.has(name);if(on)set.add(name);else set.delete(name);this.className=[...set].join(' ');return on;}};}
+  constructor(tag,document){super();this.tagName=tag.toUpperCase();this.document=document;this.childNodes=[];this.parentNode=null;this.attributes={};this.dataset={};this.style={setProperty(name,value){this[name]=String(value);},removeProperty(name){delete this[name];}};this.className='';this.id='';this.value='';this.disabled=false;this.hidden=false;this.checked=false;this.open=false;this.scrollTop=0;this.scrollHeight=100;this.clientHeight=500;this.classList={contains:name=>this.className.split(/\s+/).includes(name),add:name=>this.classList.toggle(name,true),remove:name=>this.classList.toggle(name,false),toggle:(name,on)=>{const set=new Set(this.className.split(/\s+/).filter(Boolean));if(on===undefined)on=!set.has(name);if(on)set.add(name);else set.delete(name);this.className=[...set].join(' ');return on;}};}
   get nodeType(){return this.tagName==='#TEXT'?3:1;}
   get children(){return this.childNodes.filter(child=>child.tagName!=='#TEXT');}
   get firstChild(){return this.childNodes[0]||null;}get lastChild(){return this.childNodes.at(-1)||null;}get firstElementChild(){return this.children[0]||null;}get lastElementChild(){return this.children.at(-1)||null;}
@@ -1910,4 +1910,44 @@ test('a handoff offer names the destination, its billing and the task, needs cha
   assert.deepEqual(answers[2],{offerId:'third',accept:false,billingConfirmed:false});
   conversation.status='idle';conversation.activeRun=null;conversation.handoffOffer=offer('fourth');await ui.window.relayUI.refresh();
   assert.equal(ui.$('handoff-offer').hidden,true,'An offer shows only while its run works.');
+});
+
+test('while a run works, a note can be added to it, shown inside that run, and the agent’s plan shows as a to-do list',async()=>{
+  const ui=await browser(),conversation=ui.canonical.get('project-one'),notes=[];let answer={added:true};
+  ui.setIntercept((request,next)=>{
+    if(!request.path.endsWith('/steer'))return next();
+    notes.push({body:request.body,projectId:request.projectId});
+    if(answer.added)conversation.messages.push({id:'note-'+notes.length,role:'user',steer:true,text:request.body.text,runId:'run-one',provider:'codex',createdAt:new Date().toISOString()});
+    return response(answer);
+  });
+  conversation.messages=[{id:'prompt',role:'user',text:'Build the checkout',runId:'run-one',createdAt:new Date().toISOString()},{id:'reply',role:'assistant',provider:'codex',text:'Reading the code.',runId:'run-one',createdAt:new Date().toISOString()}];
+  conversation.status='running';conversation.canAddToRun=true;
+  conversation.activeRun={id:'run-one',provider:'codex',plan:{steps:[{text:'Read the code',status:'done'},{text:'Writing tests',status:'active'},{text:'Run the suite',status:'pending'}]}};
+  await ui.window.relayUI.refresh();
+  assert.equal(ui.$('steer-button').hidden,false);assert.equal(ui.$('steer-button').disabled,true,'Nothing to add yet.');
+  assert.match(ui.$('message-input').placeholder,/add it to this run/);
+  assert.equal(ui.$('run-plan').hidden,false);assert.equal(ui.$('run-plan-count').textContent,'1 of 3');assert.equal(ui.$('run-plan-current').textContent,'Writing tests');
+  assert.equal(ui.$('run-plan-list').hidden,true,'The plan is one line until opened.');
+  ui.$('run-plan-toggle').click();
+  assert.equal(ui.$('run-plan-list').hidden,false);assert.equal(ui.$('run-plan-toggle').getAttribute('aria-expanded'),'true');
+  assert.deepEqual(ui.$('run-plan-list').querySelectorAll('li').map(item=>item.className),['run-plan-step done','run-plan-step active','run-plan-step pending']);
+
+  ui.$('message-input').value='Also update the docs';ui.fire('message-input','input');
+  assert.equal(ui.$('steer-button').disabled,false);
+  ui.$('message-input').dispatchEvent(new UIEvent('keydown',{key:'Enter',metaKey:true}));await flush();await flush();
+  assert.deepEqual(notes[0],{body:{text:'Also update the docs'},projectId:'project-one'});
+  assert.equal(ui.$('message-input').value,'');assert.equal(ui.requests.filter(request=>request.path.endsWith('/queue')).length,0,'A note is not queued.');
+  const note=ui.$('messages').querySelector('.message-steer');
+  assert(note,'The note shows in the conversation.');assert.match(note.textContent,/Added while working/);assert.match(note.textContent,/Also update the docs/);
+  assert.equal(ui.$('messages').querySelectorAll('.turn').length,1,'The note stays inside the run it joined.');
+
+  answer={added:false,queued:true};
+  ui.$('message-input').value='And the changelog';ui.fire('message-input','input');
+  ui.$('steer-button').click();await flush();await flush();
+  assert.equal(ui.$('notice').hidden,false);assert.match(ui.$('notice-text').textContent,/runs next from the queue/);
+
+  conversation.canAddToRun=false;await ui.window.relayUI.refresh();
+  assert.equal(ui.$('steer-button').hidden,true,'Connections that cannot take notes only queue.');
+  conversation.status='complete';conversation.activeRun=null;conversation.lastRun={id:'run-one',status:'complete'};await ui.window.relayUI.refresh();
+  assert.equal(ui.$('run-plan').hidden,true,'The plan shows while its run works.');
 });

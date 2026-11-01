@@ -53,7 +53,7 @@ export function geminiFile(config, filename) {
   throw new Error('Gemini requested a file outside this workspace.');
 }
 
-export async function runGemini(config, { event, approval, metadata, cancelled = () => false, probe = probeCli, invocation = geminiInvocation, clientFactory = options => new GeminiClient(options), spawnImpl = spawn }) {
+export async function runGemini(config, { event, approval, metadata, cancelled = () => false, steerable = () => {}, probe = probeCli, invocation = geminiInvocation, clientFactory = options => new GeminiClient(options), spawnImpl = spawn }) {
   if (isAgy(config.bin)) return runAgy(config, { event, metadata, cancelled, spawnImpl });
   const antigravity = isAntigravityACP(config.bin);
   if (!antigravity && config.effort) throw new Error('Gemini reasoning effort is controlled by its native model; clear the effort selection.');
@@ -63,7 +63,7 @@ export async function runGemini(config, { event, approval, metadata, cancelled =
   let client;
   try { client = clientFactory({ bin: config.bin, cwd: config.workspace, ...options }); }
   catch (error) { options.cleanup(); throw error; }
-  let sessionId, response = '', denied = false, deniedReason = '';
+  let sessionId, response = '', segment = 0, steering = false, denied = false, deniedReason = '';
   const tools = new Map();
   const timer = setInterval(() => { if (cancelled()) { if (sessionId) client.send({ method: 'session/cancel', params: { sessionId } }); client.close(); } }, 100);
   client.on('message', async message => {
@@ -95,7 +95,9 @@ export async function runGemini(config, { event, approval, metadata, cancelled =
       }
       if (message.method !== 'session/update') return;
       const update = p.update || {};
-      if (update.sessionUpdate === 'agent_message_chunk' && update.content?.type === 'text') { response += update.content.text; event({ type: 'relay.delta', id: 'response', text: update.content.text }); }
+      // Text after the prompt was stopped for a note is the runtime's notice that it was cancelled, not a reply.
+      if (update.sessionUpdate === 'agent_message_chunk' && update.content?.type === 'text' && !steering) { response += update.content.text; event({ type: 'relay.delta', id: segment ? `response-${segment}` : 'response', text: update.content.text }); }
+      if (update.sessionUpdate === 'plan' && Array.isArray(update.entries)) event({ type: 'relay.plan', steps: update.entries.map(entry => ({ text: entry.content, status: entry.status === 'completed' ? 'done' : entry.status === 'in_progress' ? 'active' : 'pending' })) });
       if (update.sessionUpdate === 'agent_thought_chunk') event({ type: 'relay.progress', phase: 'reasoning' });
       if (['tool_call', 'tool_call_update'].includes(update.sessionUpdate)) {
         const tool = { ...tools.get(update.toolCallId), ...update }; tools.set(tool.toolCallId, tool);
@@ -121,10 +123,23 @@ export async function runGemini(config, { event, approval, metadata, cancelled =
     metadata({ effectiveModel: antigravity ? session.configOptions?.find(option => option.id === 'model')?.currentValue || config.model || 'Provider default' : session.models?.currentModelId || config.model || 'Provider default', effectiveEffort: antigravity ? session.configOptions?.find(option => ['thinking_level', 'thought_level'].includes(option.id))?.currentValue || null : null, transport: 'acp', account: antigravity ? antigravityAccount(session) : { authenticated: true, authMode: 'native-cli', billingSource: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY ? 'api' : 'unknown' } });
     event({ type: 'relay.progress', phase: 'working' });
     if (cancelled()) throw new Error('Gemini run cancelled.');
-    const result = await client.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: config.prompt }, ...images.map(image => ({ type: 'image', mimeType: image.mime, data: image.data }))] }, 30 * 60 * 1000);
+    // ACP has no way to add to a running prompt, so a note the person adds stops the prompt and continues the same
+    // session with the note. The session keeps everything done so far.
+    const notes = [];
+    steerable(async text => { notes.push(text); if (!steering) { steering = true; client.send({ method: 'session/cancel', params: { sessionId } }); } });
+    let prompt = [{ type: 'text', text: config.prompt }, ...images.map(image => ({ type: 'image', mimeType: image.mime, data: image.data }))], result;
+    while (true) {
+      result = await client.request('session/prompt', { sessionId, prompt }, 30 * 60 * 1000);
+      steering = false;
+      if (!notes.length || cancelled()) break;
+      if (response) event({ type: 'item.completed', item: { id: segment ? `response-${segment}` : 'response', type: 'agent_message', text: response } });
+      response = ''; segment++;
+      prompt = [{ type: 'text', text: `While you were working, the person added this to the current task:\n\n${notes.splice(0).join('\n\n')}\n\nTake it into account and carry on with the task from where you stopped.` }];
+    }
+    steerable(null);
     if (result.stopReason !== 'end_turn' || cancelled()) throw new Error('Gemini turn did not complete: ' + (result.stopReason || 'unknown'));
     if (denied) throw new Error('Gemini requested an action that was denied or unsupported. Some work may be incomplete.' + (deniedReason ? ' ' + deniedReason : ''));
-    if (response) event({ type: 'item.completed', item: { id: 'response', type: 'agent_message', text: response } });
+    if (response) event({ type: 'item.completed', item: { id: segment ? `response-${segment}` : 'response', type: 'agent_message', text: response } });
     event({ type: 'turn.completed' });
-  } finally { clearInterval(timer); client.close(); options.cleanup(); }
+  } finally { steerable(null); clearInterval(timer); client.close(); options.cleanup(); }
 }

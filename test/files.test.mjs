@@ -64,9 +64,10 @@ test('native adapters deliver actual image inputs and preserve read-only permiss
   const turn=client.requests.find(row=>row.method==='turn/start').params;
   assert.deepEqual(turn.input.at(-1),{type:'localImage',path:images[0].path});assert.equal(turn.sandboxPolicy.type,'readOnly');
   let content,options;
-  async function* queryImpl(input){options=input.options;for await(const message of input.prompt)content=message.message.content;yield {type:'result',subtype:'success'};}
+  // The prompt is streamed and stays open for notes until the turn's result, so read only the first message.
+  async function* queryImpl(input){options=input.options;content=(await input.prompt[Symbol.asyncIterator]().next()).value.message.content;yield {type:'result',subtype:'success'};}
   await runClaude({workspace:f.workspace,prompt:'Describe the image',mode:'read',images},{queryImpl,event(){},metadata(){},approval:async()=>false});
-  assert.deepEqual(content.at(-1),{type:'image',source:{type:'base64',media_type:'image/png',data:png}});assert.deepEqual(options.tools,['Read','Glob','Grep']);
+  assert.deepEqual(content.at(-1),{type:'image',source:{type:'base64',media_type:'image/png',data:png}});assert.deepEqual(options.tools,['Read','Glob','Grep','TodoWrite']);
 });
 
 test('broker journals metadata only and attachment changes cannot reuse an accepted request ID',async t=>{

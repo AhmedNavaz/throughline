@@ -150,6 +150,29 @@ export class Broker extends EventEmitter {
   scheduleResume(c, input = {}) { return this.resume.schedule(c, input); }
   cancelResume(c) { return this.resume.cancel(c); }
   queueAction(c, input = {}) { return this.queue.act(c, input); }
+  // A note added to the run that is working (#32): the agent takes it into the same task instead of after it. If
+  // the run finishes first, the note runs next from the queue instead, with the same settings.
+  async addToRun(c, input = {}) {
+    const run = this.running, text = typeof input.text === 'string' ? input.text.trim() : '';
+    if (!text || text.length > 100000) throw Object.assign(new Error('Enter a message between 1 and 100,000 characters.'), { status: 400 });
+    if (!run || run.c !== c) throw Object.assign(new Error('Nothing is running in this workspace. Send your message instead.'), { status: 409 });
+    if (!run.steerable) throw Object.assign(new Error('This run cannot take more input. Queue your message instead.'), { status: 409 });
+    if (run.provider === 'gemini' && run.approvals.size) throw Object.assign(new Error('Answer Gemini’s waiting approval first, then add your note.'), { status: 409 });
+    const id = randomUUID();
+    const result = run.ending || !run.child?.connected ? { ok: false } : await new Promise(resolve => {
+      const timer = setTimeout(() => { run.steers.delete(id); resolve({ ok: false }); }, 15000); timer.unref();
+      run.steers.set(id, value => { clearTimeout(timer); resolve(value); });
+      run.child.send({ type: 'steer', id, text }, error => { if (error) { run.steers.delete(id); clearTimeout(timer); resolve({ ok: false }); } });
+    });
+    if (result.ok && this.running === run) {
+      this.record(c, { type: 'message', message: { id, role: 'user', text, provider: run.provider, steer: true, createdAt: new Date().toISOString(), runId: run.id } });
+      this.emit('update', { conversationId: c.id });
+      return { added: true, conversation: this.view(c) };
+    }
+    this.queue.act(c, { action: 'add', text, provider: run.provider, model: run.model, effort: run.effort, mode: run.mode, approvalPolicy: run.approvalPolicy, billingConfirmed: run.billingConfirmed });
+    if (c.queue.length > 1) this.queue.act(c, { action: 'move', id: c.queue.at(-1).id, index: 0 });
+    return { added: false, queued: true, conversation: this.view(c) };
+  }
   // Handing off before a usage limit stops the run (#17).
   acceptHandoff(c, input = {}) { return this.handoff.accept(c, { offerId: input.offerId, billingConfirmed: input.billingConfirmed === true }); }
   dismissHandoff(c, offerId) { this.handoff.dismiss(c, offerId); return this.view(c); }
@@ -254,7 +277,7 @@ export class Broker extends EventEmitter {
 
   view(c) {
     const { sessions, requests, reviewRequests, records, imports, reviews, ...visible } = c;
-    return { ...visible, resume: c.resume ? { ...c.resume, ...this.resume?.view(c) } : null, reviews: reviews.map(publicReview), pendingApprovals: this.running?.c.id === c.id ? [...this.running.approvals.values()] : [], messages: c.messages.map(({ seq, ...m }) => m) };
+    return { ...visible, resume: c.resume ? { ...c.resume, ...this.resume?.view(c) } : null, reviews: reviews.map(publicReview), pendingApprovals: this.running?.c.id === c.id ? [...this.running.approvals.values()] : [], canAddToRun: this.running?.c.id === c.id && this.running.steerable && !this.running.ending, messages: c.messages.map(({ seq, ...m }) => m) };
   }
 
   list() {
@@ -399,7 +422,8 @@ export class Broker extends EventEmitter {
     try { if (review) verifyReview(); baseline = review ? { kind: 'review', git: true, digest: review.snapshot.digest, capturedAt: new Date().toISOString() } : workspaceBaseline(this.workspace, this.workspaceFolders); } catch (error) { lease.release(); throw error; }
     const runId = randomUUID();
     const run = { id: runId, c, provider, mode, approvalPolicy, child: null, terminalSuccess: false, failed: false, stopped: false,
-      stderr: '', tools: new Map(), approvals: new Map(), currentClaudeMessage: null, killTimer: null, done: null, lease, review, local, resume: resume || null, queued: queued || null, billingConfirmed: billingConfirmed === true, errorCategory: null, workspaceSignature: this.workspaceSignature };
+      stderr: '', tools: new Map(), approvals: new Map(), currentClaudeMessage: null, killTimer: null, done: null, lease, review, local, resume: resume || null, queued: queued || null, billingConfirmed: billingConfirmed === true, errorCategory: null, workspaceSignature: this.workspaceSignature,
+      model, effort, steerable: !review && actualTransport !== 'cli', steers: new Map() };
     let finish;
     run.done = new Promise(resolve => { finish = resolve; });
     try {
@@ -417,6 +441,8 @@ export class Broker extends EventEmitter {
       try {
         if (run.child?.pid) this.signal(run, 'SIGKILL');
         run.approvals.clear();
+        for (const resolve of run.steers.values()) resolve({ ok: false, error: 'The run ended.' });
+        run.steers.clear();
         if (!success) {
           const detail = run.stopped ? 'Stopped. Files already changed by this run remain in the workspace.' : error?.message || run.stderr.trim() || `The assistant ended without completing the turn (exit ${code ?? signal ?? 'unknown'}).`;
           run.errorCategory ||= run.stopped ? 'interrupted' : classifyError(error || detail);
@@ -485,6 +511,7 @@ export class Broker extends EventEmitter {
           try {
             if (message.type === 'event') this.event(run, message.event);
             if (message.type === 'metadata') this.record(c, { type: 'run_metadata', metadata: message.metadata });
+            if (message.type === 'steer-result') { run.steers.get(message.id)?.(message); run.steers.delete(message.id); }
             if (message.type === 'failure') { run.failed = true; run.errorCategory = message.category; run.stderr = clip(run.stderr + '\n' + message.message); }
             if (message.type === 'approval') {
               if (review && !['Read', 'Glob', 'Grep'].includes(message.request.kind)) { run.child.send({ type: 'approval-result', id: message.request.id, allow: false }); return; }
@@ -531,6 +558,13 @@ export class Broker extends EventEmitter {
     if (event.type === 'relay.progress') return;
     const { c, provider } = run;
     if (!event || typeof event !== 'object') throw new Error('Invalid provider protocol event.');
+    // The agent's own plan for the run, shown as a to-do list.
+    if (event.type === 'relay.plan') {
+      const steps = (Array.isArray(event.steps) ? event.steps : []).filter(step => typeof step?.text === 'string' && step.text.trim()).slice(0, 50)
+        .map(step => ({ text: step.text.trim().slice(0, 300), status: ['done', 'active'].includes(step.status) ? step.status : 'pending' }));
+      this.record(c, { type: 'run_metadata', metadata: { plan: { steps, explanation: typeof event.explanation === 'string' ? event.explanation.slice(0, 500) : null, updatedAt: new Date().toISOString() } } });
+      return;
+    }
     if (event.type === 'relay.delta') { const id = `${run.id}:${event.id}`; const existing = c.messages.find(m => m.id === id); this.message(c, 'assistant', (existing?.text || '') + event.text, provider, id, 'streaming'); return; }
     if (provider === 'codex' || provider === 'gemini') {
       if (!run.review && !run.local && event.type === 'thread.started' && event.thread_id) this.record(c, { type: 'session', provider, id: event.thread_id, workspaceSignature: run.workspaceSignature || this.workspaceSignature });

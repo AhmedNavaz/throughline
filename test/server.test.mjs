@@ -452,6 +452,13 @@ test('answering a handoff offer that is no longer current is refused with the cu
   const dismissed=await post(endpoint,{accept:false,offerId:randomUUID()});
   assert.equal(dismissed.status,200);assert.equal((await dismissed.json()).handoffOffer,null);
 });
+
+test('a note for the working run is refused clearly when nothing is running',async t=>{
+  const f=await fixture(t),created=await (await post(`${f.url}/api/conversations`,{})).json();
+  const refused=await post(`${f.url}/api/conversations/${created.id}/steer`,{text:'Also update the docs'});
+  assert.equal(refused.status,409);assert.match((await refused.json()).error,/Nothing is running in this workspace/);
+});
+
 test('desktop alert preferences default to on and silent, reject other values and persist',async t=>{
   const f=await fixture(t);assert.deepEqual(f.app.getNotificationPreferences(),{enabled:true,sound:false});
   f.app.setNotificationPreferences({sound:true});assert.deepEqual(f.app.getNotificationPreferences(),{enabled:true,sound:true});

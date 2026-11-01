@@ -65,8 +65,9 @@ test('native adapters pass all current roots while read mode remains restricted'
     assert.deepEqual(options.additionalDirectories, ['/api']);
     assert.equal(options.settings.disableAllHooks, true);
     if (mode === 'read') {
-      assert.deepEqual(options.tools, ['Read', 'Glob', 'Grep']);
+      assert.deepEqual(options.tools, ['Read', 'Glob', 'Grep', 'TodoWrite'], 'Read only adds nothing but the agent’s own to-do list.');
       assert.equal((await options.canUseTool('Bash', { command: 'touch /api/file' }, {})).behavior, 'deny');
+      assert.equal((await options.canUseTool('TodoWrite', { todos: [] }, {})).behavior, 'allow');
     }
   }
 });

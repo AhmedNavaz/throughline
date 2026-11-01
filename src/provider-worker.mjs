@@ -10,12 +10,19 @@ let running = false;
 let cancelled = false;
 let finished = false;
 const pending = new Map();
+// Set by the adapter while its turn can take more input from the person (a note added during the run).
+let steer = null;
 const send = value => { if (process.connected) process.send(value); };
 // Resolves once the message is written. IPC writes finish in order, so every earlier message has been written too.
 const sendLast = value => new Promise(resolve => { if (process.connected) process.send(value, () => resolve()); else resolve(); });
 process.on('disconnect', () => { if (!finished && process.platform !== 'win32') { try { process.kill(-process.pid, 'SIGTERM'); } catch {} } process.exit(finished ? process.exitCode || 0 : 1); });
 process.on('message', async message => {
   if (message.type === 'approval-result') { pending.get(message.id)?.(message.allow); pending.delete(message.id); return; }
+  if (message.type === 'steer') {
+    let error = 'This run cannot take more input now.';
+    try { if (steer && !cancelled) { await steer(String(message.text)); error = null; } } catch (failure) { error = failure.message; }
+    send({ type: 'steer-result', id: message.id, ok: !error, error }); return;
+  }
   if (message.type === 'cancel') { cancelled = true; for (const resolve of pending.values()) resolve(false); pending.clear(); return; }
   if (message.type !== 'start' || running) return;
   running = true;
@@ -35,6 +42,7 @@ process.on('message', async message => {
       metadata: metadata => send({ type: 'metadata', metadata }),
       cancelled: () => cancelled,
       approval: request => new Promise(resolve => { const id = String(request.id); pending.set(id, resolve); send({ type: 'approval', request: { ...request, id } }); }),
+      steerable: handler => { steer = handler; },
     };
     await (config.transport === 'acp' ? runGemini(config, callbacks) : config.transport === 'app-server' ? runCodex(config, callbacks) : runClaude(config, callbacks));
     await sendLast({ type: 'adapter-complete' });

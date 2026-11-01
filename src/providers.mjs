@@ -85,7 +85,7 @@ export class CodexClient extends EventEmitter {
   close() { if (!this.closed) { this.child.stdin.end(); this.child.kill('SIGTERM'); } }
 }
 
-export async function runCodex(config, { event, approval, metadata, cancelled = () => false, clientFactory = options => new CodexClient(options), verifyLocal = verifyLocalModel }) {
+export async function runCodex(config, { event, approval, metadata, cancelled = () => false, steerable = () => {}, clientFactory = options => new CodexClient(options), verifyLocal = verifyLocalModel }) {
   if (config.reviewSnapshot && (config.mode !== 'read' || config.sessionId)) throw new Error('Snapshot reviews require read-only access and a fresh native session.');
   if (config.local) config.local = { ...config.local, ...await verifyLocal(config.local.model, config.local.digest, { endpoint: config.local.endpoint }) };
   const client = clientFactory({ bin: config.bin, cwd: config.workspace, ...(config.local ? { local: config.local } : {}), ...(config.reviewSnapshot ? { reviewSnapshot: true } : {}) });
@@ -108,6 +108,7 @@ export async function runCodex(config, { event, approval, metadata, cancelled = 
       if (/reasoning.*(?:Delta|delta)|reasoning\//i.test(message.method)) event({ type: 'relay.progress', phase: 'reasoning' });
       if (message.method === 'item/commandExecution/outputDelta') event({ type: 'relay.progress', phase: 'tool' });
       if (message.method === 'thread/tokenUsage/updated') metadata({ usage: p.tokenUsage });
+      if (message.method === 'turn/plan/updated' && Array.isArray(p.plan)) event({ type: 'relay.plan', explanation: p.explanation || null, steps: p.plan.map(step => ({ text: step.step, status: step.status === 'completed' ? 'done' : step.status === 'inProgress' ? 'active' : 'pending' })) });
       if (message.method === 'item/agentMessage/delta') event({ type: 'relay.delta', id: p.itemId, text: p.delta });
       if (['item/started', 'item/completed'].includes(message.method)) {
         const item = p.item;
@@ -119,6 +120,7 @@ export async function runCodex(config, { event, approval, metadata, cancelled = 
       }
       if (message.method === 'error') event(p.willRetry ? { type: 'error', message: p.error?.message || 'Retrying connection' } : { type: 'turn.failed', error: p.error });
       if (message.method === 'turn/completed') {
+        steerable(null);
         if (p.turn?.status === 'completed') { event({ type: 'turn.completed' }); resolveEnd(); }
         else rejectEnd(new Error(p.turn?.error?.message || `Codex turn ${p.turn?.status || 'failed'}`));
       }
@@ -139,7 +141,13 @@ export async function runCodex(config, { event, approval, metadata, cancelled = 
     const roots = [...new Set([config.workspace, ...(config.workspaces || [])])];
     const options = { cwd: config.workspace, approvalPolicy: config.mode === 'read' ? 'never' : (config.approvalPolicy === 'auto' ? 'never' : 'on-request'), approvalsReviewer: 'user', sandbox: config.mode === 'read' ? 'read-only' : 'workspace-write', config: { 'sandbox_workspace_write.writable_roots': config.mode === 'read' ? [] : roots, ...(selectedEffort ? { model_reasoning_effort: selectedEffort } : {}), ...(config.local ? localCodexConfig(config.local) : {}), ...(config.reviewSnapshot ? { mcp_servers: {}, web_search: 'disabled' } : {}) }, ...(selectedModel ? { model: selectedModel } : {}), ...(config.local ? { modelProvider: 'throughline_ollama' } : {}), ...(config.local || config.reviewSnapshot ? { ephemeral: true } : {}) };
     if (config.local && (!selectedModel || config.sessionId)) throw new Error('Local runs require an explicit model and a fresh session.');
-    const started = await client.request(config.sessionId ? 'thread/resume' : 'thread/start', { ...options, ...(config.sessionId ? { threadId: config.sessionId } : {}) });
+    // Codex keeps its plan for the run with its plan tool, shown as a to-do list. A Codex that doesn't know the
+    // setting refuses it, so the thread then starts without it.
+    if (!config.reviewSnapshot) options.config['tools.update_plan'] = { enabled: true };
+    const startThread = () => client.request(config.sessionId ? 'thread/resume' : 'thread/start', { ...options, ...(config.sessionId ? { threadId: config.sessionId } : {}) });
+    let started;
+    try { started = await startThread(); }
+    catch (error) { if (!options.config['tools.update_plan'] || !/update_plan|UpdatePlanTool/i.test(error.message)) throw error; delete options.config['tools.update_plan']; started = await startThread(); }
     if (config.local && (started.thread.modelProvider !== 'throughline_ollama' || started.model && started.model !== selectedModel || started.thread.model && started.thread.model !== selectedModel)) throw new Error('The native client did not confirm the selected local provider and model. No task was sent.');
     threadId = started.thread.id;
     event({ type: 'thread.started', thread_id: threadId });
@@ -147,32 +155,45 @@ export async function runCodex(config, { event, approval, metadata, cancelled = 
     const turn = await client.request('turn/start', { threadId, ...(selectedEffort ? { effort: selectedEffort } : {}), input: [{ type: 'text', text: config.prompt }, ...(config.images || []).flatMap(image => [{ type: 'text', text: 'Attached image: ' + image.name }, { type: 'localImage', path: image.path }])], cwd: config.workspace,
       approvalPolicy: options.approvalPolicy, approvalsReviewer: 'user', sandboxPolicy: config.mode === 'read' ? { type: 'readOnly', networkAccess: false } : { type: 'workspaceWrite', writableRoots: roots, networkAccess: false }, ...(selectedModel ? { model: selectedModel } : {}) });
     turnId = turn.turn.id;
+    // A note the person adds while Codex works joins this same turn; it fails once the turn has finished.
+    if (!config.reviewSnapshot) steerable(async text => { await client.request('turn/steer', { threadId, expectedTurnId: turnId, input: [{ type: 'text', text }] }, 10000); });
     const timer = setInterval(() => { if (cancelled()) client.request('turn/interrupt', { threadId, turnId }).catch(() => {}); }, 200);
     try { await ended; } finally { clearInterval(timer); }
-  } finally { client.close(); }
+  } finally { steerable(null); client.close(); }
 }
 
-export async function runClaude(config, { event, approval, metadata, cancelled = () => false, queryImpl } = {}) {
+export async function runClaude(config, { event, approval, metadata, cancelled = () => false, steerable = () => {}, queryImpl } = {}) {
   const query = queryImpl || (await import('@anthropic-ai/claude-agent-sdk')).query;
   const controller = new AbortController();
   const timer = setInterval(() => { if (cancelled()) controller.abort(); }, 100);
+  // The prompt is streamed, so a note the person adds while Claude works joins the turn at its next step. Input
+  // closes when the turn's result arrives; Claude still answers any note it already received before closing.
+  const inbox = []; let wake = null, open = true;
+  const deliver = value => { if (wake) { const resolve = wake; wake = null; resolve(value); } else inbox.push(value); };
+  const close = () => { if (!open) return; open = false; steerable(null); deliver(null); };
+  const todoIds = new Set();
   try {
-    async function* imagePrompt() {
-      yield { type: 'user', parent_tool_use_id: null, message: { role: 'user', content: [
-        { type: 'text', text: config.prompt },
-        ...(config.images || []).flatMap(image => [
-          { type: 'text', text: 'Attached image: ' + image.name },
-          { type: 'image', source: { type: 'base64', media_type: image.mime, data: image.data } },
-        ]),
-      ] } };
+    const first = { type: 'user', parent_tool_use_id: null, message: { role: 'user', content: config.images?.length ? [
+      { type: 'text', text: config.prompt },
+      ...config.images.flatMap(image => [
+        { type: 'text', text: 'Attached image: ' + image.name },
+        { type: 'image', source: { type: 'base64', media_type: image.mime, data: image.data } },
+      ]),
+    ] : config.prompt } };
+    async function* input() {
+      yield first;
+      while (true) { const next = inbox.length ? inbox.shift() : await new Promise(resolve => { wake = resolve; }); if (!next) return; yield next; }
     }
-    const stream = query({ prompt: config.images?.length ? imagePrompt() : config.prompt, options: {
+    if (!config.reviewSnapshot) steerable(async text => { if (!open || cancelled()) throw new Error('This turn has finished.'); deliver({ type: 'user', parent_tool_use_id: null, priority: 'next', message: { role: 'user', content: text } }); });
+    const stream = query({ prompt: input(), options: {
       cwd: config.workspace, pathToClaudeCodeExecutable: config.bin, permissionMode: config.mode === 'read' ? 'plan' : 'default',
       additionalDirectories: [...new Set(config.workspaces || [])].filter(directory => directory !== config.workspace),
       settingSources: [], settings: { disableAllHooks: true }, mcpServers: {}, strictMcpConfig: true, disallowedTools: ['mcp__*'],
-      tools: config.mode === 'read' ? ['Read', 'Glob', 'Grep'] : ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'],
+      // TodoWrite only keeps Claude's own to-do list, shown as the run's plan; it reads and changes nothing.
+      tools: config.mode === 'read' ? ['Read', 'Glob', 'Grep', 'TodoWrite'] : ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash', 'TodoWrite'],
       includePartialMessages: true, ...(config.effort ? { effort: config.effort } : {}), abortController: controller, ...(config.sessionId ? { resume: config.sessionId } : {}), model: config.model || 'default',
       canUseTool: async (toolName, input, options) => {
+        if (toolName === 'TodoWrite') return { behavior: 'allow', updatedInput: input };
         if (config.mode === 'read' && !['Read', 'Glob', 'Grep'].includes(toolName)) return { behavior: 'deny', message: 'Read-only mode blocks this tool.' };
         const allow = await approval({ id: options?.toolUseID || `${Date.now()}-${Math.random()}`, kind: toolName, input });
         return allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: 'The user declined this action.' };
@@ -183,9 +204,22 @@ export async function runClaude(config, { event, approval, metadata, cancelled =
       if (message.type === 'system' && message.subtype === 'status' && message.status === 'compacting') event({ type: 'relay.progress', phase: 'compacting' });
       if (message.type === 'system' && message.subtype === 'init') metadata({ effectiveModel: message.model || 'unknown', transport: 'sdk', authMode: message.apiKeySource || 'unknown', effectiveEffort: message.effort ?? config.effort ?? null });
       if (message.type === 'result' && message.modelUsage) metadata({ effectiveModel: Object.keys(message.modelUsage).join(', ') || 'unknown', usage: message.usage, costUSD: message.total_cost_usd });
-      event(message);
+      if (message.type === 'result') close();
+      event(withoutTodos(message, todoIds, event));
     }
-  } finally { clearInterval(timer); }
+  } finally { close(); clearInterval(timer); }
+}
+// Claude's to-do list becomes the run's plan instead of tool activity.
+function withoutTodos(message, todoIds, event) {
+  const content = message.message?.content;
+  if (!Array.isArray(content)) return message;
+  if (message.type === 'assistant') for (const block of content) if (block.type === 'tool_use' && block.name === 'TodoWrite') {
+    todoIds.add(block.id);
+    const todos = Array.isArray(block.input?.todos) ? block.input.todos : [];
+    event({ type: 'relay.plan', steps: todos.map(todo => ({ text: todo.status === 'in_progress' && todo.activeForm ? todo.activeForm : todo.content, status: todo.status === 'completed' ? 'done' : todo.status === 'in_progress' ? 'active' : 'pending' })) });
+  }
+  const kept = content.filter(block => !(block.type === 'tool_use' && block.name === 'TodoWrite') && !(block.type === 'tool_result' && todoIds.has(block.tool_use_id)));
+  return kept.length === content.length ? message : { ...message, message: { ...message.message, content: kept } };
 }
 
 const logins = new Map();

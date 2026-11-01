@@ -441,13 +441,13 @@
     const user = message.role === "user";
     const provider = message.provider || state.conversation?.provider || "codex";
     const streaming = !user && (message.status === "streaming" || message.status === "running");
-    const row = element("article", `message ${user ? "message-user" : "message-assistant"}${streaming ? " message-streaming" : ""}`);
+    const row = element("article", `message ${user ? "message-user" : "message-assistant"}${user && message.steer ? " message-steer" : ""}${streaming ? " message-streaming" : ""}`);
     if (message.id) {
       row.id = "message-" + message.id;
       row.dataset.messageId = message.id;
     }
     if (message.runId) row.dataset.runId = message.runId;
-    row.setAttribute("aria-label", user ? "Your message" : `${label(provider)} response`);
+    row.setAttribute("aria-label", user ? (message.steer ? "Your note, added while the agent worked" : "Your message") : `${label(provider)} response`);
     // A reply opens with one line naming the agent. Time and copy sit in a row beneath every message and appear on hover.
     const heading = element("div", "message-heading");
     if (!user) {
@@ -462,7 +462,8 @@
     const time = element("time", "message-time", messageTime(message.createdAt));
     if (message.createdAt) time.dateTime = message.createdAt;
     actions.append(time);
-    if (user && message.runId) {
+    if (user && message.steer) heading.append(element("span", "message-steer-label", "Added while working"));
+    if (user && message.runId && !message.steer) {
       const jumpRun = element("button", "message-action message-jump-run", "Activity");
       jumpRun.type = "button";
       jumpRun.title = "Jump to this run's activity";
@@ -487,7 +488,7 @@
     const text=message.text || (streaming ? '' : 'No text response.');
     const parts=text.split(/```([^\n`]*)\n([\s\S]*?)```/g);
     for(let i=0;i<parts.length;i+=3){if(parts[i]){if(user)body.append(document.createTextNode(parts[i]));else renderProse(body,parts[i]);}if(parts[i+2]!==undefined){const block=element('div','code-block'),head=element('div','code-head'),pre=element('pre');head.append(element('span','code-language',parts[i+1].trim()||'code'),copyButton('code-copy','Copy code',parts[i+2]));pre.append(highlightedCode(parts[i+2],parts[i+1].trim()));block.append(head,pre);body.append(block);}}
-    if (!user) row.append(heading);
+    if (!user || message.steer) row.append(heading);
     row.append(body);
     window.relayFiles?.renderMessageAttachments(row, message.attachments);
     row.append(actions);
@@ -516,10 +517,12 @@
       const message = messages[index];
       if (message.role !== "activity") {
         const row = renderMessage(message);
-        if (message.role === "user") { turn = element("section", "turn"); fragment.append(turn); }
+        // A note added while the agent worked belongs to the run it joined, not a new turn.
+        const prompt = message.role === "user" && !message.steer;
+        if (prompt) { turn = element("section", "turn"); fragment.append(turn); }
         const key = message.role === "assistant" && message.runId ? [message.runId, message.provider, message.connection].join("|") : null;
         if (key && key === speaker) row.classList.add("message-continued");
-        speaker = key;
+        if (!message.steer) speaker = key;
         place(row);
         // Once the prompt scrolls away, a one-line copy stays at the top until the next prompt. The marker takes no
         // space, so pinning never moves the conversation; a prompt that changed size when pinned made scrolling flicker.
@@ -692,6 +695,40 @@
     }
     state.pending = null; renderControls();
   }
+  // A note added to the working run (#32): the agent takes it into the same task instead of after it.
+  async function addToRun() {
+    const text = ui.input.value.trim(), id = state.conversation?.id, projectId = state.projectId, draft = ui.input.value;
+    if (!text || state.pending || !id || $("steer-button").hidden || $("steer-button").disabled) return;
+    state.pending = "steer"; renderControls();
+    try {
+      const result = await post(endpoint(id, "steer"), { text }, projectId);
+      if (ui.input.value === draft) { ui.input.value = ""; storedWrite(draftKey(), ""); storedWrite(draftKey(null), ""); resizeInput(); }
+      if (result?.added) announce("Added to the current run.");
+      else showNotice("The run finished before your note could be added, so it runs next from the queue.");
+    } catch (error) { showNotice(error.message); }
+    finally { state.pending = null; await refresh(); }
+  }
+  // The agent's own plan for the run, as a to-do list docked above the message box: one line that opens into the list.
+  function renderPlan() {
+    const run = isRunning() ? state.conversation?.activeRun : null, steps = run?.plan?.steps || [], section = $("run-plan");
+    section.hidden = !steps.length;
+    if (!steps.length) { state.planSignature = null; return; }
+    const signature = JSON.stringify([run.id, steps]);
+    if (signature === state.planSignature) return;
+    const newRun = state.planSignature && JSON.parse(state.planSignature)[0] !== run.id;
+    state.planSignature = signature;
+    const done = steps.filter(step => step.status === "done").length, current = steps.find(step => step.status === "active") || steps.find(step => step.status === "pending");
+    $("run-plan-ring").style.setProperty("--progress", String(done / steps.length));
+    $("run-plan-count").textContent = `${done} of ${steps.length}`;
+    $("run-plan-current").textContent = done === steps.length ? "All steps done" : current?.text || "";
+    $("run-plan-list").replaceChildren(...steps.map(step => {
+      const item = element("li", `run-plan-step ${step.status}`);
+      item.append(element("span", "run-plan-mark"), element("span", "run-plan-text", step.text));
+      item.setAttribute("aria-label", `${step.status === "done" ? "Done" : step.status === "active" ? "In progress" : "To do"}: ${step.text}`);
+      return item;
+    }));
+    if (newRun) { $("run-plan-list").hidden = true; $("run-plan-toggle").setAttribute("aria-expanded", "false"); }
+  }
   function renderQueue() {
     const c = state.conversation, queue = c?.queue || [], section = $("prompt-queue");
     section.hidden = !queue.length;
@@ -795,7 +832,11 @@
     ui.input.disabled = !state.ready || state.loading || state.pending === "new";
     // While work runs or waits for a reset, a message joins the queue instead of starting now (#32).
     const queueing = Boolean(state.conversation) && (running || Boolean(state.conversation?.resume));
-    ui.input.placeholder = queueing ? "Add a message to the queue…" : "Describe the task or ask a question…";
+    const canAdd = running && state.conversation?.canAddToRun === true, modKey = /Mac|iPhone|iPad/.test(navigator.platform || "") ? "⌘" : "Ctrl+";
+    ui.input.placeholder = queueing ? (canAdd ? `Queue a follow-up, or ${modKey}↵ to add it to this run…` : "Add a message to the queue…") : "Describe the task or ask a question…";
+    $("steer-button").hidden = !canAdd;
+    $("steer-button").disabled = !state.ready || busy || !ui.input.value.trim() || Boolean(window.relayFiles?.ids().length);
+    $("steer-button").title = window.relayFiles?.ids().length ? "Attachments go with a queued message" : `Add this to the current run (${modKey}↵)`;
     $("queue-button").hidden = !queueing;
     $("queue-button").disabled = !state.ready || busy || Boolean(state.localSelections[state.projectId]) || window.relayFiles?.uploading() || !ui.input.value.trim();
     ui.send.hidden = running;
@@ -834,7 +875,7 @@
     for (const id of ["resume-button", "resume-ask", "resume-auto"]) $(id).disabled = busy || otherRunning || !resumeProviders().length;
     $("resume-waiting").hidden = !resume;
     if (resume) $("resume-waiting-text").textContent = resumeText(resume);
-    renderQueue(); renderHandoff();
+    renderQueue(); renderHandoff(); renderPlan();
     const hasMessages = Boolean(state.conversation?.messages?.length);
     ui.title.textContent=state.loading&&state.projectId?'Opening workspace…':currentProject()?.name||'Throughline';
     const run=state.conversation?.activeRun || state.conversation?.lastRun;
@@ -1328,7 +1369,13 @@
   $("handoff-billing-confirm").addEventListener("change", renderHandoff);
   $("prompt-queue-toggle").addEventListener("click", () => queueAction({ action: state.conversation?.queuePaused ? "resume" : "pause" }));
   ui.input.addEventListener("input", () => { resizeInput(); saveDraft(); renderControls(); });
+  $("steer-button").addEventListener("click", addToRun);
+  $("run-plan-toggle").addEventListener("click", () => {
+    const list = $("run-plan-list"); list.hidden = !list.hidden;
+    $("run-plan-toggle").setAttribute("aria-expanded", String(!list.hidden));
+  });
   ui.input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing && !$("steer-button").hidden) { event.preventDefault(); addToRun(); return; }
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!$("queue-button").hidden) { if (!$("queue-button").disabled) queuePrompt(); } else if (!ui.send.disabled && !ui.send.hidden) run(); }
   });
   ui.agent.addEventListener("change", () => {
