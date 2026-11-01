@@ -4,8 +4,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { Broker } from '../broker.mjs';
-import { ProjectRegistry } from '../projects.mjs';
+import { Broker } from '../src/broker.mjs';
+import { ProjectRegistry } from '../src/projects.mjs';
 
 function setup(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-project-v2-'));

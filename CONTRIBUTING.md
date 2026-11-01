@@ -25,17 +25,19 @@ The app is plain JavaScript with no build step: a local Node.js server, an Elect
 
 The [architecture guide](docs/architecture.md) explains service boundaries, data flow, persistence and where new features belong.
 
+Backend code lives in `src/`; Electron, browser UI and the separately deployable sharing service have their own directories. Use the npm commands above from the project root. To pass browser-server options, use `npm run web -- --workspace /absolute/project/path --port 4318`.
+
 | Path | What it does |
 | --- | --- |
-| `server.mjs` | Local HTTP server bound to 127.0.0.1, with host, origin and token checks |
-| `projects.mjs` | Workspace registry: folders and each workspace's single conversation |
-| `broker.mjs`, `context.mjs` | Conversation journal, runs, and the shared context handed to each agent |
-| `gemini.mjs`, `providers.mjs`, `provider-worker.mjs` | Claude Agent SDK, Codex app-server and Gemini CLI ACP adapters, accounts and plan usage; runs happen in a worker process |
-| `local-models.mjs` | Ollama local-model discovery, validation and scoped Codex tool-harness launch routes |
-| `resolve-binary.mjs` | Finds the installed `claude`, `codex` and `gemini` executables |
-| `conversation-routes.mjs`, `conversation-import.mjs`, `conversation-export.mjs` | Previous-chat discovery, reviewed imports and conversation files for other users |
-| `collaboration*.mjs`, `patches.mjs`, `sharing-client.mjs` | Ask a Friend: approved packages, returned patches and the private-link client |
-| `workspace-*.mjs`, `file-explorer.mjs`, `mutation-lock.mjs` | Safe file access, Git activity, snapshots and locks that prevent conflicting edits |
+| `src/server.mjs` | Local HTTP server bound to 127.0.0.1, with host, origin and token checks |
+| `src/projects.mjs` | Workspace registry: folders and each workspace's single conversation |
+| `src/broker.mjs`, `src/context.mjs` | Conversation journal, runs, and the shared context handed to each agent |
+| `src/gemini.mjs`, `src/providers.mjs`, `src/provider-worker.mjs` | Claude Agent SDK, Codex app-server and Gemini CLI ACP adapters, accounts and plan usage; runs happen in a worker process |
+| `src/local-models.mjs` | Ollama local-model discovery, validation and scoped Codex tool-harness launch routes |
+| `src/resolve-binary.mjs` | Finds the installed `claude`, `codex` and `gemini` executables |
+| `src/conversation-routes.mjs`, `src/conversation-import.mjs`, `src/conversation-export.mjs` | Previous-chat discovery, reviewed imports and conversation files for other users |
+| `src/collaboration*.mjs`, `src/patches.mjs`, `src/sharing-client.mjs` | Ask a Friend: approved packages, returned patches and the private-link client |
+| `src/workspace-*.mjs`, `src/file-explorer.mjs`, `src/mutation-lock.mjs` | Safe file access, Git activity, snapshots and locks that prevent conflicting edits |
 | `public/` | Interface: `app.js` (core), `insights.js` (models, progress, Git and usage), `conversation-history.js` (import and export), `conversation-search.js` (find in the conversation), `files.js`, `setup.js`, `workbench.js` (Ask a Friend) and the CSS |
 | `desktop/` | Electron main process, preload bridge, packaging and icon generation |
 | `sharing/` | The self-hostable private-link service and its container image |

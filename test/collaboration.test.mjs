@@ -5,11 +5,11 @@ import path from 'node:path';
 import { createHash,randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import test from 'node:test';
-import { ProjectRegistry } from '../projects.mjs';
-import { CollaborationService } from '../collaboration.mjs';
-import { atomicJSON } from '../patches.mjs';
-import { readWorkspaceFile } from '../workspace-files.mjs';
-import { sha256,canonicalStringify,sealPackage,sealSolution,validatePublicPackage,validateSolution,validateRelativePath,scanSecrets,MAX_FILE_BYTES } from '../collaboration-format.mjs';
+import { ProjectRegistry } from '../src/projects.mjs';
+import { CollaborationService } from '../src/collaboration.mjs';
+import { atomicJSON } from '../src/patches.mjs';
+import { readWorkspaceFile } from '../src/workspace-files.mjs';
+import { sha256,canonicalStringify,sealPackage,sealSolution,validatePublicPackage,validateSolution,validateRelativePath,scanSecrets,MAX_FILE_BYTES } from '../src/collaboration-format.mjs';
 
 function setup(t,{git=false}={}) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'ai-relay-collaboration-'));

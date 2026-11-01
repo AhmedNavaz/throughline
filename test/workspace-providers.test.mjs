@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { Broker, commandFor } from '../broker.mjs';
-import { MutationCoordinator } from '../mutation-lock.mjs';
-import { runCodex, runClaude } from '../providers.mjs';
+import { Broker, commandFor } from '../src/broker.mjs';
+import { MutationCoordinator } from '../src/mutation-lock.mjs';
+import { runCodex, runClaude } from '../src/providers.mjs';
 
 function fixture(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'relay-workspace-provider-')));

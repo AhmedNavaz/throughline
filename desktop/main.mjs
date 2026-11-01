@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {randomBytes} from 'node:crypto';
-import {createRelayServer} from '../server.mjs';
+import {createRelayServer} from '../src/server.mjs';
 import {migrateLegacyData,preferredUserData} from './storage.mjs';
 import {createReleaseState} from './updates.mjs';
 import {createKeepAwake} from './keep-awake.mjs';

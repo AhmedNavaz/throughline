@@ -6,11 +6,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { Broker } from '../broker.mjs';
-import { ProjectRegistry } from '../projects.mjs';
-import { MutationCoordinator, acquireProjectLock, withFileGuard } from '../mutation-lock.mjs';
-import { prepareContext } from '../context.mjs';
-import { runCodex, runClaude, classifyError, CodexClient } from '../providers.mjs';
+import { Broker } from '../src/broker.mjs';
+import { ProjectRegistry } from '../src/projects.mjs';
+import { MutationCoordinator, acquireProjectLock, withFileGuard } from '../src/mutation-lock.mjs';
+import { prepareContext } from '../src/context.mjs';
+import { runCodex, runClaude, classifyError, CodexClient } from '../src/providers.mjs';
 
 test('overlapping workspaces exclude mutations even with different history roots',t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'relay-cross-root-'));
@@ -331,7 +331,7 @@ if(message.method==='turn/start'){send({id:message.id,result:{turn:{id:'long-tur
 test('the CLI worker forwards all provider output to a slow reader before it exits', async t => {
   const f = setup(t), bin = path.join(f.root, 'large-output.mjs');
   fs.writeFileSync(bin, `#!${process.execPath}\nprocess.stdout.write('x'.repeat(1048576));\n`, { mode: 0o700 });
-  const worker = fork(fileURLToPath(new URL('../provider-worker.mjs', import.meta.url)), [], { silent: true });
+  const worker = fork(fileURLToPath(new URL('../src/provider-worker.mjs', import.meta.url)), [], { silent: true });
   worker.send({ type: 'start', config: { transport: 'cli', bin, args: [], workspace: f.workspace, prompt: '' } });
   // A busy broker reads slowly, so output is still queued in the worker when the CLI exits.
   let received = 0;

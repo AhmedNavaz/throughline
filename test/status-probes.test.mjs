@@ -6,8 +6,8 @@ import path from 'node:path';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
-import { accountStatus } from '../providers.mjs';
-import { Broker } from '../broker.mjs';
+import { accountStatus } from '../src/providers.mjs';
+import { Broker } from '../src/broker.mjs';
 
 function fixture(t, { stage = '', output = '{"loggedIn":true,"authMethod":"oauth"}', code = 0, authCode = 0, wait = 3000, keep = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'throughline-probes-'));

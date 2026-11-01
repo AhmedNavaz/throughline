@@ -6,12 +6,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter, once } from 'node:events';
-import { workspaceGit, workspaceGitDiff, githubRepository } from '../workspace-git.mjs';
-import { ConversationImporter } from '../conversation-import.mjs';
-import { exportConversation, readConversationPackage } from '../conversation-export.mjs';
-import { Broker, commandFor } from '../broker.mjs';
-import { runCodex, runClaude, codexUsageWindows, claudeUsageWindows } from '../providers.mjs';
-import { createRelayServer } from '../server.mjs';
+import { workspaceGit, workspaceGitDiff, githubRepository } from '../src/workspace-git.mjs';
+import { ConversationImporter } from '../src/conversation-import.mjs';
+import { exportConversation, readConversationPackage } from '../src/conversation-export.mjs';
+import { Broker, commandFor } from '../src/broker.mjs';
+import { runCodex, runClaude, codexUsageWindows, claudeUsageWindows } from '../src/providers.mjs';
+import { createRelayServer } from '../src/server.mjs';
 
 function fixture(t) { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-insights-')); const workspace = path.join(root, 'project'); fs.mkdirSync(workspace); const closers = []; t.after(async () => { for (const close of closers) await close(); fs.rmSync(root, { recursive: true, force: true }); }); return { root, workspace, closers, folders: [{ id: 'root', name: 'app', path: workspace }] }; }
 function git(cwd, ...args) { const result = spawnSync('/usr/bin/git', args, { cwd, encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); return result.stdout; }

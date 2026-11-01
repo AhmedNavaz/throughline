@@ -4,12 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { EventEmitter, once } from 'node:events';
-import { AttachmentStore, describeAttachment } from '../attachments.mjs';
-import { listFiles, readExplorerFile } from '../file-explorer.mjs';
-import { prepareContext } from '../context.mjs';
-import { runCodex, runClaude } from '../providers.mjs';
-import { Broker } from '../broker.mjs';
-import { createRelayServer } from '../server.mjs';
+import { AttachmentStore, describeAttachment } from '../src/attachments.mjs';
+import { listFiles, readExplorerFile } from '../src/file-explorer.mjs';
+import { prepareContext } from '../src/context.mjs';
+import { runCodex, runClaude } from '../src/providers.mjs';
+import { Broker } from '../src/broker.mjs';
+import { createRelayServer } from '../src/server.mjs';
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l1sAAAAASUVORK5CYII=';
 function fixture(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'relay-files-'))), workspace = path.join(root,'project'); fs.mkdirSync(workspace);

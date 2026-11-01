@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { antigravityInvocation, configureAntigravitySession, googleMetadata, connectGoogle, closeGoogleConnections, verifyAntigravity } from '../antigravity.mjs';
-import { installAntigravity, googleRuntimePath } from '../antigravity-install.mjs';
-import { resolveBinary } from '../resolve-binary.mjs';
-import { runGemini } from '../gemini.mjs';
-import { Broker } from '../broker.mjs';
+import { antigravityInvocation, configureAntigravitySession, googleMetadata, connectGoogle, closeGoogleConnections, verifyAntigravity } from '../src/antigravity.mjs';
+import { installAntigravity, googleRuntimePath } from '../src/antigravity-install.mjs';
+import { resolveBinary } from '../src/resolve-binary.mjs';
+import { runGemini } from '../src/gemini.mjs';
+import { Broker } from '../src/broker.mjs';
 
 const initialized = { protocolVersion: 1, agentInfo: { name: 'antigravity-acp', version: '1.4.5' }, authMethods: [{ id: 'oauth-personal' }], agentCapabilities: { promptCapabilities: { image: true } } };
 const session = () => ({ sessionId: 'google-session', _meta: { antigravity: { tier: { id: 'personal-free', name: 'Google account' } } }, configOptions: [{ id: 'mode', currentValue: 'auto_edit', options: [{ value: 'default' }, { value: 'auto_edit' }, { value: 'yolo' }] }, { id: 'model', currentValue: 'native-default', options: [{ name: 'Current models', options: [{ value: 'native-default', name: 'Provider default' }, { value: 'native-alternative', name: 'Alternative' }] }] }, { id: 'thinking_level', currentValue: 'medium', options: [{ value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }] });

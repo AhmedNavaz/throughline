@@ -5,10 +5,10 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
-import { GeminiClient, geminiInvocation, runGemini } from '../gemini.mjs';
-import { Broker } from '../broker.mjs';
-import { accountStatus, listModels, providerUsage } from '../providers.mjs';
-import { exportConversation, readConversationPackage } from '../conversation-export.mjs';
+import { GeminiClient, geminiInvocation, runGemini } from '../src/gemini.mjs';
+import { Broker } from '../src/broker.mjs';
+import { accountStatus, listModels, providerUsage } from '../src/providers.mjs';
+import { exportConversation, readConversationPackage } from '../src/conversation-export.mjs';
 
 function folder(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'throughline-gemini-test-')));

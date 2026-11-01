@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import {once} from 'node:events';
 import {spawnSync} from 'node:child_process';
-import {createRelayServer} from '../server.mjs';
+import {createRelayServer} from '../src/server.mjs';
 import {createSharingServer} from '../sharing/server.mjs';
-import {sealSolution} from '../collaboration-format.mjs';
+import {sealSolution} from '../src/collaboration-format.mjs';
 
 async function listen(server){server.listen(0,'127.0.0.1');await once(server,'listening');return `http://127.0.0.1:${server.address().port}`;}
 async function json(url,method='GET',value){const response=await fetch(url,{method,headers:{'X-AI-Relay':'1',...(value?{'Content-Type':'application/json'}:{})},...(value?{body:JSON.stringify(value)}:{})});const data=await response.json();if(!response.ok)throw Object.assign(Error(data.error),{status:response.status});return data;}

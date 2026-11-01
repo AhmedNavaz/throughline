@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { resolveBinary } from '../resolve-binary.mjs';
-import { Broker } from '../broker.mjs';
+import { resolveBinary } from '../src/resolve-binary.mjs';
+import { Broker } from '../src/broker.mjs';
 
 function setup(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-relay-resolver-'));

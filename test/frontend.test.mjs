@@ -4,9 +4,9 @@ import { randomUUID } from 'node:crypto';
 import v8 from 'node:v8';
 import vm from 'node:vm';
 import test from 'node:test';
-import { sealPackage } from '../collaboration-format.mjs';
-import { exportConversation } from '../conversation-export.mjs';
-import { preferencePatch, publicPreferences } from '../preferences.mjs';
+import { sealPackage } from '../src/collaboration-format.mjs';
+import { exportConversation } from '../src/conversation-export.mjs';
+import { preferencePatch, publicPreferences } from '../src/preferences.mjs';
 
 // Minimal DOM/event adapter for executing the actual browser scripts. It does
 // not pretend to verify layout, CSS, native dialogs, or browser accessibility.

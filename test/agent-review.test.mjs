@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { captureReview, parseReviewResult, reviewFreshness, reviewPrompt } from '../agent-review.mjs';
-import { createRelayServer } from '../server.mjs';
-import { ConversationImporter } from '../conversation-import.mjs';
+import { captureReview, parseReviewResult, reviewFreshness, reviewPrompt } from '../src/agent-review.mjs';
+import { createRelayServer } from '../src/server.mjs';
+import { ConversationImporter } from '../src/conversation-import.mjs';
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'throughline-review-')), workspace = path.join(root, 'project'); fs.mkdirSync(workspace);

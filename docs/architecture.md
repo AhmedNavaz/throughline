@@ -20,27 +20,43 @@ flowchart TD
   Client --> Sharing[Separate link service]
 ```
 
-`server.mjs` creates and connects services, applies request checks and dispatches routes. Domain modules take explicit dependencies; they do not import the server or Electron. The desktop main process owns server startup and shutdown. The interface has no direct Node.js or filesystem access.
+`src/server.mjs` creates and connects services, applies request checks and dispatches routes. Domain modules take explicit dependencies; they do not import the server or Electron. The desktop main process owns server startup and shutdown. The interface has no direct Node.js or filesystem access.
 
 | Area | Owner |
 | --- | --- |
 | Desktop lifecycle, native dialogs and trusted IPC | `desktop/main.mjs`, `desktop/preload.cjs` |
 | App-version announcements and bundled changelog entries | `desktop/updates.mjs` |
-| Isolated background review workers and immutable selected-file copies | `review-jobs.mjs` |
-| Downloaded local-model discovery, validation and scoped launch routes | `local-models.mjs` |
+| Isolated background review workers and immutable selected-file copies | `src/review-jobs.mjs` |
+| Downloaded local-model discovery, validation and scoped launch routes | `src/local-models.mjs` |
 | Temporary development profiles and data migration | `desktop/launch.mjs`, `desktop/storage.mjs` |
-| Workspace identity, folders and one permanent conversation | `projects.mjs` |
-| Conversation journal, accepted submissions, approvals and run lifecycle | `broker.mjs` |
-| Shared prompt context | `context.mjs` |
-| Agent protocol adapters and worker entry point | `gemini.mjs`, `providers.mjs`, `provider-worker.mjs`, `resolve-binary.mjs` |
-| Review snapshots, validated findings, freshness and review HTTP routes | `agent-review.mjs`, `agent-review-routes.mjs` |
-| History discovery, reviewed imports and portable exports | `conversation-routes.mjs`, `conversation-import.mjs`, `conversation-export.mjs` |
-| File, attachment and Git HTTP routes | `workspace-routes.mjs` |
-| Filesystem boundaries, baselines and mutation coordination | `workspace-files.mjs`, `workspace-layout.mjs`, `workspace-baseline.mjs`, `mutation-lock.mjs` |
-| Reviewed collaboration packages and returned patches | `collaboration*.mjs`, `patches.mjs`, `sharing-client.mjs` |
+| Workspace identity, folders and one permanent conversation | `src/projects.mjs` |
+| Conversation journal, accepted submissions, approvals and run lifecycle | `src/broker.mjs` |
+| Shared prompt context | `src/context.mjs` |
+| Agent protocol adapters and worker entry point | `src/gemini.mjs`, `src/providers.mjs`, `src/provider-worker.mjs`, `src/resolve-binary.mjs` |
+| Review snapshots, validated findings, freshness and review HTTP routes | `src/agent-review.mjs`, `src/agent-review-routes.mjs` |
+| History discovery, reviewed imports and portable exports | `src/conversation-routes.mjs`, `src/conversation-import.mjs`, `src/conversation-export.mjs` |
+| File, attachment and Git HTTP routes | `src/workspace-routes.mjs` |
+| Filesystem boundaries, baselines and mutation coordination | `src/workspace-files.mjs`, `src/workspace-layout.mjs`, `src/workspace-baseline.mjs`, `src/mutation-lock.mjs` |
+| Reviewed collaboration packages and returned patches | `src/collaboration*.mjs`, `src/patches.mjs`, `src/sharing-client.mjs` |
 | Independently deployable private-link storage and HTTP service | `sharing/` |
 
-The backend modules stay at the repository root while this remains a small application. Split a module when it acquires a separate responsibility; moving every file into a new directory tree alone would not improve these boundaries. Production branding belongs in `assets/`, documentation in `docs/`, and disposable generated assets in `output/`, which is excluded from Git and desktop packages.
+## Repository layout
+
+```text
+src/        Local server, workspace services, agent adapters and provider worker
+desktop/    Electron lifecycle, preload bridge and packaging tools
+public/     Browser interface and static assets served by the local server
+sharing/    Independently deployable private-link service and its tests
+test/       Application tests and mock agents
+assets/     Shipped branding and application icons
+docs/       Architecture, user guide and screenshots
+```
+
+The local backend lives in `src/` so the repository root stays focused on project information, package configuration and the public installer. This is a source-directory convention, not a Node.js requirement: [npm supports explicit entry points and scripts](https://docs.npmjs.com/cli/v11/configuring-npm/package-json/). The directories above follow the application's existing runtime and deployment boundaries. Source modules retain explicit imports and dependencies; this layout adds no build step or framework. Split modules or introduce feature subdirectories when their responsibilities require it.
+
+`src/server.mjs` resolves static assets and the default development `.data/` directory relative to the application root, independent of the working directory. Moving source files must not move saved history. `src/broker.mjs` locates its sibling provider worker relative to its own module URL, so worker startup also works from a packaged app or another workspace. The sharing container copies only its service, public assets and the portable format module from `src/`.
+
+Disposable generated assets belong in `output/`, which is excluded from Git and desktop packages.
 
 ## Interface ownership
 
@@ -69,7 +85,7 @@ Each workspace has a stable ID, attached folder records and one permanent conver
 ### Permission policies and tool approvals
 
 Throughline tracks two explicit permission policies: `ask` (default) and `auto` (Full auto-approval).
-- Policy validation: `checkSettings(provider, mode, approvalPolicy)` in `broker.mjs` ensures that only valid policies (`ask`, `auto`) are accepted. Combining `mode === 'read'` with `approvalPolicy === 'auto'` is strictly incompatible and rejected with a 400 permission error.
+- Policy validation: `checkSettings(provider, mode, approvalPolicy)` in `src/broker.mjs` ensures that only valid policies (`ask`, `auto`) are accepted. Combining `mode === 'read'` with `approvalPolicy === 'auto'` is strictly incompatible and rejected with a 400 permission error.
 - Workspace scoping: Every new conversation defaults to manual permissions (`approvalPolicy: 'ask'`). Policy changes are recorded in the workspace journal. Importing external transcripts or conversations never copies or overrides the permission setting.
 - Run lifecycle and immutability: When a run starts, its `approvalPolicy` is captured in the submission record and bound to `run.approvalPolicy`. In-flight runs retain their policy regardless of subsequent settings changes. Existing pending requests retain their current policy.
 - Auto-approval handling: In `run.approvalPolicy === 'auto'`, tool approval requests emitted over worker IPC are approved automatically by the broker, emitting an activity log to the conversation. Provider adapters (`runCodex`, `runClaude`, `runGemini`) allow tool execution directly without manual user confirmation. Read-only mode denies tool execution regardless of approval policy.
@@ -90,7 +106,7 @@ History discovery reads metadata. Selecting a source loads a preview; merging re
 
 ## Extending the app
 
-Add agent protocols through `providers.mjs` and the worker, retaining the broker's normalized events, approvals, cancellation and journal semantics. Keep new HTTP features behind the existing server checks and pass their dependencies into a dedicated route module.
+Add agent protocols through `src/providers.mjs` and the worker, retaining the broker's normalized events, approvals, cancellation and journal semantics. Keep new HTTP features behind the existing server checks and pass their dependencies into a dedicated route module.
 
 The planned [project command controls](https://github.com/AhmedNavaz/throughline/issues/47) and [integrated terminal](https://github.com/AhmedNavaz/throughline/issues/7) should share a dedicated process/session manager, with separate interface modules for command output and the interactive shell. Start with saved Run/Test/Stop actions, then add the terminal. Resolve workspace and folder IDs through the registry, own child processes, retain sessions when the panel is hidden or workspaces change, and stop them on session close or app shutdown. A user-operated shell is separate from an agent run and its read-only setting. Define interaction with overlapping agent and patch operations while allowing a development server to remain running during edits; send output to the conversation only when the user selects it.
 

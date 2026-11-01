@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { googleQuota, parseGoogleQuota } from '../antigravity-usage.mjs';
-import { providerUsage } from '../providers.mjs';
+import { googleQuota, parseGoogleQuota } from '../src/antigravity-usage.mjs';
+import { providerUsage } from '../src/providers.mjs';
 
 const report = `### Session Usage
 - **Session total:** 900 tokens (prompt: 800, completion: 100)

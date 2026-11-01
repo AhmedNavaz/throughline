@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
-import { validatePublicPackage, validateSolution, canonicalStringify } from '../collaboration-format.mjs';
+import { validatePublicPackage, validateSolution, canonicalStringify } from '../src/collaboration-format.mjs';
 
 export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 export const fail = (message, status = 400) => Object.assign(new Error(message), { status });

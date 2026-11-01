@@ -52,7 +52,7 @@ export function createSharingServer({ dataDir = path.join(root, '.data'), create
       if (req.method === 'GET' && route === '/health') return json(res, 200, { ok: true });
       if (req.method === 'GET' && route === '/format.mjs') {
         res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
-        return res.end(fs.readFileSync(path.join(root, '../collaboration-format.mjs')));
+        return res.end(fs.readFileSync(path.join(root, '../src/collaboration-format.mjs')));
       }
       if (req.method === 'POST' && route === '/api/requests') {
         if (createKey && req.headers['x-sharing-create-key'] !== createKey) throw fail('Request creation is not authorized.', 403);

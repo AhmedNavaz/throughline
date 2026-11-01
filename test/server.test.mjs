@@ -5,8 +5,36 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { createRelayServer } from '../server.mjs';
+import { createRelayServer } from '../src/server.mjs';
+import { ProjectRegistry } from '../src/projects.mjs';
+
+test('source layout reopens root-level development history and serves assets outside its working directory', async t => {
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'throughline-source-layout-')));
+  let app;
+  t.after(async () => { try { await app?.close(); } finally { fs.rmSync(directory, { recursive: true, force: true }); } });
+  fs.cpSync(new URL('../src/', import.meta.url), path.join(directory, 'src'), { recursive: true });
+  fs.cpSync(new URL('../public/', import.meta.url), path.join(directory, 'public'), { recursive: true });
+  const workspace = path.join(directory, 'project');
+  fs.mkdirSync(workspace);
+  const dataRoot = path.join(directory, '.data');
+  const previous = new ProjectRegistry({ dataRoot, lock: false });
+  const saved = previous.add({ path: workspace });
+  await previous.close();
+  const registryBefore = fs.readFileSync(path.join(dataRoot, 'projects.json'), 'utf8');
+  const { createRelayServer: createCopiedServer } = await import(pathToFileURL(path.join(directory, 'src/server.mjs')));
+  app = createCopiedServer({ lock: false });
+  app.server.listen(0, '127.0.0.1');
+  await once(app.server, 'listening');
+  assert.equal(app.registry.dataRoot, dataRoot);
+  assert.equal(app.registry.list()[0].id, saved.id);
+  assert.equal(fs.readFileSync(path.join(dataRoot, 'projects.json'), 'utf8'), registryBefore);
+  assert.equal(fs.existsSync(path.join(directory, 'src/.data')), false);
+  const page = await fetch(`http://127.0.0.1:${app.server.address().port}`);
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /<title>Throughline/);
+});
 
 async function fixture(t, options = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-relay-http-'));

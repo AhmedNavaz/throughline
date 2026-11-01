@@ -5,10 +5,10 @@ import path from 'node:path';
 import os from 'node:os';
 import {randomUUID} from 'node:crypto';
 import {once} from 'node:events';
-import {ProjectRegistry} from '../projects.mjs';
-import {CollaborationService} from '../collaboration.mjs';
-import {createRelayServer} from '../server.mjs';
-import {sealSolution} from '../collaboration-format.mjs';
+import {ProjectRegistry} from '../src/projects.mjs';
+import {CollaborationService} from '../src/collaboration.mjs';
+import {createRelayServer} from '../src/server.mjs';
+import {sealSolution} from '../src/collaboration-format.mjs';
 
 function setup(t){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'relay-workspace-flow-')),dataRoot=path.join(root,'data'),paths={};for(const name of ['frontend','backend','friend-ui','friend-api']){paths[name]=path.join(root,name);fs.mkdirSync(paths[name]);}

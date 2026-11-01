@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import test from 'node:test';
-import { withFileGuard, processStart } from '../mutation-lock.mjs';
+import { withFileGuard, processStart } from '../src/mutation-lock.mjs';
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'throughline-guard-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

@@ -14,7 +14,7 @@ import { createLocalRoutes } from './local-models.mjs';
 import { atomicJSON } from './patches.mjs';
 import { appearance, appearances, preferencePatch, publicPreferences } from './preferences.mjs';
 
-const root = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const assets = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/desktop-controls.js': ['desktop-controls.js', 'text/javascript; charset=utf-8'], '/setup.js': ['setup.js', 'text/javascript; charset=utf-8'], '/polish.css': ['polish.css', 'text/css; charset=utf-8'], '/files.js': ['files.js', 'text/javascript; charset=utf-8'], '/files.css': ['files.css', 'text/css; charset=utf-8'], '/onboarding.css': ['onboarding.css', 'text/css; charset=utf-8'],
   '/model-picker.js': ['model-picker.js', 'text/javascript; charset=utf-8'], '/model-picker.css': ['model-picker.css', 'text/css; charset=utf-8'],
   '/updates.js': ['updates.js', 'text/javascript; charset=utf-8'], '/updates.css': ['updates.css', 'text/css; charset=utf-8'],
@@ -219,7 +219,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
 function main() {
   const args = process.argv.slice(2);
   if (args.includes('--help')) {
-    console.log('Throughline — shared Codex/Claude chats for your projects\n\nnode server.mjs [--workspace /absolute/project/path] [--port 4318]\n\nAdd projects in the browser, or repeat --workspace to register folders. Uses your installed CLIs and their existing logins.');
+    console.log('Throughline — shared Codex/Claude chats for your projects\n\nnpm run web -- [--workspace /absolute/project/path] [--port 4318]\n\nAdd projects in the browser, or repeat --workspace to register folders. Uses your installed CLIs and their existing logins.');
     return;
   }
   const options = { workspaces: [] };

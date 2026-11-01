@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { atomicJSON } from '../patches.mjs';
+import { atomicJSON } from '../src/patches.mjs';
 
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([\da-zA-Z.-]+))?(?:\+[\da-zA-Z.-]+)?$/;
 function compare(left, right) {

@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { withFileGuard } from '../../mutation-lock.mjs';
+import { withFileGuard } from '../../src/mutation-lock.mjs';
 const [filename, mode, counter] = process.argv.slice(2);
 const pause = new Int32Array(new SharedArrayBuffer(4));
 if (mode === 'recover-and-crash') {

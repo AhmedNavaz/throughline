@@ -6,12 +6,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
-import { localCatalog, localEndpoint, verifyLocalModel } from '../local-models.mjs';
-import { runCodex, localCodexConfig, CodexClient } from '../providers.mjs';
-import { Broker } from '../broker.mjs';
-import { createRelayServer } from '../server.mjs';
-import { exportConversation, readConversationPackage } from '../conversation-export.mjs';
-import { reviewAgents } from '../agent-review.mjs';
+import { localCatalog, localEndpoint, verifyLocalModel } from '../src/local-models.mjs';
+import { runCodex, localCodexConfig, CodexClient } from '../src/providers.mjs';
+import { Broker } from '../src/broker.mjs';
+import { createRelayServer } from '../src/server.mjs';
+import { exportConversation, readConversationPackage } from '../src/conversation-export.mjs';
+import { reviewAgents } from '../src/agent-review.mjs';
 
 const digest = 'a'.repeat(64), model = 'fixture-coder:8b';
 const info = { details: { format: 'gguf', parameter_size: '8B' }, capabilities: ['completion', 'tools'], model_info: { 'general.architecture': 'fixture', 'fixture.context_length': 131072 } };

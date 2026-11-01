@@ -6,8 +6,8 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import test from 'node:test';
 import { createSharingServer } from '../server.mjs';
-import { SharingClient, validateSharingURL } from '../../sharing-client.mjs';
-import { sealPackage, sealSolution, sha256, canonicalStringify } from '../../collaboration-format.mjs';
+import { SharingClient, validateSharingURL } from '../../src/sharing-client.mjs';
+import { sealPackage, sealSolution, sha256, canonicalStringify } from '../../src/collaboration-format.mjs';
 
 const caps = () => ({ view: randomBytes(32).toString('base64url'), submit: randomBytes(32).toString('base64url'), owner: randomBytes(32).toString('base64url') });
 function handoff() {
@@ -56,6 +56,10 @@ test('private link round trip returns exact patches without importing or calling
   const page = await fetch(`${f.url}${link.pathname}`);
   assert.equal(page.status, 200); assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
   assert.match(await page.text(), /uses? your own|using your own/);
+  const format = await fetch(`${f.url}/format.mjs`);
+  assert.equal(format.status, 200);
+  assert.match(format.headers.get('content-type'), /javascript/);
+  assert.equal(await format.text(), fs.readFileSync(new URL('../../src/collaboration-format.mjs', import.meta.url), 'utf8'));
   const base = `/api/requests/${record.remoteId}`;
   assert.equal((await request(f.url, base)).status, 403);
   assert.equal((await request(f.url, base, record.submitToken)).status, 403);
