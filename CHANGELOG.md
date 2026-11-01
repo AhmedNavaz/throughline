@@ -4,6 +4,11 @@ Notable changes to Throughline. The format follows [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+### Fixed
+
+- Cross-agent continuation preserves task intent before verbose tool logs: original and recent user instructions take priority, saved project context remains intact, and oversized historical output is passed as bounded excerpts. Full conversation journals remain saved (#69).
+- Switching agents rebuilds a fresh native session from shared project history, including when returning from a local run; consecutive same-agent turns retain native resumption. Run details identify fresh or resumed sessions and show how much history was included, omitted or compacted.
+
 ## [0.13.0] - 2026-11-01
 
 ### Added

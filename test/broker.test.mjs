@@ -61,7 +61,7 @@ async function untilUpdate(broker, predicate) {
   });
 }
 
-test('switching Codex → Claude → Codex preserves history and resumes each native session', async t => {
+test('cross-agent switches rebuild from shared history; same-agent turns resume only the current native session', async t => {
   const env = setup(t);
   let broker = env.open();
   let c = conversation(broker);
@@ -87,17 +87,26 @@ test('switching Codex → Claude → Codex preserves history and resumes each na
   c = broker.get(id);
   await run(broker, c, 'Finish with Codex', 'codex');
   const resumedCodex = env.captures()[2];
-  assert.deepEqual(resumedCodex.args.slice(resumedCodex.args.indexOf('resume'), resumedCodex.args.indexOf('resume') + 2), ['resume', 'codex-test-session']);
+  assert.equal(resumedCodex.args.includes('resume'), false);
+  assert.equal(c.lastRun.context.sessionMode, 'fresh');
+  assert.equal(c.lastRun.context.sessionReason, 'cross-agent-handoff');
   assert.ok(resumedCodex.context.context.some(m => m.text === 'Claude: Improve it with Claude'));
   assert.ok(resumedCodex.context.context.some(m => m.text.includes('Claude project inspection retained')));
-  assert.equal(resumedCodex.context.context.some(m => m.text === 'Codex: Build the first part'), false, 'already checkpointed native history should not be replayed');
+  assert(resumedCodex.context.context.some(m => m.text === 'Codex: Build the first part'), 'A different agent worked since the old native checkpoint.');
   assert.equal(resumedCodex.context.currentRequest, 'Finish with Codex');
 
   await run(broker, c, 'Review once more', 'claude');
   const resumedClaude = env.captures()[3];
-  assert.equal(resumedClaude.args[resumedClaude.args.indexOf('--resume') + 1], 'claude-test-session');
+  assert.equal(resumedClaude.args.includes('--resume'), false);
+  assert.equal(c.lastRun.context.sessionReason, 'cross-agent-handoff');
   assert.ok(resumedClaude.context.context.some(m => m.text === 'Codex: Finish with Codex'));
-  assert.equal(resumedClaude.context.context.some(m => m.text === 'Claude: Improve it with Claude'), false);
+  assert(resumedClaude.context.context.some(m => m.text === 'Claude: Improve it with Claude'));
+  await run(broker, c, 'Same-agent follow-up', 'claude');
+  const sameAgent = env.captures()[4];
+  assert.equal(sameAgent.args[sameAgent.args.indexOf('--resume') + 1], 'claude-test-session');
+  assert.equal(c.lastRun.context.sessionMode, 'resumed');
+  assert.equal(c.lastRun.context.sessionReason, 'same-agent-continuation');
+  assert.equal(sameAgent.context.context.some(m => m.text === 'Claude: Review once more'), false);
   assert.equal(c.status, 'complete');
   assert.equal(broker.running, null);
   assert.equal('sessions' in broker.view(c), false);
@@ -386,4 +395,39 @@ test('approval policy enforces permission scope, rejects incompatible read-only 
   restored.imports = {};
   reopened.importTranscript(restored, preview);
   assert.equal(restored.approvalPolicy, 'auto');
+});
+
+test('quota handoff to Gemini and back to either cloud agent rebuilds intent from the canonical journal', async t => {
+  const env = setup(t, { 'Quota stop': { behavior: 'quota' } });
+  const gemini = path.join(path.dirname(env.workspace), 'gemini-acp.mjs');
+  fs.writeFileSync(gemini, `#!${process.execPath}
+import fs from 'node:fs';import readline from 'node:readline';
+if(process.argv.includes('--version')){console.log('0.66.0');process.exit(0);}
+const emit=value=>console.log(JSON.stringify({jsonrpc:'2.0',...value}));
+for await(const line of readline.createInterface({input:process.stdin})){const m=JSON.parse(line);
+if(m.method==='initialize')emit({id:m.id,result:{protocolVersion:1}});
+if(m.method==='session/new')emit({id:m.id,result:{sessionId:'gemini-native',models:{currentModelId:'gemini-test'}}});
+if(m.method==='session/prompt'){
+const prompt=m.params.prompt.find(item=>item.type==='text').text;
+fs.writeFileSync('gemini-context.json',prompt);
+emit({method:'session/update',params:{sessionId:'gemini-native',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Gemini continued from shared history.'}}}});
+emit({id:m.id,result:{stopReason:'end_turn'}});
+}}
+`, { mode: 0o700 });
+  env.bins.gemini = gemini;
+  const broker = env.open(), c = conversation(broker);
+  await run(broker, c, 'Keep user edits and implement the requested feature', 'claude');
+  await run(broker, c, 'Quota stop', 'codex'); assert.equal(c.lastRun.errorCategory, 'quota');
+  for(let i=0;i<40;i++) broker.message(c, 'activity', '$ npm test\n' + 'verbose output\n'.repeat(1000), 'codex');
+  await run(broker, c, 'Continue the unfinished task from this shared conversation. Inspect the current files and saved activity first, and finish what remains.', 'gemini', { model:'gemini-test', mode:'read' });
+  assert.equal(c.status, 'complete'); assert.equal(c.lastRun.context.sessionMode, 'fresh');
+  const googlePrompt = fs.readFileSync(path.join(env.workspace,'gemini-context.json'),'utf8'), googleContext = JSON.parse(googlePrompt.slice(googlePrompt.indexOf('\n')+1));
+  assert(googleContext.context.some(item=>item.text==='Keep user edits and implement the requested feature'));
+  assert.equal(googleContext.continuation.previousErrorCategory,'quota');
+  assert(googleContext.compactedActivityMessages>0);
+  await run(broker,c,'Continue with Claude','claude');
+  const claude=env.captures().at(-1);assert.equal(claude.args.includes('--resume'),false);assert(claude.context.context.some(item=>item.text==='Gemini continued from shared history.'));
+  assert.equal(c.lastRun.context.sessionReason,'cross-agent-handoff');
+  await run(broker,c,'Continue with Codex','codex');
+  const codex=env.captures().at(-1);assert.equal(codex.args.includes('resume'),false);assert.equal(c.lastRun.context.sessionReason,'cross-agent-handoff');
 });

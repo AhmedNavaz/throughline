@@ -13,6 +13,7 @@ import { createConversationRoutes } from './conversation-routes.mjs';
 import { createReviewRoutes } from './agent-review-routes.mjs';
 import { createLocalRoutes } from './local-models.mjs';
 import { atomicJSON } from './patches.mjs';
+import { continuationRequest } from './context.mjs';
 import { appearance, appearances, preferencePatch, publicPreferences } from './preferences.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -191,7 +192,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
           if (match[2] === 'messages') return json(res, 202, await broker.start(c, input));
           if (match[2] === 'continue') return json(res, 202, await broker.start(c, { ...input,
             fresh: true,
-            text: 'Continue the unfinished task from this shared conversation. Inspect the current files and saved activity first, and finish what remains.' }));
+            text: continuationRequest }));
         }
       }
       return json(res, 404, { error: 'Not found.' });

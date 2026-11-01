@@ -88,7 +88,9 @@ test('snapshot reviews cannot resume coding sessions or enable edit access, MCP 
 test('folder membership changes reconstruct both native sessions and preserve the canonical chat', async t => {
   const f = fixture(t); let broker = f.open(); const id = broker.create().id;
   const run = async (provider, text) => { const c = broker.get(id); broker.start(c, { provider, text }); await broker.running.done; assert.equal(c.status, 'complete'); };
-  await run('codex', 'First Codex'); await run('claude', 'First Claude'); await run('codex', 'Codex same roots');
+  await run('codex', 'First Codex'); await run('claude', 'First Claude'); await run('codex', 'Codex after switch');
+  assert.equal(f.captures().at(-1).args.includes('resume'), false);
+  await run('codex', 'Codex same roots');
   assert.ok(f.captures().at(-1).args.includes('resume'));
   await broker.close(); broker = f.open([f.primary, f.secondary]);
   await run('codex', 'Codex with API');

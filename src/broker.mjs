@@ -345,10 +345,13 @@ export class Broker extends EventEmitter {
     if ((provider === 'gemini' && actualTransport !== 'acp') || (provider !== 'gemini' && actualTransport === 'acp') || (provider === 'codex' && actualTransport === 'sdk') || (provider === 'claude' && actualTransport === 'app-server')) throw Object.assign(new Error('This transport does not support the selected provider.'), { status: 400 });
     // A native session may retain tool permissions for folders since removed.
     // Reconstruct from the canonical journal whenever membership changes.
-    const resetSession = Boolean(c.sessions[provider] && c.sessions[provider].workspaceSignature !== this.workspaceSignature);
-    const effectiveFresh = fresh || resetSession || provider === 'gemini';
+    const switchedAgent = Boolean(c.lastRun && (c.lastRun.provider !== provider || c.lastRun.connection === 'local'));
+    const changedWorkspace = Boolean(c.sessions[provider] && c.sessions[provider].workspaceSignature !== this.workspaceSignature);
+    const resetSession = Boolean(c.sessions[provider] && (changedWorkspace || switchedAgent || fresh));
+    const effectiveFresh = Boolean(fresh || changedWorkspace || switchedAgent || provider === 'gemini' || !c.sessions[provider]?.id);
+    const sessionReason = review ? 'review' : local ? 'local-handoff' : changedWorkspace ? 'workspace-changed' : switchedAgent ? 'cross-agent-handoff' : fresh ? 'explicit-restart' : provider === 'gemini' ? 'provider-fresh-session' : effectiveFresh ? 'new-conversation' : 'same-agent-continuation';
     const sessionId = effectiveFresh ? null : c.sessions[provider]?.id;
-    const prepared = review ? { prompt: reviewPrompt(review, { ...validateContext(c.context), workspaceFolders: this.workspaceFolders }), images: [], metadata: { purpose: 'review', fresh: true, digest: review.snapshot.digest } } : prepareContext(c, text, { workspace: this.workspace, workspaceFolders: this.workspaceFolders, fresh: effectiveFresh, provider, mode, attachments, readAttachment: id => this.attachments.read(id), ...(local ? { maxBytes: 96000, includeImages: false } : {}) });
+    const prepared = review ? { prompt: reviewPrompt(review, { ...validateContext(c.context), workspaceFolders: this.workspaceFolders }), images: [], metadata: { purpose: 'review', fresh: true, digest: review.snapshot.digest } } : prepareContext(c, text, { workspace: this.workspace, workspaceFolders: this.workspaceFolders, fresh: effectiveFresh, provider, mode, session: { sessionReason, ...(switchedAgent ? { previousProvider: c.lastRun.provider } : {}) }, attachments, readAttachment: id => this.attachments.read(id), ...(local ? { maxBytes: 96000, includeImages: false } : {}) });
     if (review && Buffer.byteLength(prepared.prompt) > 192000) throw Object.assign(new Error('Review context exceeds 192 KB. Select fewer files or shorten the saved project brief.'), { status: 413 });
     if (actualTransport === 'cli' && prepared.images.length) throw Object.assign(new Error('Image attachments require the native Codex or Claude connection. Switch the transport from CLI, or remove the images.'), { status: 400 });
     const images = prepared.images.map(file => this.attachments.imageInput(file.id));
@@ -410,6 +413,9 @@ export class Broker extends EventEmitter {
         // The worker cannot launch a provider until its PID and mutation lease are durable.
         run.child = fork(fileURLToPath(new URL('./provider-worker.mjs', import.meta.url)), [], { cwd: this.workspace, silent: true, detached: process.platform !== 'win32', execArgv: [], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } });
         run.child.on('error', error => { run.spawnError = error; });
+        // The run ends on 'close', which waits for the IPC channel. Keep that channel referenced so a host with nothing
+        // else pending (a test or a script) still reads its end, instead of exiting with the run unfinished.
+        run.child.channel?.ref?.();
         let buffer = '';
         const consume = line => { if (!line.trim()) return; try { this.event(run, JSON.parse(line)); } catch (error) { run.failed = true; run.errorCategory = 'protocol'; run.stderr = clip(`${run.stderr}\n${error.message}`); } };
         run.child.stdout.setEncoding('utf8'); run.child.stderr.setEncoding('utf8');

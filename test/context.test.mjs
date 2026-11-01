@@ -1,0 +1,78 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { prepareContext, continuationRequest } from '../src/context.mjs';
+
+const envelope = prepared => JSON.parse(prepared.prompt.slice(prepared.prompt.indexOf('\n') + 1));
+const conversation = () => ({ provider: 'gemini', mode: 'edit', sessions: {}, context: { summary: 'Current project brief', goal: 'Finish issue 69', decisions: ['Preserve unrelated edits'], tasks: ['Verify handoffs'] }, messages: [] });
+const message = (c, role, text, provider = 'codex', extra = {}) => c.messages.push({ seq: c.messages.length + 1, role, text, provider, ...extra });
+
+test('handoffs preserve primary and recent real user instructions instead of filling up on command output', () => {
+  const c = conversation();
+  message(c, 'user', 'Build the project runner. Keep commands local and never execute on detection.');
+  for (let i = 0; i < 500; i++) message(c, 'activity', '$ npm test\n' + 'test output\n'.repeat(5000));
+  message(c, 'assistant', 'The runner exists. Stop cleanup still needs verification.', 'claude', { status: 'incomplete' });
+  message(c, 'user', 'Also keep saved Run and Test commands separate.');
+  for (let i = 0; i < 80; i++) { message(c, 'user', continuationRequest); message(c, 'activity', '$ node tests.mjs\n' + 'verbose result\n'.repeat(2000)); }
+  c.lastRun = { provider: 'codex', status: 'incomplete', errorCategory: 'quota' };
+  const prepared = prepareContext(c, continuationRequest, { fresh: true, session: { sessionReason: 'cross-agent-handoff' } });
+  const value = envelope(prepared);
+  assert.equal(value.currentRequest, continuationRequest); assert.equal(value.summary, c.context.summary); assert.deepEqual(value.decisions, c.context.decisions);
+  assert(value.context.some(item => item.text === c.messages[0].text));
+  assert(value.context.some(item => item.text === 'Also keep saved Run and Test commands separate.'));
+  assert(value.context.some(item => item.text.includes('Stop cleanup still needs verification.') && item.status === 'incomplete'));
+  assert(value.context.filter(item => item.role === 'activity').every(item => Buffer.byteLength(JSON.stringify(item)) < 1600));
+  assert(value.omittedMessages > 0); assert(prepared.metadata.omittedActivityMessages > 0); assert(prepared.metadata.compactedActivityMessages > 0);
+  assert.equal(prepared.metadata.protectedUserMessages, 2); assert.equal(value.continuation.previousErrorCategory, 'quota');
+  assert.equal(value.continuation.sessionMode, 'fresh'); assert.equal(value.continuation.sessionReason, 'cross-agent-handoff');
+  assert.equal(prepared.metadata.bytes, Buffer.byteLength(prepared.prompt)); assert(prepared.metadata.bytes <= 192000);
+  assert.equal(prepared.metadata.includedMessages + prepared.metadata.omittedMessages, c.messages.length);
+});
+
+test('protected requests and manual context survive a smaller local budget with explicit Unicode-safe excerpts', () => {
+  const c = conversation();
+  message(c, 'user', 'PRIMARY ' + '🧠"\\'.repeat(20000) + ' ORIGINAL-END');
+  for (let i=0; i<10; i++) message(c, 'user', 'Instruction ' + i + ': ' + '🌍'.repeat(8000) + ' INSTRUCTION-END-' + i);
+  for (let i=0; i<30; i++) message(c, 'activity', '$ command\n' + 'x'.repeat(100000));
+  const prepared = prepareContext(c, 'Continue this task', { fresh: true, maxBytes: 12000 });
+  const value = envelope(prepared), users = value.context.filter(item => item.role === 'user');
+  assert.equal(prepared.metadata.protectedUserMessages, 9); assert(users.length >= 9);
+  for (let i=2;i<10;i++) assert(users.some(item => item.text.startsWith('Instruction ' + i + ':')));
+  assert(users[0].text.startsWith('PRIMARY')); assert(users[0].text.endsWith('ORIGINAL-END'));
+  assert(users.at(-1).text.startsWith('Instruction 9:')); assert(users.at(-1).text.endsWith('INSTRUCTION-END-9'));
+  assert(users.every(item => item.text.includes('[Middle omitted')));
+  assert.equal(value.summary, c.context.summary); assert.equal(value.goal, c.context.goal); assert(Buffer.byteLength(prepared.prompt) <= 12000);
+  assert(!/\\u[dD][89aAbBcCdDeEfF][0-9a-fA-F]{2}/.test(JSON.stringify(users)), 'No split surrogate escapes');
+  assert.equal(c.messages[0].text.includes('[Middle omitted'), false, 'Compaction never rewrites journal messages.');
+});
+
+test('same-agent native resumption supplies only unseen history while fresh sessions retain task intent', () => {
+  const c = conversation(); c.provider = 'codex';
+  message(c, 'user', 'Original task'); message(c, 'assistant', 'Prior work'); message(c, 'user', 'New steering');
+  c.sessions.codex = { cursor: 2 };
+  const resumed = prepareContext(c, 'Follow-up');
+  assert.deepEqual(envelope(resumed).context.map(item => item.text), ['New steering']); assert.equal(resumed.metadata.sessionMode, 'resumed');
+  const fresh = prepareContext(c, continuationRequest, { fresh: true }); assert.equal(envelope(fresh).context[0].text, 'Original task');
+  assert.equal(fresh.metadata.sessionMode, 'fresh');
+});
+
+test('images cannot displace protected instructions, and attachments and manual context remain subject to the actual byte limit', () => {
+  const c = conversation(), image = { id: 'a'.repeat(64), kind: 'image', bytes: 8, name: '🌍'.repeat(100) + '.png' };
+  message(c, 'user', 'Keep the primary requirement.', 'codex', { attachments: [image] });
+  for (let i=0;i<80;i++) message(c, 'activity', '$ verbose\n' + 'q'.repeat(24000));
+  const prepared = prepareContext(c, 'Next step', { fresh: true, maxBytes: 6000, readAttachment: () => ({}) });
+  assert.equal(envelope(prepared).context[0].text, 'Keep the primary requirement.'); assert.equal(prepared.images.length, 1); assert(prepared.metadata.bytes <= 6000);
+  const noImages = prepareContext(c, 'Next step', { fresh: true, includeImages: false, readAttachment: () => ({}) }); assert.equal(noImages.images.length, 0);
+  assert.throws(() => prepareContext(c, 'x'.repeat(9000), { maxBytes: 2000 }), /context budget/);
+});
+
+
+test('a long original request keeps its middle requirements in full when intent fits the budget', () => {
+  const c=conversation(), original='Start '+ 'a'.repeat(25000) + ' NEVER OVERWRITE USER DATA ' + 'z'.repeat(30000) + ' end';
+  message(c,'user',original);message(c,'user','Use the existing interfaces.');
+  for(let i=0;i<100;i++)message(c,'activity','$ noisy command\n'+'output'.repeat(10000));
+  const prepared=prepareContext(c,continuationRequest,{fresh:true});
+  assert.equal(envelope(prepared).context[0].text,original);
+  assert.equal(envelope(prepared).context[0].contextRole,'primary-user-request');
+  assert(envelope(prepared).context.some(item=>item.text==='Use the existing interfaces.'));
+  assert(prepared.metadata.bytes<=192000);
+});
