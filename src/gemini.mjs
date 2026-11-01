@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { GeminiClient } from './acp-client.mjs';
-import { isAntigravityACP, antigravityInvocation, configureAntigravitySession, antigravityAccount, verifyAntigravity } from './antigravity.mjs';
+import { isAntigravityACP, antigravityInvocation, antigravityRelay, configureAntigravitySession, antigravityAccount, verifyAntigravity } from './antigravity.mjs';
 import { probeCli } from './cli-probe.mjs';
 import { withBinaryPath } from './resolve-binary.mjs';
 import { readWorkspaceFile, writeWorkspaceFile } from './workspace-files.mjs';
@@ -59,7 +59,7 @@ export async function runGemini(config, { event, approval, metadata, cancelled =
   if (!antigravity && config.effort) throw new Error('Gemini reasoning effort is controlled by its native model; clear the effort selection.');
   const version = antigravity ? null : await probe(config.bin, ['--version'], 5000), match = version?.stdout?.trim().match(/^(\d+)\.(\d+)\.(\d+)/);
   if (!antigravity && (version.status !== 0 || !match || +match[1] === 0 && +match[2] < 66)) throw new Error('Gemini CLI 0.66.0 or newer is required. ' + geminiSetup);
-  const options = antigravity ? antigravityInvocation(config) : invocation(config);
+  const options = antigravity ? antigravityInvocation({ ...config, relay: await antigravityRelay(config) }) : invocation(config);
   let client;
   try { client = clientFactory({ bin: config.bin, cwd: config.workspace, ...options }); }
   catch (error) { options.cleanup(); throw error; }

@@ -112,3 +112,15 @@ if(m.id===100&&m.result?.outcome?.optionId==='once'){send({method:'session/updat
   const run = broker.running; assert(run?.approvals.size, JSON.stringify(conversation.messages.slice(-3))); const request = [...run.approvals.values()][0]; assert.equal(request.input.command, 'npm test'); broker.approve(run.id, request.id, true); await run.done;
   assert.equal(conversation.status, 'complete'); assert.equal(conversation.lastRun.effectiveModel, 'native-alternative'); assert.equal(conversation.lastRun.effectiveEffort, 'high'); assert(conversation.messages.some(message => message.text === 'Google completed the task.')); assert.equal(conversation.sessions.gemini, undefined);
 });
+
+test('a Google network failure is reported as one, not as the runtime’s bare internal error', async t => {
+  const root = folder(t), options = { bin: path.join(root, 'agy_acp_server.par'), googleRoot: root, relay: null };
+  const unreachable = new Client(); unreachable.request = async function (method) {
+    if (method === 'initialize') return initialized;
+    this.emit('diagnostic', 'CCPAConnectionError: Network connection failed to CCPA API: EOF occurred in violation of protocol\n');
+    throw new Error('Internal error');
+  };
+  await assert.rejects(googleMetadata(options, () => unreachable), error => /could not reach Google/.test(error.message) && error.category === 'network');
+  const broken = new Client(); broken.request = async method => { if (method === 'initialize') return initialized; throw new Error('Internal error'); };
+  await assert.rejects(googleMetadata(options, () => broken), /^Error: Internal error$/, 'Other failures keep their own message.');
+});

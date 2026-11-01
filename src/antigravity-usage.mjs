@@ -1,5 +1,5 @@
 import { GeminiClient } from './acp-client.mjs';
-import { createGoogleMetadataClient, initializeAntigravity, verifyAntigravity, antigravityAccount } from './antigravity.mjs';
+import { createGoogleMetadataClient, initializeAntigravity, verifyAntigravity, antigravityAccount, antigravityRelay } from './antigravity.mjs';
 import { antigravityVersion } from './antigravity-install.mjs';
 
 const unavailable = reason => ({ available: false, source: 'antigravity-acp', windows: [], reason });
@@ -37,7 +37,7 @@ export function parseGoogleQuota(report) {
 }
 
 export async function googleQuota(options, clientFactory = options => new GeminiClient(options)) {
-  const { client, cwd } = createGoogleMetadataClient(options, clientFactory);
+  const { client, cwd } = createGoogleMetadataClient({ ...options, relay: await antigravityRelay(options) }, clientFactory);
   let sessionId, report = '', unsupported = false;
   client.on('message', message => {
     const p = message.params || {};

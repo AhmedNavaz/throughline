@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { GeminiClient } from './acp-client.mjs';
 import { withBinaryPath } from './resolve-binary.mjs';
+import { googleRelay, relayEnvironment } from './google-relay.mjs';
 
 export const isAntigravityACP = bin => /^(?:agy_acp_server(?:\.par|\.exe)?|antigravity-acp)$/i.test(path.basename(bin || ''));
 export const antigravityReadOnly = 'Antigravity does not expose a verified read-only mode through this connection. Choose Edit with approvals, or use Codex or Claude for read-only work.';
@@ -15,7 +16,14 @@ export function antigravityInvocation(config) {
   const env = { ...withBinaryPath(config.bin), GEMINI_HOME: profile, ANTIGRAVITY_HARNESS_PATH: path.join(path.dirname(config.bin), process.platform === 'win32' ? 'localharness_external.exe' : 'localharness_external') };
   // This connection uses personal Google OAuth. Never fall back to ambient API billing.
   for (const key of Object.keys(env)) if (/^(?:GEMINI_API_KEY|GOOGLE_API_KEY|GOOGLE_APPLICATION_CREDENTIALS|GOOGLE_GENAI_USE_VERTEXAI|AGY_|ANTIGRAVITY_API)/.test(key)) delete env[key];
-  return { args: process.platform === 'linux' ? ['--uid='] : [], env, cleanup() {} };
+  return { args: process.platform === 'linux' ? ['--uid='] : [], env: relayEnvironment(env, config.relay), cleanup() {} };
+}
+// The relay is a convenience: without it the runtime connects directly, as it would on its own.
+export const antigravityRelay = options => options.relay !== undefined ? Promise.resolve(options.relay) : googleRelay().catch(() => null);
+// The runtime reports a failed Google request as a bare "Internal error"; its log says what actually went wrong.
+export function googleConnectionError(error, log) {
+  if (!/CCPAConnectionError|Network connection failed|URLError|SSLEOFError|timed out/i.test(log || '')) return error;
+  return Object.assign(new Error('Throughline could not reach Google’s Antigravity service. Check your internet connection, then refresh the Gemini status.'), { category: 'network' });
 }
 export const initializeAntigravity = client => client.request('initialize', { protocolVersion: 1, clientInfo: { name: 'throughline', version: '0.11.0' }, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true }, terminal: false } }, 15000);
 export function verifyAntigravity(initialized) {
@@ -41,16 +49,17 @@ export function antigravityAccount(session) {
 
 const connections = new Map();
 export function closeGoogleConnections() { for (const entry of connections.values()) entry.client.close(); connections.clear(); }
-export function createGoogleMetadataClient({ bin, googleRoot }, clientFactory) {
-  const options = antigravityInvocation({ bin, googleRoot, mode: 'edit' });
+export function createGoogleMetadataClient({ bin, googleRoot, relay }, clientFactory) {
+  const options = antigravityInvocation({ bin, googleRoot, mode: 'edit', relay });
   const cwd = path.join(options.env.GEMINI_HOME, 'metadata'); fs.mkdirSync(cwd, { recursive: true, mode: 0o700 });
   const client = clientFactory({ bin, cwd, ...options });
   // Metadata and login never grant tool, workspace-trust or question requests.
   client.on('message', message => { if (message.id !== undefined) client.send({ id: message.id, error: { code: -32601, message: 'No tools are permitted during connection setup.' } }); });
-  return { client, cwd };
+  let log = ''; client.on('diagnostic', text => { log = String(text); });
+  return { client, cwd, log: () => log };
 }
 export async function googleMetadata(options, clientFactory = options => new GeminiClient(options)) {
-  const { client, cwd } = createGoogleMetadataClient(options, clientFactory);
+  const { client, cwd, log } = createGoogleMetadataClient({ ...options, relay: await antigravityRelay(options) }, clientFactory);
   try {
     const initialized = await initializeAntigravity(client);
     verifyAntigravity(initialized);
@@ -61,15 +70,16 @@ export async function googleMetadata(options, clientFactory = options => new Gem
       const models = leaves(model?.options).filter(row => typeof row.value === 'string').map(row => ({ id: row.value, model: row.value, displayName: row.name || row.value, description: row.description || '', isDefault: row.value === model.currentValue, supportedReasoningEfforts: leaves(effort?.options).map(row => ({ reasoningEffort: row.value, description: row.name || row.value })) }));
       return { installed: true, available: true, version: initialized.agentInfo.version, ...antigravityAccount(session), models, source: 'antigravity-acp', manualSelection: false };
     } catch (error) {
-      if (!/authenticat|sign.?in|login/i.test(error.message)) throw error;
+      if (!/authenticat|sign.?in|login/i.test(error.message)) throw googleConnectionError(error, log());
       return { installed: true, available: true, version: initialized.agentInfo.version, authenticated: false, authMode: 'google-oauth', billingSource: 'unknown', models: [], source: 'antigravity-acp', manualSelection: false, message: 'Sign in with Google to see the models available to your Antigravity account.' };
     }
-  } finally { client.close(); }
+  } catch (error) { throw googleConnectionError(error, log()); }
+  finally { client.close(); }
 }
 export async function connectGoogle(options, clientFactory = options => new GeminiClient(options)) {
   const key = options.googleRoot || defaultGoogleRoot();
   const current = connections.get(key); if (current) return { started: true, nativeFlow: true, authUrl: current.url, message: 'Google sign-in is already open. Complete it in your browser, then refresh status.' };
-  const { client } = createGoogleMetadataClient(options, clientFactory);
+  const { client } = createGoogleMetadataClient({ ...options, relay: await antigravityRelay(options) }, clientFactory);
   try {
     const initialized = await initializeAntigravity(client);
     verifyAntigravity(initialized);
@@ -90,7 +100,7 @@ export async function connectGoogle(options, clientFactory = options => new Gemi
 }
 export async function disconnectGoogle(options, clientFactory = options => new GeminiClient(options)) {
   const current = connections.get(options.googleRoot || defaultGoogleRoot()); current?.client.close(); connections.delete(options.googleRoot || defaultGoogleRoot());
-  const { client } = createGoogleMetadataClient(options, clientFactory);
+  const { client } = createGoogleMetadataClient({ ...options, relay: await antigravityRelay(options) }, clientFactory);
   try { const initialized = await initializeAntigravity(client); if (!initialized.agentCapabilities?.auth?.logout) throw new Error('Manage sign-out in the native Antigravity client.'); await client.request('logout'); return { disconnected: true }; }
   finally { client.close(); }
 }

@@ -189,12 +189,27 @@ export async function runClaude(config, { event, approval, metadata, cancelled =
 }
 
 const logins = new Map();
-export function closeAccountConnections() { closeGoogleConnections(); for (const client of logins.values()) client.close(); logins.clear(); }
-export async function accountStatus(provider, { bin = resolveBinary(provider), workspace = os.homedir(), googleRoot } = {}) {
+export function closeAccountConnections() { closeGoogleConnections(); for (const client of logins.values()) client.close(); logins.clear(); googleChecks.clear(); }
+// Each Google check starts the Antigravity runtime and a session, which takes seconds. The app asks for the account
+// and its models together, so both share one check, and a signed-in result is reused briefly.
+const googleChecks = new Map();
+function sharedGoogleMetadata({ bin, googleRoot, refresh = false }) {
+  const key = JSON.stringify([bin, googleRoot || null]), current = googleChecks.get(key);
+  if (current && (current.pending || !refresh && Date.now() - current.at < 60000)) return current.promise;
+  const entry = { pending: true, at: 0 };
+  entry.promise = googleMetadata({ bin, googleRoot }).then(result => {
+    entry.pending = false; entry.at = Date.now();
+    if (result.authenticated !== true && googleChecks.get(key) === entry) googleChecks.delete(key);
+    return result;
+  }, error => { if (googleChecks.get(key) === entry) googleChecks.delete(key); throw error; });
+  googleChecks.set(key, entry);
+  return entry.promise;
+}
+export async function accountStatus(provider, { bin = resolveBinary(provider), workspace = os.homedir(), googleRoot, refresh = false } = {}) {
   const base = { installed: false, available: false, authenticated: 'unknown', authMode: 'unknown', billingSource: 'unknown', usage: 'unknown', path: bin, capabilities: capabilities(provider) };
   if (!bin) return { ...base, ...(provider === 'gemini' ? { message: geminiSetup } : {}) };
   if (provider === 'gemini' && isAntigravityACP(bin)) {
-    const { models, ...status } = await googleMetadata({ bin, googleRoot });
+    const { models, ...status } = await sharedGoogleMetadata({ bin, googleRoot, refresh });
     return { ...base, ...status, capabilities: { ...base.capabilities, readOnly: 'unavailable', hooks: 'Antigravity manages native hooks and workspace trust. Throughline does not grant workspace-trust questions automatically.' }, message: 'Google Antigravity connection. Sign in with Google to use the models and allowance available to your account. Coding uses native approvals; read-only work uses Codex or Claude.' };
   }
   const version = await probeCli(bin, ['--version'], 4000);
@@ -319,10 +334,9 @@ export async function listModels(provider, options = {}) {
   if (provider === 'gemini') {
     const bin = options.bin || resolveBinary(provider);
     if (isAntigravityACP(bin)) {
-      const result = await googleMetadata({ ...options, bin });
+      const result = await sharedGoogleMetadata({ bin, googleRoot: options.googleRoot, refresh: options.refresh });
       if (Array.isArray(result?.models) && result.models.length > 0 && result.authenticated !== false) {
-        result.models = result.models.filter(m => String(m.id || m.model || m.value || '').toLowerCase().startsWith('gemini'));
-        return result;
+        return { ...result, models: result.models.filter(m => String(m.id || m.model || m.value || '').toLowerCase().startsWith('gemini')) };
       }
       const agyBin = resolveBinary('gemini');
       if (agyBin && isAgy(agyBin)) {
@@ -351,7 +365,7 @@ export async function listModels(provider, options = {}) {
 export async function connectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir(), googleRoot } = {}) {
   clearUsage(provider);
   if (provider === 'gemini') {
-    if (isAntigravityACP(bin)) return connectGoogle({ bin, googleRoot });
+    if (isAntigravityACP(bin)) { googleChecks.clear(); return connectGoogle({ bin, googleRoot }); }
     if (isAgy(bin)) return { started: false, nativeFlow: true, message: 'Sign in to Google using the Antigravity app or CLI (agy), then refresh status in Throughline.' };
     return { started: false, nativeFlow: true, message: geminiSetup };
   }
@@ -376,7 +390,7 @@ export async function connectAccount(provider, { bin = resolveBinary(provider), 
 }
 export async function disconnectAccount(provider, { bin = resolveBinary(provider), workspace = os.homedir(), googleRoot } = {}) {
   clearUsage(provider);
-  if (provider === 'gemini' && isAntigravityACP(bin)) return disconnectGoogle({ bin, googleRoot });
+  if (provider === 'gemini' && isAntigravityACP(bin)) { googleChecks.clear(); return disconnectGoogle({ bin, googleRoot }); }
   if (provider === 'gemini') throw Object.assign(new Error('Manage Google and Gemini authentication in the native Antigravity or Gemini CLI. Throughline stores no credentials.'), { status: 400 });
   if (!bin) throw Object.assign(new Error('Install the provider CLI first.'), { status: 503 });
   if (provider === 'claude') { const result = spawnSync(bin, ['auth', 'logout'], { cwd: workspace, encoding: 'utf8', timeout: 5000, shell: false }); if (result.status !== 0) throw new Error(result.stderr || 'Claude logout failed.'); return { disconnected: true }; }
