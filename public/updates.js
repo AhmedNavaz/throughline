@@ -14,16 +14,19 @@
     const content = $('updates-content'); content.replaceChildren();
     if (!launch.releases?.length) content.append(node('p', 'Release details are not bundled with this build. You can view the full release notes below.', 'updates-empty'));
     for (const [index, release] of (launch.releases || []).entries()) {
+      if (!release.sections?.length) continue;
       const entry = node(index ? 'details' : 'section', undefined, 'updates-release');
       if (index) entry.append(node('summary', `Also included · ${release.version}`));
       const body = node('div', undefined, 'updates-release-body');
       if (!index) body.append(node('h3', `In ${release.version}`));
       for (const section of release.sections) {
+        if (!section.items?.length) continue;
         body.append(node('h4', section.title));
         const items = node('ul'); for (const text of section.items) items.append(node('li', text)); body.append(items);
       }
       entry.append(body); content.append(entry);
     }
+    if (!content.children.length) content.append(node('p', 'Release details are not bundled with this build. You can view the full release notes below.', 'updates-empty'));
   }
   function show(automatic) {
     if (!launch || document.querySelector('dialog[open]')) return false;

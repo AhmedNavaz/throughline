@@ -98,3 +98,51 @@ test('bundled notes exclude unreleased and future work, use plain text and bound
   const bounded = releaseNotes(many, '0.19.0', '0.0.0'); assert.equal(bounded.length, 5);
   assert(bounded.every(release => release.sections.every(section => section.items.length <= 20 && section.items.every(text => text.length <= 2000))));
 });
+
+test('bundled notes filter out internal repository and developer items while preserving user-facing points', () => {
+  const mixedChangelog = `# Changelog
+## [0.13.0] - 2026-11-01
+### Added
+- **Project command controls (#47)**: Configure, inspect, and run persistent local commands.
+### Changed
+- Local backend modules now live in \`src/\`, with updated launch paths, tests, sharing-container inputs and contributor documentation.
+### Internal
+- Refactored test harness and build pipeline.
+## [0.12.0] - 2026-11-01
+### Added
+- Workspace permission controls offer **Ask for permission** and **Full auto-approval**.
+### Changed
+- The composer uses a two-line agent/model control.
+- Tests cover Claude Code and Codex discovery on Windows and Linux.
+`;
+  const notes = releaseNotes(mixedChangelog, '0.13.0', '0.11.0');
+  assert.equal(notes.length, 2);
+
+  // 0.13.0 has Added (Project command controls), but Changed (modules in src/) and Internal are excluded
+  const rel13 = notes.find(r => r.version === '0.13.0');
+  assert(rel13);
+  assert.deepEqual(rel13.sections.map(s => s.title), ['Added']);
+  assert.equal(rel13.sections[0].items.length, 1);
+  assert.match(rel13.sections[0].items[0], /Project command controls/);
+  assert.equal(JSON.stringify(rel13).includes('src/'), false);
+  assert.equal(JSON.stringify(rel13).includes('backend modules'), false);
+
+  // 0.12.0 keeps user-facing Changed item but filters test coverage item
+  const rel12 = notes.find(r => r.version === '0.12.0');
+  assert(rel12);
+  const changedSection = rel12.sections.find(s => s.title === 'Changed');
+  assert(changedSection);
+  assert.deepEqual(changedSection.items, ['The composer uses a two-line agent/model control.']);
+  assert.equal(JSON.stringify(rel12).includes('Tests cover'), false);
+});
+
+test('real changelog produces clean user-facing notes for 0.13.0 without internal refactoring', () => {
+  const realChangelog = fs.readFileSync(path.join(process.cwd(), 'CHANGELOG.md'), 'utf8');
+  const notes = releaseNotes(realChangelog, '0.13.0', '0.12.0');
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].version, '0.13.0');
+  assert.deepEqual(notes[0].sections.map(s => s.title), ['Added']);
+  assert.match(notes[0].sections[0].items[0], /Project command controls/);
+  assert.equal(JSON.stringify(notes).includes('src/'), false);
+  assert.equal(JSON.stringify(notes).includes('backend modules'), false);
+});

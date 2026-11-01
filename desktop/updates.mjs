@@ -37,6 +37,23 @@ function summarizeItem(line, stripRefs = false) {
   return text.slice(0, 320);
 }
 
+const internalSectionPattern = /^(?:internal|developer|tooling|tests?|documentation|docs|chores?|maintenance|infrastructure|ci|build)\b/i;
+
+const internalPatterns = [
+  /\b(?:backend\s+modules?|source\s+code|codebase|repository\s+root|repo\s+layout|directory\s+structure)\b/i,
+  /\b(?:live|lives|moved)\s+in\s+`?src\/?`?/i,
+  /\bcontributor\s+documentation\b/i,
+  /\bdeveloper\s+documentation\b/i,
+  /\b(?:test\s+coverage|tests?\s+cover|unit\s+tests?|automated\s+checks?|smoke\s+tests?)\b/i,
+  /\b(?:sharing-container\s+inputs?|build\s+pipeline|packaging\s+inputs?|CI\/CD|dockerfile)\b/i,
+  /\b(?:social-preview\s+artwork|package\s+description\s+in\s+the\s+README)\b/i,
+  /\bseparate\s+interface\s+and\s+HTTP\s+route\s+modules\b/i,
+];
+
+function isUserFacingItem(text) {
+  return !internalPatterns.some(pattern => pattern.test(text));
+}
+
 export function releaseNotes(changelog, current, since = null) {
   const releases = []; let release, section;
   for (const line of changelog.slice(0, 256 * 1024).split(/\r?\n/)) {
@@ -45,13 +62,19 @@ export function releaseNotes(changelog, current, since = null) {
       release = heading && versionPattern.test(heading[1]) ? { version: heading[1], date: heading[2] || null, sections: [] } : null;
       section = null; if (release) releases.push(release);
     } else if (release && line.startsWith('### ')) {
-      section = { title: summarizeItem(line.slice(4)).slice(0, 80), items: [] };
-      if (release.sections.length < 8) release.sections.push(section);
-    } else if (section && /^- /.test(line) && section.items.length < 20) section.items.push(summarizeItem(line.slice(2), true));
+      const title = summarizeItem(line.slice(4)).slice(0, 80);
+      section = internalSectionPattern.test(title) ? null : { title, items: [] };
+      if (section && release.sections.length < 8) release.sections.push(section);
+    } else if (section && /^- /.test(line) && isUserFacingItem(line) && section.items.length < 20) {
+      section.items.push(summarizeItem(line.slice(2), true));
+    }
   }
   if (!releases.some(item => compare(item.version, current) === 0)) return [];
-  return releases.filter(item => compare(item.version, current) <= 0 && (since ? compare(item.version, since) > 0 : compare(item.version, current) === 0))
-    .sort((a, b) => compare(b.version, a.version)).slice(0, 5);
+  return releases
+    .map(item => ({ ...item, sections: item.sections.filter(s => s.items.length > 0) }))
+    .filter(item => item.sections.length > 0 && compare(item.version, current) <= 0 && (since ? compare(item.version, since) > 0 : compare(item.version, current) === 0))
+    .sort((a, b) => compare(b.version, a.version))
+    .slice(0, 5);
 }
 
 // App bundles change when updated, reinstalled or translocated. Only the app version decides
