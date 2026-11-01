@@ -44,9 +44,13 @@ The fastest way to make Throughline better is to use it on your real projects an
 | A clearer conversation: prompt bubbles, one-line live activity, pinned prompts and a quiet run status ([#45](https://github.com/AhmedNavaz/throughline/issues/45)) | Next release |
 | Searchable model picker, and a reasoning effort slider that follows each model's levels | Next release |
 | Agent handoffs that keep the task's intent ahead of tool logs ([#69](https://github.com/AhmedNavaz/throughline/issues/69)) | Next release |
-| Continue a stopped task with any agent and model, or wait for a usage limit to reset and continue automatically ([#32](https://github.com/AhmedNavaz/throughline/issues/32)) | Next release |
-| Ask before changes: read-only actions in the workspace run without approval ([#68](https://github.com/AhmedNavaz/throughline/issues/68)) | Next release |
-| Dock badge and alerts when a run finishes, stops or needs approval ([#46](https://github.com/AhmedNavaz/throughline/issues/46)) | Next release |
+| Continue a stopped task with any agent and model, wait for a usage limit to reset and continue automatically, or queue prompts to run one after another ([#32](https://github.com/AhmedNavaz/throughline/issues/32)) | Next release |
+| Ask before changes: read-only actions run without approval, and an exact action can be allowed for a run or remembered for a workspace, with rules you can review and revoke ([#68](https://github.com/AhmedNavaz/throughline/issues/68)) | Next release |
+| Dock badge, alerts and a sidebar marker when a run finishes, stops or needs approval, with notifications that open the exact request and settings for alerts and sound ([#46](https://github.com/AhmedNavaz/throughline/issues/46)) | Next release |
+| Hand off to another agent before a usage limit stops the run, with the destination, billing and task shown first ([#17](https://github.com/AhmedNavaz/throughline/issues/17)) | Next release |
+| Add a note to the run that is working, and follow the agent's plan as a live to-do list | Next release |
+| Routing: the agent, model and effort picked for each message, shown with its reason before sending ([#12](https://github.com/AhmedNavaz/throughline/issues/12), stage 1) | Next release |
+| A new layout: a search bar for workspaces, files and actions, a side panel for Agents and Git, and resizable sections | Next release |
 | Reliable Gemini connection on networks where Google stalls over IPv6 | Next release |
 
 ## Now
@@ -54,8 +58,6 @@ The fastest way to make Throughline better is to use it on your real projects an
 | Feature | Status | Issue |
 | --- | --- | --- |
 | More agents and models, including Google's supported coding-agent integration, free cloud tiers and local models, on your own accounts | First milestones shipped in 0.10.0: Gemini CLI over ACP and explicit Ollama local-model handoffs through Codex tools; Google personal-account support now uses Antigravity ACP with native sign-in and model discovery in 0.11.0; further provider adapters remain ahead of automatic routing | [#4](https://github.com/AhmedNavaz/throughline/issues/4) |
-| Persistent approval indicators and desktop notifications that open the right request | Dock badge and alerts ship in the next release; a needs-approval marker in the workspace list and notification settings remain | [#46](https://github.com/AhmedNavaz/throughline/issues/46) |
-| Fewer repeated approvals: allow an action for a run or remember it for a workspace, with rules you can review and revoke | Read-only actions run without asking from the next release; run and workspace scopes are next | [#68](https://github.com/AhmedNavaz/throughline/issues/68) |
 | Notarized macOS builds, so downloads open without a security prompt | Waiting on an Apple Developer account | [#1](https://github.com/AhmedNavaz/throughline/issues/1) |
 | Update button: get new versions from inside the app with one click | Planned | [#2](https://github.com/AhmedNavaz/throughline/issues/2) |
 | Install with Homebrew: `brew install --cask throughline` | Depends on #1 | [#3](https://github.com/AhmedNavaz/throughline/issues/3) |
@@ -64,8 +66,7 @@ The fastest way to make Throughline better is to use it on your real projects an
 
 | Feature | Status | Issue |
 | --- | --- | --- |
-| Adaptive agent, model and effort selection with Cost Saving, Balanced and Maximum Quality modes | Follows the first additional provider in #4; [scope and stages below](#adaptive-agent-and-model-routing) | [#12](https://github.com/AhmedNavaz/throughline/issues/12) |
-| Resume when limits reset: continue on whichever agent resets first, and queue prompts until then | Waiting for a reset ships in the next release; the prompt queue is next | [#32](https://github.com/AhmedNavaz/throughline/issues/32) |
+| Adaptive agent, model and effort selection with Cost Saving, Balanced and Maximum Quality modes | Stage 1, routing whole requests, ships in the next release as **Routing**; escalation after failed checks and subtask coordination are next; [scope and stages below](#adaptive-agent-and-model-routing) | [#12](https://github.com/AhmedNavaz/throughline/issues/12) |
 | Windows and Linux builds | Planned, help wanted | [#5](https://github.com/AhmedNavaz/throughline/issues/5) |
 | Commit reviewed changes from the Git panel | Planned | [#6](https://github.com/AhmedNavaz/throughline/issues/6) |
 | Integrated workspace terminal | Follows project command controls; PTY design needed | [#7](https://github.com/AhmedNavaz/throughline/issues/7) |
@@ -93,7 +94,7 @@ The mode should guide the whole run, including retries, reviews, subtask assignm
 
 Deliver in stages:
 
-1. **Route whole requests.** After validating the first additional provider in #4, start with supported agents and models, the three modes, explicit budget controls, visible decisions and manual overrides.
+1. **Route whole requests.** Supported agents and models, the three modes, explicit budget controls, visible decisions and manual overrides. Ships in the next release as **Routing**, with local rules for classifying requests (no model call), subscription-only billing unless API billing is allowed, and the choice shown before sending.
 2. **Verify and recover.** Add bounded escalation based on task checks, quota handoff and reset queuing; validate at least one supported free or local integration before promising that fallback.
 3. **Coordinate subtasks.** Assign work across agents with shared project context, explicit ownership of edits, bounded review cycles and one consolidated result. Parallel execution must avoid conflicting workspace changes.
 
@@ -118,7 +119,6 @@ Larger ideas for bringing project context, execution and collaboration into one 
 | **Focus and downtime.** Optional timers, ambient audio, reading and short games during agent runs, with persistent status and a clear return to the project when attention is needed. [Scope and stages below](#focus-and-downtime). | [#14](https://github.com/AhmedNavaz/throughline/issues/14) |
 | **Automatic tag-team cycles.** Extend cross-agent review with an opt-in handoff from builder to reviewer and user-approved fix cycles. | [#15](https://github.com/AhmedNavaz/throughline/issues/15) |
 | **Race mode.** Two agents take the same task in separate worktrees; keep the better result. | [#16](https://github.com/AhmedNavaz/throughline/issues/16) |
-| **Budget-aware handoff.** Offer an eligible agent when allowance runs low or a usage limit stops the run, following the selected routing mode, allowed providers and spending limits. | [#17](https://github.com/AhmedNavaz/throughline/issues/17) |
 | **Everything in the thread.** Issues, pull requests, CI failures and logs as context, and pull requests from the conversation. | [#18](https://github.com/AhmedNavaz/throughline/issues/18) |
 | **Point and tell.** Click an element in your app's preview and say what should change. | [#19](https://github.com/AhmedNavaz/throughline/issues/19) |
 | **Rewind.** One timeline of messages, file changes and commits, with checkpoints to undo any step. | [#20](https://github.com/AhmedNavaz/throughline/issues/20) |

@@ -6,7 +6,7 @@
 
 <p align="center"><a href="https://github.com/AhmedNavaz/throughline/actions/workflows/ci.yml"><img src="https://github.com/AhmedNavaz/throughline/actions/workflows/ci.yml/badge.svg" alt="CI"></a> <a href="https://github.com/AhmedNavaz/throughline/releases/latest"><img src="https://img.shields.io/github/v/release/AhmedNavaz/throughline" alt="Latest release"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a> <a href="https://www.patreon.com/17048317/join"><img src="https://img.shields.io/badge/Support-Patreon-FF424D?logo=patreon&amp;logoColor=white" alt="Support Throughline on Patreon"></a></p>
 
-<p align="center"><img src="docs/screenshot.png" alt="Throughline: a project conversation shared by Claude and Codex, with the file browser, Git activity and plan usage" width="900"></p>
+<p align="center"><img src="docs/screenshot.png" alt="Throughline: a project conversation shared by Claude and Codex, with the file browser, routing and handoff settings, and plan usage" width="900"></p>
 
 Throughline is an open-source desktop control plane for agentic development. It brings Claude Code, Codex, Gemini through Google Antigravity and downloaded Ollama coding models into a unified workspace for multi-agent orchestration, persistent project context, and human-in-the-loop collaboration.
 
@@ -21,15 +21,18 @@ Each project becomes a continuous working thread: its folders, conversation, sav
 - When a usage limit stops a run, continue with any agent and model, or let the task wait and continue on whichever agent has room first once a limit resets.
 - **Continue locally** with a downloaded Ollama coding model when cloud allowances run out. The same project thread carries over, using Codex's workspace tools and approvals with separate local-model attribution. See [setup and limits](docs/guide.md#local-models).
 - Choose cloud agents and downloaded local models in one searchable picker, then use the same composer.
-- Choose the model, reasoning effort and access (read only or can edit files) for every message.
-- Approve agent actions in the app and follow each run live: current step, tool calls, elapsed time and token counts. **Ask before changes** lets reading the workspace run without approval and asks before edits, installs, scripts or network access.
-- When you are in another app, the Dock shows what finished or needs your approval.
+- Choose the model, reasoning effort and access (read only or can edit files) for every message, or let **Routing** pick the agent, model and effort for each one in Cost saving, Balanced or Maximum quality mode. It shows its choice and the reason before you send, and uses only your subscriptions unless you allow API billing.
+- **Handoff**: before a usage limit stops a run, Throughline offers to move the task to an agent with room left, showing its model, billing and the task first.
+- Queue prompts to run one after another, or add a note to the run that is working without stopping it. When an agent plans in steps, its plan shows as a live to-do list.
+- Approve agent actions in the app and follow each run live: current step, tool calls, elapsed time and token counts. **Ask before changes** lets reading the workspace run without approval and asks before edits, installs, scripts or network access. Allow an exact action for the run or remember it for the workspace, with rules you can review and revoke.
+- When you are in another app, the Dock and a notification show what finished or needs your approval, and the sidebar marks workspaces that are waiting for you.
 - Run agents in several workspaces at once; the sidebar shows which ones are busy.
 - Find earlier messages and code with Cmd/Ctrl+F, highlighted matches and next/previous navigation.
 - Get a second opinion with **Review**: a background agent checks a saved snapshot of selected changes in a side panel while you continue the next task. Findings become outdated when those files change.
 
 **Execution visibility and developer controls**
 
+- A search bar (⌘K) for workspaces, files in every workspace and actions, a side panel for Agents and Git, and resizable sections you can show or hide.
 - Git activity for each folder: changed files with diffs, and recent commits.
 - A file browser with syntax-highlighted previews. Attach files and images by clicking, dragging or pasting.
 - Plan usage for Claude Code and Codex in the status bar, with reset times, plus per-run context usage when reported.
