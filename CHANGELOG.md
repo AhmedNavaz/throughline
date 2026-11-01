@@ -4,9 +4,11 @@ Notable changes to Throughline. The format follows [Keep a Changelog](https://ke
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-02
+
 ### Added
 
-- **Routing** (#12): Throughline can pick the agent, model and reasoning effort for each message, in Cost saving, Balanced or Maximum quality mode. Choose it under **Routing** in the **Agents** panel; while it is on, the model button in the message box shows the mode. A line above the message box shows the choice and the reason before you send, and a note under the prompt keeps it. Auto uses simple rules on your message, never a model call; it keeps the conversation's agent unless that agent is near its limit, never picks one at 95%, only uses subscription-billed agents unless you allow API billing, and matches effort to the levels each model supports. Choosing a model yourself turns it off.
+- **Routing** (#12): Throughline can pick the agent, model and reasoning effort for each message, in Cost saving, Balanced or Maximum quality mode. Choose it under **Routing** in the **Agents** panel; while it is on, the model button in the message box shows the mode. A line above the message box shows the choice and the reason before you send, and a note under the prompt keeps it. Routing uses simple rules on your message, never a model call; it keeps the conversation's agent unless that agent is near its limit, never picks one at 95%, only uses subscription-billed agents unless you allow API billing, and matches effort to the levels each model supports. Choosing a model yourself turns it off.
 - **Add to run**: while an agent works, ⌘↵ (Ctrl+Enter on Windows and Linux) adds your message to the task it is already doing instead of queueing it, so you can add a point or correct yourself without stopping the run. Codex and Claude take the note at their next step; Gemini continues the same session with it. The note appears inside the run, and if the run finishes first it runs next from the queue.
 - **The agent's plan as a to-do list**: when an agent plans a task in steps, a line above the message box shows how many are done and what it is working on, and opens into the full list. It follows the agent's own plan from Codex or Claude as the run goes, and from Gemini when its connection reports one.
 - **Handoff** (#17): once a cloud agent passes 90% of a plan limit during a run, an offer names the agent with room that would continue the task, with its model, billing, access and the task itself. **Hand off** stops the run and continues it there from the shared conversation; **Not now** keeps going. A destination billed outside a subscription needs its charges accepted separately, and an offer is checked again just before switching, so a changed task, folders, project context or destination settings start nothing and show an updated offer instead. **Handoff** in the **Agents** panel (also **Agent › Hand Off Near Usage Limits**) sets the threshold (80, 90 or 95%) or turns offers off, and can allow handing off automatically to subscription-billed agents only.
@@ -266,6 +268,7 @@ First public release.
 - Dark and light themes, keyboard shortcuts and a short setup guide.
 - macOS builds for Apple Silicon and Intel, and a container image for the private-link service.
 
+[0.14.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.14.0
 [0.13.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.13.0
 [0.12.0]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.12.0
 [0.11.3]: https://github.com/AhmedNavaz/throughline/releases/tag/v0.11.3
