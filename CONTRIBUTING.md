@@ -19,6 +19,8 @@ npm run start:fresh # replay onboarding with a temporary profile
 npm run web      # browser-only session on http://127.0.0.1:4318
 ```
 
+`npm start` opens **Throughline Dev**, a separate app from an installed release: it keeps its own workspaces and conversations in `~/Library/Application Support/Throughline Dev`, so both can run side by side, and you can work on Throughline from the installed app while testing your changes in the dev one. A **Dev** label next to the name tells them apart. To open your real data from source instead, quit the installed app and run `AI_RELAY_DESKTOP_DATA="$HOME/Library/Application Support/Throughline" npm start`.
+
 ## Project map
 
 The app is plain JavaScript with no build step: a local Node.js server, an Electron shell and a static web interface.

@@ -123,3 +123,10 @@ test('a wait is offered only after a usage limit, for connected agents, and neve
   assert.throws(() => broker.scheduleResume(c, { providers: ['codex'], mode: 'read', approvalPolicy: 'auto' }), /read/i);
   assert.equal(c.resume, null);
 });
+
+test('agents and the commands they run do not inherit the worker’s run-as-Node setting', async t => {
+  const env = setup(t), broker = env.open(), c = broker.get(broker.create().id);
+  await run(broker, c, 'Start the app from source', 'codex');
+  await run(broker, c, 'Start it again', 'claude');
+  assert.deepEqual(env.captures().map(capture => capture.electronRunAsNode), [null, null], 'An Electron app an agent starts, such as Throughline from source, runs as an app.');
+});

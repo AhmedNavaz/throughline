@@ -12,7 +12,7 @@ for await (const chunk of process.stdin) prompt += chunk;
 const context = JSON.parse(prompt.slice(prompt.lastIndexOf('\n') + 1));
 const config = JSON.parse(fs.readFileSync('.mock-scenarios.json', 'utf8'));
 const scenario = config[context.currentRequest] || {};
-fs.appendFileSync('.mock-captures.jsonl', `${JSON.stringify({ provider, args: process.argv.slice(2), prompt, context, cwd: process.cwd() })}\n`);
+fs.appendFileSync('.mock-captures.jsonl', `${JSON.stringify({ provider, args: process.argv.slice(2), prompt, context, cwd: process.cwd(), electronRunAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null })}\n`);
 
 // Split JSON records across writes, and leave one final event unterminated. This
 // exercises the production parser rather than calling its event handler directly.

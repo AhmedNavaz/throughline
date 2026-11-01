@@ -51,6 +51,7 @@ summary::-webkit-details-marker { display: none; }
 .sidebar-titlebar { display: flex; align-items: center; gap: 8px; flex: none; height: var(--titlebar-height); padding: 0 14px; }
 .brand { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-strong); font-size: 13px; font-weight: 600; text-decoration: none; border-radius: 4px; }
 .brand-mark { display: block; flex: none; width: 18px; height: 18px; border-radius: 4px; }
+.build-channel { padding: 0 6px; border-radius: 9px; background: var(--warning-bg); color: var(--warning); font-size: 10.5px; font-weight: 600; line-height: 17px; letter-spacing: .02em; }
 .workspace-toggle { display: none; }
 .sidebar-heading {
   display: flex; align-items: center; gap: 6px; height: 28px; margin-top: 2px; padding: 0 8px 0 16px;

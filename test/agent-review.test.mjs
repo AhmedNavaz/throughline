@@ -57,7 +57,8 @@ test('background reviews read approved copies while the builder continues, retry
   const result = await api.request('/start', input); assert.equal(result.status, 202);
   const job = api.broker.backgroundReview; assert(job); assert.equal(api.broker.running, null); assert.equal(api.c.status, 'idle');
   assert.notEqual(job.worker.workspace, fs.realpathSync(f.workspace)); assert.equal(fs.readFileSync(path.join(job.worker.workspace, 'app.js'), 'utf8'), 'export const value = 2;\n');
-  for (let i = 0; i < 100 && !f.captures().length; i++) await new Promise(resolve => setTimeout(resolve, 10));
+  // The reviewer starts in its own process; under a busy full test run that can take more than a second.
+  for (let i = 0; i < 1000 && !f.captures().length; i++) await new Promise(resolve => setTimeout(resolve, 10));
   assert(f.captures().length);
   fs.writeFileSync(path.join(f.workspace, 'app.js'), 'export const value = 3;\n');
   assert.equal(fs.readFileSync(path.join(job.worker.workspace, 'app.js'), 'utf8'), 'export const value = 2;\n');

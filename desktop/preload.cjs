@@ -1,7 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const token = process.argv.find(value => value.startsWith('--relay-token='))?.slice(14);
+// "development" when the app runs from source rather than an installed release.
+const channel = process.argv.includes('--relay-channel=development') ? 'development' : 'release';
 contextBridge.exposeInMainWorld('relayDesktop', Object.freeze({
   token,
+  channel,
   pickFolder: () => ipcRenderer.invoke('relay:pick-folder'),
   openExternal: url => ipcRenderer.invoke('relay:open-external',url),
   platform: process.platform,

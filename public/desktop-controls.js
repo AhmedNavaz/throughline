@@ -3,6 +3,8 @@
   // The desktop menu bar runs the page's commands and shows what the page offers: the items that can be used now,
   // the selected agent, the Files and Git activity ticks and the workspaces ⌘1–9 select.
   const $ = id => document.getElementById(id), bridge = window.relayDesktop, api = window.relayUI;
+  // The copy run from source is labelled, so it is never mistaken for the installed app.
+  if ($('build-channel')) $('build-channel').hidden = bridge?.channel !== 'development';
   if (!bridge?.onMenuCommand || !bridge?.setMenuState) return;
   const usable = id => { const control = $(id); return Boolean(control && !control.hidden && !control.disabled); };
   let sent = '', scheduled = false;

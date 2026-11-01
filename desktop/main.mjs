@@ -11,7 +11,13 @@ import {createAppearance} from './appearance.mjs';
 import {menuTemplate,menuState} from './menu.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const smoke=process.argv.includes('--smoke-test');
+// A copy run from source is a separate app from the installed one: its own name, data folder and single-instance
+// lock. Both run side by side in their own windows, and testing from source never opens or changes the installed
+// app's workspaces and conversations.
+const development=!app.isPackaged;
+if(development)app.setName('Throughline Dev');
 if(process.env.AI_RELAY_DESKTOP_DATA) app.setPath('userData',path.resolve(process.env.AI_RELAY_DESKTOP_DATA));
+else if(development) app.setPath('userData',path.join(app.getPath('appData'),'Throughline Dev'));
 else app.setPath('userData',preferredUserData(app.getPath('appData'),app.getPath('userData')));
 const primary=app.requestSingleInstanceLock();
 let relay,win,origin,keepAwake,quitting=false;
@@ -57,8 +63,10 @@ else {
       origin=`http://127.0.0.1:${relay.server.address().port}`;
     }
     await start();
-    win=new BrowserWindow({width:1440,height:1000,minWidth:900,minHeight:680,show:false,title:'Throughline',icon:path.join(root,'assets','icon.png'),backgroundColor:appearance.background(),...(process.platform==='darwin'?{titleBarStyle:'hiddenInset',trafficLightPosition:{x:14,y:13}}:{}),webPreferences:{preload:path.join(root,'desktop','preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,additionalArguments:[`--relay-token=${token}`]}});
+    win=new BrowserWindow({width:1440,height:1000,minWidth:900,minHeight:680,show:false,title:'Throughline',icon:path.join(root,'assets','icon.png'),backgroundColor:appearance.background(),...(process.platform==='darwin'?{titleBarStyle:'hiddenInset',trafficLightPosition:{x:14,y:13}}:{}),webPreferences:{preload:path.join(root,'desktop','preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,additionalArguments:[...(development?['--relay-channel=development']:[]),`--relay-token=${token}`]}});
     win.on('focus',()=>{attention=0;app.dock?.setBadge('');});
+    // The window list and the app switcher tell the two copies apart.
+    if(development)win.on('page-title-updated',(event,title)=>{event.preventDefault();win.setTitle(`${title} (Development)`);});
     if(!smoke) win.once('ready-to-show',()=>win.show());
     const trusted=event=>event.sender===win.webContents && event.senderFrame===win.webContents.mainFrame && event.senderFrame.url.startsWith(origin+'/');
     ipcMain.handle('relay:keep-awake:get',event=>{if(!trusted(event))throw Error('Untrusted renderer');return keepAwake.getState();});

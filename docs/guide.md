@@ -210,9 +210,9 @@ For a browser-only development session use `npm run web`, optionally with `-- --
 
 Build a standalone app for your OS and architecture with `npm run package`; the result is written to `dist/`. Regenerate the app icons from `assets/icon.svg` and `public/icon.svg` with `npm run icons`.
 
-Electron starts and stops the loopback backend itself. No separate server terminal is required. Close the app to stop its managed provider processes. A second desktop launch focuses the existing window. Without a signing identity, `npm run package` signs macOS builds ad hoc; they are not notarized.
+Electron starts and stops the loopback backend itself. No separate server terminal is required. Close the app to stop its managed provider processes. A second desktop launch focuses the existing window. Run from source (`npm start`), the app is **Throughline Dev**: a separate app with its own data folder (`~/Library/Application Support/Throughline Dev`) and its own window, labelled **Dev**, so it runs alongside an installed release without sharing workspaces, conversations or settings. Without a signing identity, `npm run package` signs macOS builds ad hoc; they are not notarized.
 
-The development launcher clears an inherited `ELECTRON_RUN_AS_NODE` flag before opening Electron, so `npm start` also works from terminals hosted by an Electron-based editor or coding agent. Provider workers retain their own Node-mode configuration.
+The development launcher clears an inherited `ELECTRON_RUN_AS_NODE` flag before opening Electron, so `npm start` also works from terminals hosted by an Electron-based editor or coding agent. Provider workers run in Node mode themselves but clear the flag before starting an agent, so an Electron app an agent starts, such as Throughline from source, opens normally.
 
 To replay onboarding from the welcome screen, run `npm run start:fresh` or `npm start -- --fresh`. Each launch uses an empty temporary profile and skips legacy-data migration. Setup changes and imported chats in that session are discarded when the window closes; existing saved workspaces stay intact. Installed agent sign-ins are still detected. To preview a new user with no agents installed, run `npm run start:fresh -- --no-agents`; this hides the agents only for that temporary session and leaves their installations and sign-ins unchanged.
 
