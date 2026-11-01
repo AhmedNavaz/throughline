@@ -141,19 +141,16 @@ export class ResumeScheduler {
     }
   }
 
-  // A resumed run reports back: finished, stopped, or limited again, in which case it waits again while attempts remain.
-  runEnded(c, run, status) {
-    if (!run.resume) return;
+  // A resumed run that reaches another limit waits again while attempts remain. Returns whether it is waiting,
+  // so the broker does not also report the run as stopped.
+  runEnded(c, run) {
+    if (!run.resume || run.errorCategory !== 'quota' || (run.resume.attempts || 0) + 1 >= RESUME_ATTEMPTS || Date.parse(run.resume.expiresAt) <= this.now()) return false;
     const provider = names[run.provider] || run.provider;
-    if (run.errorCategory === 'quota' && (run.resume.attempts || 0) + 1 < RESUME_ATTEMPTS && Date.parse(run.resume.expiresAt) > this.now()) {
-      const resume = { ...run.resume, id: randomUUID(), attempts: (run.resume.attempts || 0) + 1 };
-      this.broker.record(c, { type: 'resume', resume });
-      this.notify(c, 'waiting', 'Waiting for another reset', `${provider} reached a limit again. Throughline will continue when an agent has room.`);
-      this.arm();
-      return;
-    }
-    if (status === 'complete') this.notify(c, 'finished', 'Task finished', `${provider} finished the work it continued while you were away.`);
-    else this.notify(c, 'stopped', 'Continued task stopped', run.errorCategory === 'quota' ? `${provider} reached a limit again.` : `${provider} stopped before finishing. Open the workspace to see why.`);
+    const resume = { ...run.resume, id: randomUUID(), attempts: (run.resume.attempts || 0) + 1 };
+    this.broker.record(c, { type: 'resume', resume });
+    this.notify(c, 'waiting', 'Waiting for another reset', `${provider} reached a limit again. Throughline will continue when an agent has room.`);
+    this.arm();
+    return true;
   }
 
   notify(c, kind, title, body) { this.broker.emit('notify', { conversationId: c.id, kind, title, body }); }

@@ -407,8 +407,13 @@ export class Broker extends EventEmitter {
       } catch (persistError) { success = false; run.persistenceError = persistError.message; }
       finally { try { lease.release(); } catch (releaseError) { success = false; run.persistenceError ||= releaseError.message; } finally {
         this.running = null; this.emit('update', { conversationId: c.id }); finish({ success, error: run.persistenceError });
-        // A run that continued after a reset reports how it ended, and may wait again if it reached another limit.
-        try { this.resume.runEnded(c, run, run.stopped ? 'interrupted' : success ? 'complete' : 'incomplete'); } catch (error) { console.error('Throughline could not report a resumed run:', error.message); }
+        // A run that continued after a reset may wait again if it reached another limit; otherwise say how the run ended.
+        let waiting = false;
+        try { waiting = this.resume.runEnded(c, run, run.stopped ? 'interrupted' : success ? 'complete' : 'incomplete'); } catch (error) { console.error('Throughline could not report a resumed run:', error.message); }
+        const agent = provider === 'claude' ? 'Claude' : provider === 'gemini' ? 'Gemini' : run.local ? 'The local model' : 'Codex';
+        if (!review && !waiting && !run.stopped) this.emit('notify', success
+          ? { conversationId: c.id, kind: 'finished', title: 'Task finished', body: `${agent} finished${run.resume ? ' the work it continued while you were away' : ''}.` }
+          : { conversationId: c.id, kind: 'stopped', title: 'Task stopped', body: run.errorCategory === 'quota' ? `${agent} reached a usage limit.` : `${agent} stopped before finishing. Open the workspace to see why.` });
       } }
     };
     const launch = async () => {
@@ -464,8 +469,8 @@ export class Broker extends EventEmitter {
               // Ask before changes: an action that only reads the workspace folders goes ahead without asking.
               if (!review && run.mode === 'edit' && readOnlyRequest(message.request, { workspaces: this.workspaces })) { run.child.send({ type: 'approval-result', id: message.request.id, allow: true }); return; }
               const approval = { ...message.request, runId, provider }; run.approvals.set(approval.id, approval); this.emit('update', { conversationId: c.id });
-              // Work that continued while the person was away pauses here, so tell them.
-              if (run.resume) this.emit('notify', { conversationId: c.id, kind: 'approval', title: 'Approval needed', body: `${provider === 'claude' ? 'Claude' : provider === 'gemini' ? 'Gemini' : 'Codex'} is waiting for your permission: ${String(approval.title || approval.command || approval.kind || 'a tool').slice(0, 120)}` });
+              // The run pauses here until the person answers, so tell them.
+              this.emit('notify', { conversationId: c.id, kind: 'approval', title: 'Approval needed', body: `${provider === 'claude' ? 'Claude' : provider === 'gemini' ? 'Gemini' : 'Codex'} is waiting for your permission: ${String(approval.title || approval.command || approval.kind || 'a tool').slice(0, 120)}` });
             }
           } catch (error) { run.failed = true; run.errorCategory = classifyError(error); run.stderr = error.message; this.cancel(run); }
         });

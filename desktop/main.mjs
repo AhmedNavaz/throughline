@@ -34,14 +34,19 @@ else {
       // A clicked checkbox or radio item ticks itself, so the menu is rebuilt to show the page's answer instead.
       send:(...command)=>{if(win&&!win.isDestroyed())win.webContents.send('relay:menu-command',...command);updateMenu();}})));
     app.setAboutPanelOptions({applicationName:'Throughline',applicationVersion:app.getVersion(),version:''});
-    // Work that continues while the person is away reports through system notifications. While the window is in
-    // front the page already shows the change. Clicking a notification opens its workspace.
+    // Work that finishes or needs an answer while the person is elsewhere is reported outside the window. While the
+    // window is in front the page already shows it. The Dock badge counts what happened since the window was last in
+    // front and needs no permission; an approval bounces the Dock until the app is opened. A system notification is
+    // added where macOS allows one: an app without a Developer ID signature is refused, so the Dock always carries it.
+    let attention=0,notificationsRefused=false;
     function notify({kind,title,body,projectId,projectName}){
       if(win&&!win.isDestroyed()&&win.isFocused())return;
-      if(kind==='approval')app.dock?.bounce('informational');
-      if(!Notification.isSupported())return;
+      attention++;app.dock?.setBadge(String(attention));
+      app.dock?.bounce(kind==='approval'?'critical':'informational');
+      if(notificationsRefused||!Notification.isSupported())return;
       const notice=new Notification({title:projectName?`${title} · ${projectName}`:title,body:String(body||'').slice(0,240),silent:kind==='started'});
       notice.on('click',()=>{if(!win||win.isDestroyed())return;if(win.isMinimized())win.restore();win.show();win.focus();if(projectId)win.webContents.send('relay:menu-command','open-workspace',projectId);});
+      notice.on('failed',(_event,error)=>{notificationsRefused=true;console.warn('macOS did not show a Throughline notification:',error);});
       notice.show();
     }
     async function start(){
@@ -53,6 +58,7 @@ else {
     }
     await start();
     win=new BrowserWindow({width:1440,height:1000,minWidth:900,minHeight:680,show:false,title:'Throughline',icon:path.join(root,'assets','icon.png'),backgroundColor:appearance.background(),...(process.platform==='darwin'?{titleBarStyle:'hiddenInset',trafficLightPosition:{x:14,y:13}}:{}),webPreferences:{preload:path.join(root,'desktop','preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,additionalArguments:[`--relay-token=${token}`]}});
+    win.on('focus',()=>{attention=0;app.dock?.setBadge('');});
     if(!smoke) win.once('ready-to-show',()=>win.show());
     const trusted=event=>event.sender===win.webContents && event.senderFrame===win.webContents.mainFrame && event.senderFrame.url.startsWith(origin+'/');
     ipcMain.handle('relay:keep-awake:get',event=>{if(!trusted(event))throw Error('Untrusted renderer');return keepAwake.getState();});

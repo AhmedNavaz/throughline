@@ -73,7 +73,7 @@ test('a run stopped on a limit waits, then continues on whichever agent resets f
   assert.equal(sent.context.currentRequest, continuationRequest);
   assert.equal(sent.args.includes('--resume'), false, 'The other agent continues from the shared conversation.');
   assert(c.messages.some(message => message.role === 'system' && /Claude has room again/.test(message.text)));
-  assert.deepEqual(notices.map(notice => notice.kind), ['started', 'finished']);
+  assert.deepEqual(notices.map(notice => notice.kind), ['stopped', 'started', 'finished'], 'The limit, the continuation and the finish are each reported once.');
   assert.equal(fs.existsSync(env.marker), false);
 });
 
