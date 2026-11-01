@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/editor-theme.css" />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/workbench.css" />
+    <script src="/routing.js" defer></script>
     <script src="/app.js" defer></script>
     <script src="/workbench.js" defer></script>
     <script src="/insights.js" defer></script>
@@ -138,6 +139,7 @@
           <div id="other-running" class="running-notice" hidden><span>This workspace has an active run.</span><button id="view-running" type="button">Refresh status</button></div>
           <div id="connection-notice" class="connection-notice" role="status" hidden><span id="connection-notice-text"></span><div class="connection-notice-actions"><button id="connection-install" class="secondary-action" type="button" hidden>How to install ↗</button><button id="connection-action" type="button">Connect account</button></div></div>
           <section id="run-plan" class="run-plan" aria-label="The agent's plan for this run" hidden><button id="run-plan-toggle" class="run-plan-summary" type="button" aria-expanded="false" aria-controls="run-plan-list"><span id="run-plan-ring" class="run-plan-ring" aria-hidden="true"></span><span id="run-plan-count" class="run-plan-count"></span><span id="run-plan-current" class="run-plan-current"></span><svg class="icon run-plan-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><ol id="run-plan-list" class="run-plan-list" hidden></ol></section>
+          <button id="route-preview" class="route-preview" type="button" hidden title="Auto picks for each message. Click to choose a model yourself."><span class="route-icon" aria-hidden="true"></span><span id="route-choice" class="route-choice"></span><span id="route-reason" class="route-reason"></span><span class="route-change" aria-hidden="true">Change</span></button>
           <form id="composer" class="composer">
             <div id="custom-model-editor" class="custom-model-editor" hidden><label for="custom-model-input">Custom model ID</label><input id="custom-model-input" maxlength="200" placeholder="Enter a supported model identifier" /><button id="save-custom-model" type="button">Use model</button><button id="cancel-custom-model" type="button">Cancel</button></div>
             <div id="attachment-list" class="attachment-list" aria-label="Message attachments" hidden></div>

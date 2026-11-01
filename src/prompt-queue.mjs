@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { routingNote } from './broker.mjs';
 
 // Prompts queued for a workspace (#32). They run one after another: each with the agent, model, effort, access and
 // permission setting chosen when it was queued, never more. A run that reaches a usage limit waits for a reset and
@@ -36,7 +37,8 @@ export class PromptQueue {
       broker.checkRunSettings(provider, mode, approvalPolicy);
       broker.validateSelection(model, 'auto', effort);
       broker.attachments.select(attachments);
-      broker.record(c, { type: 'queue_add', item: { id: randomUUID(), text, provider, model, effort, mode, approvalPolicy, attachments, billingConfirmed: input.billingConfirmed === true, createdAt: new Date().toISOString() } });
+      const routing = routingNote(input.routing);
+      broker.record(c, { type: 'queue_add', item: { id: randomUUID(), text, provider, model, effort, mode, approvalPolicy, attachments, billingConfirmed: input.billingConfirmed === true, ...(routing ? { routing } : {}), createdAt: new Date().toISOString() } });
     } else if (action === 'update') {
       this.item(c, input.id);
       const text = typeof input.text === 'string' ? input.text.trim() : '';
@@ -66,7 +68,7 @@ export class PromptQueue {
     if (this.closed || !c.queue.length || c.queuePaused || broker.running || c.resume) return;
     const item = c.queue[0];
     try {
-      const { runId } = broker.start(c, { text: item.text, provider: item.provider, model: item.model, effort: item.effort, mode: item.mode, approvalPolicy: item.approvalPolicy, attachments: item.attachments, billingConfirmed: item.billingConfirmed, requestId: `queue-${item.id}` }, { queued: item.id });
+      const { runId } = broker.start(c, { text: item.text, provider: item.provider, model: item.model, effort: item.effort, mode: item.mode, approvalPolicy: item.approvalPolicy, attachments: item.attachments, billingConfirmed: item.billingConfirmed, routing: item.routing || null, requestId: `queue-${item.id}` }, { queued: item.id });
       broker.record(c, { type: 'queue_started', id: item.id, runId });
       broker.emit('update', { conversationId: c.id });
     } catch (error) {

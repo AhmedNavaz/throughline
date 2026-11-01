@@ -74,6 +74,14 @@ export function commandFor(provider, { mode, approvalPolicy = 'ask', sessionId, 
   return { bin: bin || 'claude', args };
 }
 
+const ROUTING_MODES = ['saving', 'balanced', 'quality'];
+// What Auto chose and why, as shown before sending; kept with the run and its prompt.
+export function routingNote(routing) {
+  if (routing === null || routing === undefined) return null;
+  if (typeof routing !== 'object' || !ROUTING_MODES.includes(routing.mode)) throw Object.assign(new Error('Invalid automatic agent choice.'), { status: 400 });
+  return { mode: routing.mode, reason: typeof routing.reason === 'string' ? routing.reason.slice(0, 300) : '', ...(['light', 'standard', 'deep'].includes(routing.tier) ? { tier: routing.tier } : {}) };
+}
+
 export class Broker extends EventEmitter {
   constructor({ workspace, workspaces = [], workspaceFolders = [], dataDir, googleRoot = path.join(dataDir, 'google'), bins = {}, acquireMutation = () => ({ release() {}, setProcess() {} }), handoffPreferences = () => ({ threshold: 90, automatic: false }) }) {
     super();
@@ -188,6 +196,7 @@ export class Broker extends EventEmitter {
     if (record.type === 'created') Object.assign(c, { createdAt: record.at, title: record.title });
     if (record.type === 'settings') { Object.assign(c, { provider: record.provider, mode: record.mode, approvalPolicy: record.approvalPolicy || 'ask', model: record.model ?? null, transport: record.transport || c.transport, settingsRevision: record.seq }); c.models[record.provider] = record.model ?? null; c.transports[record.provider] = record.transport || c.transport; }
     if (record.type === 'context') c.context = record.context;
+    if (record.type === 'routing') c.routing = record.routing;
     if (record.type === 'resume') c.resume = record.resume;
     if (record.type === 'queue_add') c.queue = [...c.queue, record.item];
     if (record.type === 'queue_update') c.queue = c.queue.map(item => item.id === record.id ? { ...item, text: record.text } : item);
@@ -220,7 +229,7 @@ export class Broker extends EventEmitter {
       if (record.title) c.title = record.title;
       c.messages.push({ ...record.message, seq: record.seq });
       c.requests[record.requestId] = { runId: record.id, requestId: record.requestId, fingerprint: record.fingerprint };
-      c.activeRun = { id: record.id, provider: record.provider, mode: record.mode, approvalPolicy: record.approvalPolicy || 'ask', model: record.model, transport: record.effectiveTransport || record.transport, baseline: record.baseline, context: record.context, ...(record.local ? { connection: 'local', local: record.local } : {}), ...(record.review ? { purpose: 'review', reviewId: record.id } : {}), effort: record.effort ?? null, phase: 'starting', lastEventAt: record.at, toolCount: 0, startedAt: record.at }; c.status = 'running';
+      c.activeRun = { id: record.id, provider: record.provider, mode: record.mode, approvalPolicy: record.approvalPolicy || 'ask', model: record.model, transport: record.effectiveTransport || record.transport, baseline: record.baseline, context: record.context, ...(record.local ? { connection: 'local', local: record.local } : {}), ...(record.review ? { purpose: 'review', reviewId: record.id } : {}), ...(record.routing ? { routing: record.routing } : {}), effort: record.effort ?? null, phase: 'starting', lastEventAt: record.at, toolCount: 0, startedAt: record.at }; c.status = 'running';
     }
     if (record.type === 'background_review') { c.reviews = [record.review, ...c.reviews].slice(0, 10); c.reviewRequests[record.review.requestId] = { reviewId: record.review.id, requestId: record.review.requestId, fingerprint: record.review.fingerprint }; }
     if (record.type === 'review_process') { const review = c.reviews.find(item => item.id === record.id); if (review) Object.assign(review, { pid: record.pid, pidStart: record.pidStart }); }
@@ -297,6 +306,16 @@ export class Broker extends EventEmitter {
     this.validateSelection(model, transport, effort);
     if (c.activeRun) throw Object.assign(new Error('Stop the current run before switching assistants.'), { status: 409 });
     this.record(c, { type: 'settings', provider, mode, approvalPolicy, model, transport, effort });
+    return this.view(c);
+  }
+
+  // Auto (#12): Throughline picks the agent, model and effort for each message, in one of three modes. Agents billed
+  // outside a subscription are only chosen when allowed. Choosing a model by hand turns it off.
+  setRouting(c, input = {}) {
+    const routing = input.mode === null || input.mode === undefined ? null : { mode: input.mode, allowApi: input.allowApi === true };
+    if (routing && !ROUTING_MODES.includes(routing.mode)) throw Object.assign(new Error('Choose Cost saving, Balanced or Maximum quality.'), { status: 400 });
+    if (c.activeRun) throw Object.assign(new Error('Stop the current run before changing how agents are chosen.'), { status: 409 });
+    this.record(c, { type: 'routing', routing });
     return this.view(c);
   }
 
@@ -379,11 +398,12 @@ export class Broker extends EventEmitter {
 
   prompt(c, text, fresh = false) { return prepareContext(c, text, { workspace: this.workspace, workspaceFolders: this.workspaceFolders, fresh: fresh || c.sessions[c.provider]?.workspaceSignature !== this.workspaceSignature }).prompt; }
 
-  start(c, { text, attachments: attachmentIds = [], provider = c.provider, mode = c.mode, approvalPolicy = c.approvalPolicy || 'ask', fresh = false, model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', requestId = randomUUID(), billingConfirmed = false, effort = c.efforts[provider]?.[model || 'default'] ?? null }, { review, verifyReview, local, verifyLocal, resume, queued } = {}) {
+  start(c, { text, attachments: attachmentIds = [], provider = c.provider, mode = c.mode, approvalPolicy = c.approvalPolicy || 'ask', fresh = false, model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', requestId = randomUUID(), billingConfirmed = false, effort = c.efforts[provider]?.[model || 'default'] ?? null, routing = null }, { review, verifyReview, local, verifyLocal, resume, queued } = {}) {
     if (review) { mode = 'read'; approvalPolicy = 'ask'; fresh = true; attachmentIds = []; }
     if (local) { if (review || typeof verifyLocal !== 'function') throw Object.assign(new Error('Invalid local run.'), { status: 400 }); provider = 'codex'; model = local.model; transport = 'app-server'; effort = null; fresh = true; }
     checkSettings(provider, mode, approvalPolicy);
     this.validateSelection(model, transport, effort);
+    routing = review || local ? null : routingNote(routing);
     if (typeof text !== 'string' || !text.trim() || text.length > 100000) throw Object.assign(new Error('Enter a message between 1 and 100,000 characters.'), { status: 400 });
     if (typeof requestId !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(requestId)) throw Object.assign(new Error('Invalid request ID.'), { status: 400 });
     const attachments = this.attachments.select(attachmentIds);
@@ -429,7 +449,8 @@ export class Broker extends EventEmitter {
     try {
       this.record(c, { type: 'submission', id: runId, requestId, fingerprint, provider, mode, approvalPolicy, model, effort, transport, effectiveTransport: actualTransport, baseline, context: prepared.metadata, resetSession, workspaceSignature: this.workspaceSignature,
         ...(local ? { local } : {}), ...(review ? { review } : {}), ...(c.messages.every(m => m.role !== 'user') ? { title: text.slice(0, 64) } : {}),
-        message: { id: randomUUID(), role: 'user', text, ...(local ? { connection: 'local' } : {}), ...(review ? { reviewId: runId } : {}), ...(attachments.length ? { attachments } : {}), provider, createdAt: new Date().toISOString(), runId } });
+        ...(routing ? { routing } : {}),
+        message: { id: randomUUID(), role: 'user', text, ...(local ? { connection: 'local' } : {}), ...(review ? { reviewId: runId } : {}), ...(attachments.length ? { attachments } : {}), ...(routing ? { routing: { ...routing, model, effort } } : {}), provider, createdAt: new Date().toISOString(), runId } });
     } catch (error) { lease.release(); throw error; }
     // A message sent by hand takes the place of a wait for a reset.
     if (c.resume && !resume && !review) this.resume.end(c, 'superseded');

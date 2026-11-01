@@ -463,6 +463,7 @@ div.activity-output-toggle { cursor: default; }
 .agent-icon { width: 12px; height: 12px; background: currentColor; -webkit-mask: var(--icon-codex) center / contain no-repeat; mask: var(--icon-codex) center / contain no-repeat; }
 .agent-icon.gemini { -webkit-mask-image: var(--icon-gemini); mask-image: var(--icon-gemini); }
 .agent-icon.claude { -webkit-mask-image: var(--icon-claude); mask-image: var(--icon-claude); }
+.agent-icon.auto { -webkit-mask-image: var(--icon-auto); mask-image: var(--icon-auto); color: var(--link); }
 #select-codex.selected .agent-icon { color: var(--codex); }
 #select-claude.selected .agent-icon { color: var(--claude); }
 #select-gemini.selected .agent-icon { color: var(--gemini); }
@@ -862,4 +863,16 @@ button.commit-hash:hover { text-decoration: underline; }
 .run-plan-step.active .run-plan-mark { border-color: var(--link); border-right-color: transparent; animation: spin 1s linear infinite; }
 .run-plan-step.active .run-plan-text { color: var(--text-strong); font-weight: 500; }
 @media (prefers-reduced-motion: reduce) { .run-plan-step.active .run-plan-mark { animation: none; border-right-color: var(--link); } }
+
+/* Auto (#12): before sending, one quiet line says which agent, model and effort will take the message, and why. */
+.route-preview { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; margin: 0 0 6px; padding: 4px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); font-size: 12.5px; text-align: left; cursor: pointer; transition: background .12s; }
+.route-preview:hover { background: var(--hover); }
+.route-icon { flex: none; width: 13px; height: 13px; background: var(--link); -webkit-mask: var(--icon-auto) center / contain no-repeat; mask: var(--icon-auto) center / contain no-repeat; }
+.route-choice { flex: none; max-width: 55%; overflow: hidden; color: var(--text-strong); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.route-reason { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.route-change { flex: none; color: var(--faint); opacity: 0; transition: opacity .12s; }
+.route-preview:hover .route-change, .route-preview:focus-visible .route-change { opacity: 1; }
+.route-preview.error .route-icon { background: var(--warning); }
+.route-preview.error .route-reason { color: var(--warning); white-space: normal; }
+.message-routing { margin-top: 3px; color: var(--faint); font-size: 11.5px; }
 

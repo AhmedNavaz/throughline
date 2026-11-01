@@ -195,7 +195,7 @@
     const info=connection(state.provider),other=['codex','claude','gemini'].find(provider=>provider!==state.provider&&available(provider)) || 'codex',name=label(state.provider);
     const fresh=!state.conversation?.messages?.length,none=!['codex','claude','gemini'].some(available);
     notice.hidden=true;state.connectionAction=null;state.installUrl=null;if(install)install.hidden=true;
-    if(!state.ready||isRunning()||state.localSelections[state.projectId]||(fresh&&none))return;
+    if(!state.ready||isRunning()||state.localSelections[state.projectId]||autoRouting()||(fresh&&none))return;
     let text='',action='';
     if(!info.installed){
       text=name+' is not installed.';
@@ -491,6 +491,12 @@
     if (!user || message.steer) row.append(heading);
     row.append(body);
     window.relayFiles?.renderMessageAttachments(row, message.attachments);
+    if (user && message.routing) {
+      const choice = message.routing, model = choice.model ? window.relayModelPicker?.modelName?.(message.provider, choice.model) || choice.model : "default model";
+      const note = element("div", "message-routing", `Auto · ${[label(message.provider), model, choice.effort ? `${choice.effort} effort` : ""].filter(Boolean).join(" · ")}`);
+      note.title = `${window.relayRouting?.modeNames?.[choice.mode] || "Auto"}: ${choice.reason || ""}`;
+      row.append(note);
+    }
     row.append(actions);
     return row;
   }
@@ -686,14 +692,45 @@
     const text = ui.input.value.trim(), attachments = window.relayFiles?.ids() || [], projectId = state.projectId, draft = ui.input.value;
     if (!text || state.pending || !state.conversation || $("queue-button").hidden) return;
     if (state.localSelections[projectId]) { showNotice("Queue a cloud agent. Local models start from Continue locally."); return; }
+    const routed = routeFor(text, attachments.length);
+    if (routed?.error) { showNotice(routed.error); return; }
     state.pending = "queue"; renderControls();
-    const added = await queueAction({ action: "add", text, provider: state.provider, model: state.model || null, effort: state.effort || null, mode: state.mode, approvalPolicy: state.approvalPolicy || "ask", attachments, billingConfirmed: window.relayBillingConfirmed === true });
+    const added = await queueAction({ action: "add", text, provider: routed?.provider || state.provider, model: (routed ? routed.model : state.model) || null, effort: (routed ? routed.effort : state.effort) || null, mode: state.mode, approvalPolicy: state.approvalPolicy || "ask", attachments, billingConfirmed: window.relayBillingConfirmed === true, ...(routed ? { routing: { mode: routed.mode, reason: routed.reason, tier: routed.tier } } : {}) });
     if (added) {
       window.relayFiles?.accepted(projectId, attachments);
       if (ui.input.value === draft) { ui.input.value = ""; storedWrite(draftKey(), ""); storedWrite(draftKey(null), ""); resizeInput(); }
       announce("Added to the queue.");
     }
     state.pending = null; renderControls();
+  }
+  // Auto (#12): Throughline picks the agent, model and effort for each message, shown before it is sent.
+  const autoRouting = () => !state.localSelections[state.projectId] && state.conversation?.routing ? state.conversation.routing : null;
+  function routeFor(text, attachments = 0) {
+    const routing = autoRouting(); if (!routing || !window.relayRouting) return null;
+    const project = state.projects.find(item => item.id === state.projectId);
+    const candidates = ["codex", "claude", "gemini"].map(provider => {
+      const info = connection(provider);
+      // Antigravity has no read-only access and works with one folder, as starting a run checks.
+      const unsupported = provider === "gemini" && (state.mode === "read" || foldersFor(project).length > 1);
+      return { provider, eligible: !info.blocked && info.account?.authenticated !== false && !unsupported, billingSource: info.account?.billingSource || "unknown", usedPercent: window.relayUsage?.usedPercent?.(provider) ?? null, models: window.relayModelPicker?.models?.(provider) || [] };
+    });
+    return window.relayRouting.route({ text, attachments, mode: routing.mode, allowApi: routing.allowApi === true, candidates, current: state.conversation?.lastRun?.provider || state.provider });
+  }
+  function renderRoute() {
+    const node = $("route-preview"); if (!node) return;
+    const text = ui.input.value.trim(), files = window.relayFiles?.ids().length || 0;
+    const routed = !isRunning() && !state.conversation?.resume && (text || files) ? routeFor(text, files) : null;
+    node.hidden = !routed; if (!routed) return;
+    node.classList.toggle("error", Boolean(routed.error));
+    if (routed.error) { $("route-choice").textContent = "Auto can’t choose"; $("route-reason").textContent = routed.error; return; }
+    $("route-choice").textContent = [label(routed.provider), routed.modelName || "default model", routed.effort ? `${routed.effort[0].toUpperCase()}${routed.effort.slice(1)} effort` : ""].filter(Boolean).join(" · ");
+    $("route-reason").textContent = routed.reason;
+    node.setAttribute("aria-label", `Auto will use ${$("route-choice").textContent}: ${routed.reason}. Choose a model yourself instead.`);
+  }
+  async function setRouting(choice) {
+    if (!state.conversation) await ensureCanonicalConversation();
+    await post(endpoint(state.conversation.id, "routing"), choice, state.projectId);
+    await refresh();
   }
   // A note added to the working run (#32): the agent takes it into the same task instead of after it.
   async function addToRun() {
@@ -811,7 +848,7 @@
     const otherRunning = isOtherRunning();
     const busy = Boolean(state.pending) || state.loading || state.projectSaving;
     const name = state.conversation?.activeRun?.connection === 'local' ? 'Local model' : label(state.provider);
-    const selectedConnection=connection(state.provider);
+    const selectedConnection=autoRouting()?{installed:true,checking:false,needsSignIn:false,needsBilling:false,account:{authenticated:true},blocked:false}:connection(state.provider);
     ui.codex.classList.toggle("selected", state.provider === "codex");
     ui.claude.classList.toggle("selected", state.provider === "claude");
     for (const provider of ["codex", "claude", "gemini"]) {
@@ -875,7 +912,7 @@
     for (const id of ["resume-button", "resume-ask", "resume-auto"]) $(id).disabled = busy || otherRunning || !resumeProviders().length;
     $("resume-waiting").hidden = !resume;
     if (resume) $("resume-waiting-text").textContent = resumeText(resume);
-    renderQueue(); renderHandoff(); renderPlan();
+    renderQueue(); renderHandoff(); renderPlan(); renderRoute();
     const hasMessages = Boolean(state.conversation?.messages?.length);
     ui.title.textContent=state.loading&&state.projectId?'Opening workspace…':currentProject()?.name||'Throughline';
     const run=state.conversation?.activeRun || state.conversation?.lastRun;
@@ -984,13 +1021,17 @@
     const attachments = continuing ? [] : window.relayFiles?.ids() || [];
     const text = ui.input.value.trim() || (attachments.length ? "Please review the attached files." : "");
     if (window.relayFiles?.uploading()) return;
-    if (state.pending || state.loading || state.projectSaving || isRunning() || isOtherRunning() || !state.ready || (!state.localSelections[state.projectId] && connection(state.provider).blocked) || (!continuing && !text)) return;
-    const provider = state.provider;
+    if (state.pending || state.loading || state.projectSaving || isRunning() || isOtherRunning() || !state.ready || (!state.localSelections[state.projectId] && !(autoRouting() && !continuing) && connection(state.provider).blocked) || (!continuing && !text)) return;
+    // Under Auto the message goes to the agent, model and effort shown before sending.
+    const routed = continuing ? null : routeFor(text, attachments.length);
+    if (routed?.error) { showNotice(routed.error); return; }
+    const provider = routed?.provider || state.provider, model = routed ? routed.model : state.model, effort = routed ? routed.effort : state.effort;
+    const routing = routed ? { mode: routed.mode, reason: routed.reason, tier: routed.tier } : undefined;
     const mode = state.mode;
     const approvalPolicy = state.approvalPolicy || 'ask';
     const originalDraft = ui.input.value;
     const localChoice = state.localSelections[state.projectId] || null;
-    const payloadKey = JSON.stringify([state.projectId,state.conversation?.id,continuing,text,provider,mode,approvalPolicy,state.model,state.effort,attachments,localChoice]);
+    const payloadKey = JSON.stringify([state.projectId,state.conversation?.id,continuing,text,provider,mode,approvalPolicy,model,effort,attachments,localChoice]);
     const requestId = state.retrySubmission?.key === payloadKey ? state.retrySubmission.id : crypto.randomUUID();
     state.retrySubmission = { ...(state.retrySubmission?.key === payloadKey ? state.retrySubmission : {}), key:payloadKey,id:requestId };
     const projectId = state.projectId;
@@ -1002,7 +1043,7 @@
       await state.settingsPromise;
       if (!state.conversation) await ensureCanonicalConversation();
       const id = state.conversation.id;
-      state.retrySubmission.key = JSON.stringify([state.projectId,id,continuing,text,provider,mode,approvalPolicy,state.model,state.effort,attachments,localChoice]);
+      state.retrySubmission.key = JSON.stringify([state.projectId,id,continuing,text,provider,mode,approvalPolicy,model,effort,attachments,localChoice]);
       if (localChoice) {
         if (!state.retrySubmission.localContext) {
           const catalog = await api('/api/local-models', {}, projectId);
@@ -1011,7 +1052,7 @@
           state.retrySubmission.localContext = catalog.context;
         }
         await post('/api/local-models/start', { model:localChoice.model, digest:localChoice.digest, task:continuing ? 'Continue the unfinished task from the saved conversation. Inspect current files first.' : text, attachments, requestId, context:state.retrySubmission.localContext }, projectId);
-      } else await post(endpoint(id, continuing ? "continue" : "messages"), continuing ? { provider, mode, approvalPolicy, requestId, model:state.model || undefined, effort:state.effort || null, billingConfirmed:window.relayBillingConfirmed === true } : { text, attachments, provider, mode, approvalPolicy, requestId, model:state.model || undefined, effort:state.effort || null, billingConfirmed:window.relayBillingConfirmed === true }, projectId);
+      } else await post(endpoint(id, continuing ? "continue" : "messages"), continuing ? { provider, mode, approvalPolicy, requestId, model:model || undefined, effort:effort || null, billingConfirmed:window.relayBillingConfirmed === true } : { text, attachments, provider, mode, approvalPolicy, requestId, model:model || undefined, effort:effort || null, routing, billingConfirmed:window.relayBillingConfirmed === true }, projectId);
       state.retrySubmission = null;
       if (!continuing) window.relayFiles?.accepted(projectId, attachments);
       if (!continuing && ui.input.value === originalDraft) {
@@ -1370,6 +1411,7 @@
   $("prompt-queue-toggle").addEventListener("click", () => queueAction({ action: state.conversation?.queuePaused ? "resume" : "pause" }));
   ui.input.addEventListener("input", () => { resizeInput(); saveDraft(); renderControls(); });
   $("steer-button").addEventListener("click", addToRun);
+  $("route-preview").addEventListener("click", () => window.relayModelPicker?.open());
   $("run-plan-toggle").addEventListener("click", () => {
     const list = $("run-plan-list"); list.hidden = !list.hidden;
     $("run-plan-toggle").setAttribute("aria-expanded", String(!list.hidden));
@@ -1383,9 +1425,11 @@
     if (selected === "local") { ui.agent.value = state.provider; window.relayLocal?.open(); }
     else if (["codex", "claude", "gemini"].includes(selected) && available(selected)) changeSettings(selected, state.mode, state.approvalPolicy);
   });
-  ui.codex.addEventListener("click", () => { delete state.localSelections[state.projectId]; changeSettings("codex", state.mode, state.approvalPolicy); });
-  ui.claude.addEventListener("click", () => { delete state.localSelections[state.projectId]; changeSettings("claude", state.mode, state.approvalPolicy); });
-  ui.gemini.addEventListener("click", () => { delete state.localSelections[state.projectId]; changeSettings("gemini", state.mode, state.approvalPolicy); });
+  // Choosing an agent yourself, here or from the Agent menu, turns Auto off.
+  const chooseAgent = provider => { delete state.localSelections[state.projectId]; if (autoRouting()) setRouting({ mode: null }).catch(error => showNotice(error.message)); changeSettings(provider, state.mode, state.approvalPolicy); };
+  ui.codex.addEventListener("click", () => chooseAgent("codex"));
+  ui.claude.addEventListener("click", () => chooseAgent("claude"));
+  ui.gemini.addEventListener("click", () => chooseAgent("gemini"));
   ui.mode.addEventListener("change", () => changeSettings(state.provider, ui.mode.value, state.approvalPolicy));
   ui.approval?.addEventListener("change", () => changeSettings(state.provider, state.mode, ui.approval.value));
   ui.stop.addEventListener("click", stop);
@@ -1417,7 +1461,7 @@
   window.addEventListener("beforeunload", saveDraft);
   window.relayUI = {
     getState: () => state, describeActivity: parseActivity, api, post, refresh, renderControls, showNotice, selectProject, refreshAccounts, refreshProjects, announce, selectedFolderId: () => selectedFolderId(), selectFolder, highlightLines,
-    commands, isRunning, filteredProjects,
+    commands, isRunning, filteredProjects, setRouting, routeFor,
     ensureConversation: ensureCanonicalConversation,
     selectLocalModel(model) {
       if (!state.projectId || !state.ready || state.pending || state.settingsPending || isRunning()) throw Error('Finish the current run before changing the model.');

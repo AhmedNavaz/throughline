@@ -166,6 +166,7 @@ async function browser({existing=true,available=true,providers={},authenticated=
   const highlights=new Map();document.createRange=()=>new Range();
   const context=vm.createContext({document,window,fetch,console,CSS:{highlights},Highlight,crypto:{randomUUID},CustomEvent:UIEvent,Event:UIEvent,EventSource:class extends Events{},requestAnimationFrame:fn=>fn(),setTimeout:(fn,delay)=>{const id=++timerId;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),setInterval:()=>++timerId,localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,String(value))},URL,Blob,navigator:{clipboard:{writeText:async()=>{}}}});
   if(theme)vm.runInContext(fs.readFileSync(new URL('../public/theme.js',import.meta.url),'utf8'),context,{filename:'public/theme.js'});
+  vm.runInContext(fs.readFileSync(new URL('../public/routing.js',import.meta.url),'utf8'),context,{filename:'public/routing.js'});
   vm.runInContext(fs.readFileSync(new URL('../public/app.js',import.meta.url),'utf8'),context,{filename:'public/app.js'});if(workbench)vm.runInContext(fs.readFileSync(new URL('../public/workbench.js',import.meta.url),'utf8'),context,{filename:'public/workbench.js'});
   if(insights)vm.runInContext(fs.readFileSync(new URL('../public/insights.js',import.meta.url),'utf8'),context,{filename:'public/insights.js'});
   if(modelPickerUI)vm.runInContext(fs.readFileSync(new URL('../public/model-picker.js',import.meta.url),'utf8'),context,{filename:'public/model-picker.js'});

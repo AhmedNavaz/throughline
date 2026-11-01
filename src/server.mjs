@@ -18,7 +18,7 @@ import { appearance, appearances, preferencePatch, publicPreferences } from './p
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const assets = { '/project-commands.js': ['project-commands.js', 'text/javascript; charset=utf-8'], '/project-commands.css': ['project-commands.css', 'text/css; charset=utf-8'], '/': ['index.html', 'text/html; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/desktop-controls.js': ['desktop-controls.js', 'text/javascript; charset=utf-8'], '/setup.js': ['setup.js', 'text/javascript; charset=utf-8'], '/polish.css': ['polish.css', 'text/css; charset=utf-8'], '/files.js': ['files.js', 'text/javascript; charset=utf-8'], '/files.css': ['files.css', 'text/css; charset=utf-8'], '/onboarding.css': ['onboarding.css', 'text/css; charset=utf-8'],
-  '/model-picker.js': ['model-picker.js', 'text/javascript; charset=utf-8'], '/model-picker.css': ['model-picker.css', 'text/css; charset=utf-8'],
+  '/model-picker.js': ['model-picker.js', 'text/javascript; charset=utf-8'], '/routing.js': ['routing.js', 'text/javascript; charset=utf-8'], '/model-picker.css': ['model-picker.css', 'text/css; charset=utf-8'],
   '/updates.js': ['updates.js', 'text/javascript; charset=utf-8'], '/updates.css': ['updates.css', 'text/css; charset=utf-8'],
   '/local-models.js': ['local-models.js', 'text/javascript; charset=utf-8'], '/local-models.css': ['local-models.css', 'text/css; charset=utf-8'],
   '/agent-review.js': ['agent-review.js', 'text/javascript; charset=utf-8'], '/agent-review.css': ['agent-review.css', 'text/css; charset=utf-8'],
@@ -205,7 +205,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
           return json(res,existed?200:201,registry.mainConversation(projectId));
         }
       }
-      const match = url.pathname.match(/^\/api\/conversations\/([\da-f-]{36})(?:\/(messages|continue|stop|provider|context|approval|resume|queue|handoff|steer))?$/);
+      const match = url.pathname.match(/^\/api\/conversations\/([\da-f-]{36})(?:\/(messages|continue|stop|provider|context|approval|resume|queue|handoff|steer|routing))?$/);
       if (match) {
         const broker = selectedBroker(url);
         const c = broker.get(match[1]);
@@ -221,6 +221,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
           if (match[2] === 'resume') return json(res, 200, input.cancel === true ? broker.cancelResume(c) : broker.scheduleResume(c, input));
           if (match[2] === 'queue') return json(res, 200, broker.queueAction(c, input));
           if (match[2] === 'steer') return json(res, 200, await broker.addToRun(c, input));
+          if (match[2] === 'routing') return json(res, 200, broker.setRouting(c, input));
           if (match[2] === 'handoff') return json(res, input.accept === false ? 200 : 202, input.accept === false ? broker.dismissHandoff(c, input.offerId) : await broker.acceptHandoff(c, input));
           if (match[2] === 'messages') return json(res, 202, await broker.start(c, input));
           if (match[2] === 'continue') return json(res, 202, await broker.start(c, { ...input,

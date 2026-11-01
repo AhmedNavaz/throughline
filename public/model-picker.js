@@ -34,6 +34,7 @@
     const state = api.getState(), rows = cache.get(state.projectId + ':' + provider)?.models || [];
     return rows.find(row => modelId(row) === state.model);
   }
+  const routing = () => { const state = api.getState(); return state.localSelections?.[state.projectId] ? null : state.conversation?.routing || null; };
   function label() {
     const state = api.getState(), local = state.localSelections?.[state.projectId], actual = local ? 'local' : state.provider;
     $('picked-agent').textContent = names[actual];
@@ -167,7 +168,8 @@
     const state = api.getState(), select = $('effort-select');
     if (!effortButton || !select) return;
     const levels = effortLevels(), index = levels.findIndex(option => option.value === select.value);
-    effortButton.hidden = Boolean(state.localSelections?.[state.projectId]) || select.dataset.supported !== 'true' || !levels.length;
+    // Under Auto the effort is chosen with the model for each message.
+    effortButton.hidden = Boolean(state.localSelections?.[state.projectId]) || Boolean(routing()) || select.dataset.supported !== 'true' || !levels.length;
     effortButton.disabled = select.disabled;
     bars($('effort-bars'), index >= 0 ? index + 1 : 0, levels.length);
     effortButton.dataset.level = index >= 0 ? levels[index].value : 'auto';
@@ -320,6 +322,8 @@
     open: () => show(trigger), close,
     // Opens the menu from another control; choosing selects the agent and model, then calls onChoose.
     openFor: (anchor, options) => show(anchor, options),
+    // The models an agent has reported for this workspace, for Auto.
+    models: provider => cache.get(api.getState().projectId + ':' + provider)?.models || [],
     // The model's display name when the agent has reported it.
     modelName: (provider, id) => id ? modelName((cache.get(api.getState().projectId + ':' + provider)?.models || []).find(row => modelId(row) === id) || { id }) : '',
   };

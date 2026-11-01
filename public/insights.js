@@ -364,7 +364,13 @@
     if (!usageIsOpen()) usagePopover.showPopover();
     renderUsageDetails(); positionUsage(); loadUsage(provider,true);
   }
-  window.relayUsage = { open: openUsage };
+  // The highest share of a plan limit used, for Auto (#12); null when the agent reports no usage.
+  const usedPercent = provider => {
+    const result = usage[provider]; if (!result?.available || api.getState().accounts?.[provider]?.authenticated !== true) return null;
+    const rows = (result.windows || []).filter(row => Number.isFinite(row.usedPercent) && !row.disabled && !row.scope && !row.scopes);
+    return rows.length ? Math.max(...rows.map(row => row.usedPercent)) : null;
+  };
+  window.relayUsage = { open: openUsage, usedPercent };
   for (const trigger of [$('codex-usage'), $('claude-usage'), $('gemini-usage'), $('usage-chip')]) { trigger.setAttribute('aria-controls','usage-dialog'); trigger.setAttribute('aria-haspopup','dialog'); trigger.setAttribute('aria-expanded','false'); }
   usagePopover.addEventListener('toggle',() => { if (!usageIsOpen()) usageAnchor?.setAttribute('aria-expanded','false'); });
   $('close-usage').addEventListener('click',()=>closeUsage(true));
