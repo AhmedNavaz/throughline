@@ -672,6 +672,60 @@
     const access = `${resume.mode === "read" ? "Read only" : "Can edit files"} · ${resume.approvalPolicy === "auto" ? "full auto-approval" : "asks before changes"}`;
     return `Waiting for a usage limit to reset. Continues with ${list}, whichever has room first. ${access}.`;
   }
+  // Queued prompts run one after another with the settings shown on each; the list can be reordered, edited and paused.
+  async function queueAction(body) {
+    const id = state.conversation?.id, projectId = state.projectId;
+    if (!id) return false;
+    try { await post(endpoint(id, "queue"), body, projectId); await refresh(); return true; }
+    catch (error) { showNotice(error.message); return false; }
+  }
+  async function queuePrompt() {
+    const text = ui.input.value.trim(), attachments = window.relayFiles?.ids() || [], projectId = state.projectId, draft = ui.input.value;
+    if (!text || state.pending || !state.conversation || $("queue-button").hidden) return;
+    if (state.localSelections[projectId]) { showNotice("Queue a cloud agent. Local models start from Continue locally."); return; }
+    state.pending = "queue"; renderControls();
+    const added = await queueAction({ action: "add", text, provider: state.provider, model: state.model || null, effort: state.effort || null, mode: state.mode, approvalPolicy: state.approvalPolicy || "ask", attachments, billingConfirmed: window.relayBillingConfirmed === true });
+    if (added) {
+      window.relayFiles?.accepted(projectId, attachments);
+      if (ui.input.value === draft) { ui.input.value = ""; storedWrite(draftKey(), ""); storedWrite(draftKey(null), ""); resizeInput(); }
+      announce("Added to the queue.");
+    }
+    state.pending = null; renderControls();
+  }
+  function renderQueue() {
+    const c = state.conversation, queue = c?.queue || [], section = $("prompt-queue");
+    section.hidden = !queue.length;
+    const signature = JSON.stringify([c?.id, queue, c?.queuePaused, state.queueEditing, Boolean(state.pending)]);
+    if (!queue.length || signature === state.queueSignature) return;
+    state.queueSignature = signature;
+    $("prompt-queue-title").textContent = `Up next · ${queue.length}`;
+    $("prompt-queue-paused").hidden = !c.queuePaused;
+    $("prompt-queue-paused").textContent = c.queuePaused ? `Paused: ${c.queuePaused.reason}` : "";
+    $("prompt-queue-toggle").textContent = c.queuePaused ? "Resume queue" : "Pause";
+    $("prompt-queue-toggle").disabled = Boolean(state.pending);
+    const icon = (name, text, handler, disabled = false) => { const button = element("button", `icon-button queue-action queue-${name}`); button.type = "button"; button.title = text; button.setAttribute("aria-label", text); button.disabled = disabled || Boolean(state.pending); button.addEventListener("click", handler); return button; };
+    $("prompt-queue-list").replaceChildren(...queue.map((item, index) => {
+      const row = element("li", "prompt-queue-item"), body = element("div", "prompt-queue-body");
+      const model = item.model ? window.relayModelPicker?.modelName?.(item.provider, item.model) || item.model : "";
+      const meta = `${label(item.provider)}${model ? ` · ${model}` : ""} · ${item.mode === "read" ? "Read only" : "Can edit files"} · ${item.approvalPolicy === "auto" ? "full auto-approval" : "asks before changes"}${item.attachments?.length ? ` · ${item.attachments.length} attachment${item.attachments.length === 1 ? "" : "s"}` : ""}`;
+      if (state.queueEditing === item.id) {
+        const editor = element("textarea", "prompt-queue-editor"); editor.value = item.text; editor.rows = 3; editor.setAttribute("aria-label", "Edit queued message");
+        const save = element("button", "pill-button", "Save"), cancel = element("button", "pill-button", "Cancel"); save.type = cancel.type = "button";
+        save.addEventListener("click", async () => { if (await queueAction({ action: "update", id: item.id, text: editor.value })) { state.queueEditing = null; renderQueue(); } });
+        cancel.addEventListener("click", () => { state.queueEditing = null; renderQueue(); });
+        const buttons = element("div", "prompt-queue-edit-actions"); buttons.append(save, cancel);
+        body.append(editor, buttons);
+      } else body.append(element("p", "prompt-queue-text", item.text), element("span", "prompt-queue-meta", meta));
+      const actions = element("div", "prompt-queue-actions");
+      actions.append(
+        icon("up", "Move up", () => queueAction({ action: "move", id: item.id, index: index - 1 }), index === 0),
+        icon("down", "Move down", () => queueAction({ action: "move", id: item.id, index: index + 1 }), index === queue.length - 1),
+        icon("edit", "Edit", () => { state.queueEditing = item.id; renderQueue(); }),
+        icon("remove", "Remove from queue", () => queueAction({ action: "remove", id: item.id })));
+      row.append(element("span", "prompt-queue-number", String(index + 1)), body, actions);
+      return row;
+    }));
+  }
   async function scheduleResume(approvalPolicy) {
     const id = state.conversation?.id, projectId = state.projectId;
     if (!id || state.pending) return;
@@ -715,7 +769,11 @@
       ui.approval.disabled = !state.ready || busy || running || state.mode === "read";
     }
     ui.input.disabled = !state.ready || state.loading || state.pending === "new";
-    ui.input.placeholder = running ? "Draft your next message…" : "Describe the task or ask a question…";
+    // While work runs or waits for a reset, a message joins the queue instead of starting now (#32).
+    const queueing = Boolean(state.conversation) && (running || Boolean(state.conversation?.resume));
+    ui.input.placeholder = queueing ? "Add a message to the queue…" : "Describe the task or ask a question…";
+    $("queue-button").hidden = !queueing;
+    $("queue-button").disabled = !state.ready || busy || Boolean(state.localSelections[state.projectId]) || window.relayFiles?.uploading() || !ui.input.value.trim();
     ui.send.hidden = running;
     ui.send.disabled = !state.ready || busy || otherRunning || (!state.localSelections[state.projectId] && selectedConnection.blocked) || window.relayFiles?.uploading() || (!ui.input.value.trim() && !window.relayFiles?.ids().length);
     ui.send.firstElementChild.textContent = state.pending === "send" ? "Sending…" : "Send";
@@ -752,6 +810,7 @@
     for (const id of ["resume-button", "resume-ask", "resume-auto"]) $(id).disabled = busy || otherRunning || !resumeProviders().length;
     $("resume-waiting").hidden = !resume;
     if (resume) $("resume-waiting-text").textContent = resumeText(resume);
+    renderQueue();
     const hasMessages = Boolean(state.conversation?.messages?.length);
     ui.title.textContent=state.loading&&state.projectId?'Opening workspace…':currentProject()?.name||'Throughline';
     const run=state.conversation?.activeRun || state.conversation?.lastRun;
@@ -1238,10 +1297,12 @@
   });
   document.addEventListener("click", (event) => { if (!event.target.closest(".sidebar")) closeWorkspaceMenu(); });
   document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !event.isComposing) { closeWorkspaceMenu(); if (!ui.projectPanel.hidden) toggleProjectForm(false); if (!ui.folderPanel.hidden) toggleFolderForm(false); } });
-  ui.form.addEventListener("submit", (event) => { event.preventDefault(); run(); });
+  ui.form.addEventListener("submit", (event) => { event.preventDefault(); if (!$("queue-button").hidden) queuePrompt(); else run(); });
+  $("queue-button").addEventListener("click", queuePrompt);
+  $("prompt-queue-toggle").addEventListener("click", () => queueAction({ action: state.conversation?.queuePaused ? "resume" : "pause" }));
   ui.input.addEventListener("input", () => { resizeInput(); saveDraft(); renderControls(); });
   ui.input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!ui.send.disabled && !ui.send.hidden) run(); }
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!$("queue-button").hidden) { if (!$("queue-button").disabled) queuePrompt(); } else if (!ui.send.disabled && !ui.send.hidden) run(); }
   });
   ui.agent.addEventListener("change", () => {
     const selected = ui.agent.value;

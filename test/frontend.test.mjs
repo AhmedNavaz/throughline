@@ -1848,3 +1848,35 @@ test('a workspace waiting for approval shows its count in the sidebar, and openi
   assert.equal(answered(),0,'Opening an alert never answers it.');
   assert.equal(await ui.window.relayUI.commands['open-approval']({projectId:'missing'}),false);
 });
+
+test('while work runs, a message joins the queue with the current settings, and the queue can be reordered, edited, removed and resumed',async()=>{
+  const ui=await browser(),conversation=ui.canonical.get('project-one'),actions=[];
+  ui.setIntercept((request,next)=>{
+    if(!request.path.endsWith('/queue'))return next();
+    const body=request.body;actions.push(body);
+    if(body.action==='add')conversation.queue=[...(conversation.queue||[]),{id:'q'+(conversation.queue||[]).length,text:body.text,provider:body.provider,model:body.model,mode:body.mode,approvalPolicy:body.approvalPolicy,attachments:[]}];
+    if(body.action==='remove')conversation.queue=conversation.queue.filter(item=>item.id!==body.id);
+    if(body.action==='resume')conversation.queuePaused=null;
+    return response(conversation);
+  });
+  conversation.status='running';conversation.activeRun={id:'run-one',provider:'codex'};await ui.window.relayUI.refresh();
+  assert.equal(ui.$('queue-button').hidden,false);assert.equal(ui.$('send-button').hidden,true);assert.match(ui.$('message-input').placeholder,/queue/);
+  ui.$('message-input').value='Then update the changelog';ui.fire('message-input','input');
+  ui.$('message-input').dispatchEvent(new UIEvent('keydown',{key:'Enter'}));await flush();await flush();
+  assert.equal(actions[0].action,'add');assert.equal(actions[0].text,'Then update the changelog');assert.equal(actions[0].provider,'codex');assert.equal(actions[0].mode,ui.state().mode);
+  assert.equal(ui.$('message-input').value,'','The message box clears once the prompt is queued.');
+  assert.equal(ui.requests.filter(request=>request.path.endsWith('/messages')).length,0,'Nothing is sent while the run works.');
+  conversation.queue.push({id:'q1',text:'And run the tests',provider:'claude',mode:'read',approvalPolicy:'ask',attachments:[]});await ui.window.relayUI.refresh();
+  assert.equal(ui.$('prompt-queue').hidden,false);assert.match(ui.$('prompt-queue-title').textContent,/Up next · 2/);
+  const items=ui.$('prompt-queue-list').querySelectorAll('li');assert.equal(items.length,2);assert.match(items[1].textContent,/Claude · Read only · asks before changes/);
+  assert.equal(items[0].querySelector('.queue-up').disabled,true,'The first prompt cannot move up.');
+  items[1].querySelector('.queue-up').click();await flush();assert.deepEqual(actions.at(-1),{action:'move',id:'q1',index:0});
+  ui.$('prompt-queue-list').querySelectorAll('li')[0].querySelector('.queue-edit').click();
+  const editor=ui.$('prompt-queue-list').querySelector('textarea');editor.value='Then update the changelog for 0.14';
+  ui.$('prompt-queue-list').querySelectorAll('button').find(button=>button.textContent==='Save').click();await flush();
+  assert.deepEqual(actions.at(-1),{action:'update',id:'q0',text:'Then update the changelog for 0.14'});
+  ui.$('prompt-queue-list').querySelectorAll('li')[1].querySelector('.queue-remove').click();await flush();assert.equal(actions.at(-1).action,'remove');
+  conversation.queuePaused={reason:'You stopped the run.'};await ui.window.relayUI.refresh();
+  assert.equal(ui.$('prompt-queue-paused').hidden,false);assert.match(ui.$('prompt-queue-paused').textContent,/You stopped the run/);assert.equal(ui.$('prompt-queue-toggle').textContent,'Resume queue');
+  ui.$('prompt-queue-toggle').click();await flush();assert.deepEqual(actions.at(-1),{action:'resume'});
+});

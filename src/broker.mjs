@@ -17,6 +17,7 @@ import { parseReviewResult, publicReview, reviewPrompt } from './agent-review.mj
 import { ResumeScheduler } from './resume.mjs';
 import { readOnlyRequest, approvalScope } from './approval-rules.mjs';
 import { PermissionRules } from './permission-rules.mjs';
+import { PromptQueue } from './prompt-queue.mjs';
 
 export const PROVIDERS = ['codex', 'claude', 'gemini'];
 const transportFor = (provider, transport, configured) => transport === 'auto' ? provider === 'gemini' ? 'acp' : configured ? 'cli' : provider === 'codex' ? 'app-server' : 'sdk' : transport;
@@ -133,6 +134,8 @@ export class Broker extends EventEmitter {
     this.permissions = new PermissionRules(dataDir);
     this.resume = new ResumeScheduler(this);
     this.resume.arm();
+    this.queue = new PromptQueue(this);
+    this.queue.restore();
     // The first check of a wait saved before a restart runs once startup has finished.
     if (this.resume.waiting) setTimeout(() => this.resume.tick(), 0);
   }
@@ -144,10 +147,11 @@ export class Broker extends EventEmitter {
   usageOptions(provider) { return { bin: resolveBinary(provider, { override: this.configuredBins[provider], googleRoot: this.googleRoot }), workspace: this.workspace, googleRoot: this.googleRoot, refresh: true }; }
   scheduleResume(c, input = {}) { return this.resume.schedule(c, input); }
   cancelResume(c) { return this.resume.cancel(c); }
+  queueAction(c, input = {}) { return this.queue.act(c, input); }
 
   empty(id) {
     return { id, title: 'New conversation', provider: 'codex', mode: 'edit', approvalPolicy: 'ask', status: 'idle', messages: [],
-      sessions: {}, models: {}, efforts: {}, effort: null, imports: {}, transports: {}, requests: {}, reviewRequests: {}, reviews: [], context: emptyContext(), model: null, transport: 'auto', settingsRevision: 0, lastRun: null, records: 0, activeRun: null, resume: null, resumeEnded: null, createdAt: null, updatedAt: null };
+      sessions: {}, models: {}, efforts: {}, effort: null, imports: {}, transports: {}, requests: {}, reviewRequests: {}, reviews: [], context: emptyContext(), model: null, transport: 'auto', settingsRevision: 0, lastRun: null, records: 0, activeRun: null, resume: null, resumeEnded: null, queue: [], queuePaused: null, createdAt: null, updatedAt: null };
   }
 
   apply(c, record) {
@@ -157,6 +161,12 @@ export class Broker extends EventEmitter {
     if (record.type === 'settings') { Object.assign(c, { provider: record.provider, mode: record.mode, approvalPolicy: record.approvalPolicy || 'ask', model: record.model ?? null, transport: record.transport || c.transport, settingsRevision: record.seq }); c.models[record.provider] = record.model ?? null; c.transports[record.provider] = record.transport || c.transport; }
     if (record.type === 'context') c.context = record.context;
     if (record.type === 'resume') c.resume = record.resume;
+    if (record.type === 'queue_add') c.queue = [...c.queue, record.item];
+    if (record.type === 'queue_update') c.queue = c.queue.map(item => item.id === record.id ? { ...item, text: record.text } : item);
+    if (record.type === 'queue_move') { const item = c.queue.find(entry => entry.id === record.id); if (item) { const rest = c.queue.filter(entry => entry !== item); rest.splice(record.index, 0, item); c.queue = rest; } }
+    if (record.type === 'queue_remove' || record.type === 'queue_started') c.queue = c.queue.filter(item => item.id !== record.id);
+    if (record.type === 'queue_pause') c.queuePaused = { reason: record.reason, at: record.at };
+    if (record.type === 'queue_resume') c.queuePaused = null;
     if (record.type === 'resume_end' && c.resume?.id === record.id) { c.resume = null; c.resumeEnded = { id: record.id, outcome: record.outcome, provider: record.provider || null, at: record.at }; }
     if (['settings', 'submission'].includes(record.type) && !record.review && !record.local) {
       c.effort = record.effort ?? null;
@@ -341,7 +351,7 @@ export class Broker extends EventEmitter {
 
   prompt(c, text, fresh = false) { return prepareContext(c, text, { workspace: this.workspace, workspaceFolders: this.workspaceFolders, fresh: fresh || c.sessions[c.provider]?.workspaceSignature !== this.workspaceSignature }).prompt; }
 
-  start(c, { text, attachments: attachmentIds = [], provider = c.provider, mode = c.mode, approvalPolicy = c.approvalPolicy || 'ask', fresh = false, model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', requestId = randomUUID(), billingConfirmed = false, effort = c.efforts[provider]?.[model || 'default'] ?? null }, { review, verifyReview, local, verifyLocal, resume } = {}) {
+  start(c, { text, attachments: attachmentIds = [], provider = c.provider, mode = c.mode, approvalPolicy = c.approvalPolicy || 'ask', fresh = false, model = provider === c.provider ? c.model : c.models[provider] || null, transport = provider === c.provider ? c.transport || 'auto' : c.transports[provider] || 'auto', requestId = randomUUID(), billingConfirmed = false, effort = c.efforts[provider]?.[model || 'default'] ?? null }, { review, verifyReview, local, verifyLocal, resume, queued } = {}) {
     if (review) { mode = 'read'; approvalPolicy = 'ask'; fresh = true; attachmentIds = []; }
     if (local) { if (review || typeof verifyLocal !== 'function') throw Object.assign(new Error('Invalid local run.'), { status: 400 }); provider = 'codex'; model = local.model; transport = 'app-server'; effort = null; fresh = true; }
     checkSettings(provider, mode, approvalPolicy);
@@ -384,7 +394,7 @@ export class Broker extends EventEmitter {
     try { if (review) verifyReview(); baseline = review ? { kind: 'review', git: true, digest: review.snapshot.digest, capturedAt: new Date().toISOString() } : workspaceBaseline(this.workspace, this.workspaceFolders); } catch (error) { lease.release(); throw error; }
     const runId = randomUUID();
     const run = { id: runId, c, provider, mode, approvalPolicy, child: null, terminalSuccess: false, failed: false, stopped: false,
-      stderr: '', tools: new Map(), approvals: new Map(), currentClaudeMessage: null, killTimer: null, done: null, lease, review, local, resume: resume || null, errorCategory: null, workspaceSignature: this.workspaceSignature };
+      stderr: '', tools: new Map(), approvals: new Map(), currentClaudeMessage: null, killTimer: null, done: null, lease, review, local, resume: resume || null, queued: queued || null, billingConfirmed: billingConfirmed === true, errorCategory: null, workspaceSignature: this.workspaceSignature };
     let finish;
     run.done = new Promise(resolve => { finish = resolve; });
     try {
@@ -422,6 +432,8 @@ export class Broker extends EventEmitter {
         if (!review && !waiting && !run.stopped) this.emit('notify', success
           ? { conversationId: c.id, kind: 'finished', title: 'Task finished', body: `${agent} finished${run.resume ? ' the work it continued while you were away' : ''}.` }
           : { conversationId: c.id, kind: 'stopped', title: 'Task stopped', body: run.errorCategory === 'quota' ? `${agent} reached a usage limit.` : `${agent} stopped before finishing. Open the workspace to see why.` });
+        // Queued prompts carry on after a finished run, wait after a limit, and pause after anything else.
+        try { this.queue.runEnded(c, run, run.stopped ? 'interrupted' : success ? 'complete' : 'incomplete'); } catch (error) { console.error('Throughline could not continue the prompt queue:', error.message); }
       } }
     };
     const launch = async () => {
@@ -617,7 +629,7 @@ export class Broker extends EventEmitter {
   }
 
   async close() {
-    this.resume.close();
+    this.resume.close(); this.queue.close();
     if (this.running) {
       const run = this.running;
       this.stop(run.c.id);

@@ -192,7 +192,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
           return json(res,existed?200:201,registry.mainConversation(projectId));
         }
       }
-      const match = url.pathname.match(/^\/api\/conversations\/([\da-f-]{36})(?:\/(messages|continue|stop|provider|context|approval|resume))?$/);
+      const match = url.pathname.match(/^\/api\/conversations\/([\da-f-]{36})(?:\/(messages|continue|stop|provider|context|approval|resume|queue))?$/);
       if (match) {
         const broker = selectedBroker(url);
         const c = broker.get(match[1]);
@@ -206,6 +206,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
           if (match[2] === 'provider') return json(res, 200, await broker.settings(c, input));
           if (match[2] === 'stop') return json(res, 200, broker.stop(c.id));
           if (match[2] === 'resume') return json(res, 200, input.cancel === true ? broker.cancelResume(c) : broker.scheduleResume(c, input));
+          if (match[2] === 'queue') return json(res, 200, broker.queueAction(c, input));
           if (match[2] === 'messages') return json(res, 202, await broker.start(c, input));
           if (match[2] === 'continue') return json(res, 202, await broker.start(c, { ...input,
             fresh: true,

@@ -119,6 +119,7 @@
                 </div>
               </details>
             </section>
+            <section id="prompt-queue" class="prompt-queue" aria-labelledby="prompt-queue-title" hidden><header class="prompt-queue-head"><span id="prompt-queue-title">Up next</span><span id="prompt-queue-paused" class="prompt-queue-paused" hidden></span><button id="prompt-queue-toggle" class="pill-button" type="button">Pause</button></header><ol id="prompt-queue-list" class="prompt-queue-list"></ol></section>
             <section id="review-summary" class="review-strip" aria-label="Latest code review" hidden><span id="review-summary-text"></span><button id="view-review" class="text-link" type="button">View review</button></section>
             <div id="continuation" class="continuation" hidden><span id="continuation-text">The last run stopped.</span><span class="split-button"><button id="continue-button" type="button">Continue with Codex <span aria-hidden="true">→</span></button><button id="continue-choose" class="continue-choose" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="model-picker-popover" aria-label="Continue with another agent or model" title="Continue with another agent or model"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></span><button id="continue-locally" type="button" hidden>Continue locally →</button><button id="resume-button" class="resume-button" type="button" hidden><span class="resume-icon" aria-hidden="true"></span>Continue when a limit resets</button><span id="resume-choice" class="resume-choice" hidden><span>While you’re away:</span><button id="resume-ask" type="button">Ask me before changes</button><button id="resume-auto" type="button">Keep full auto-approval</button></span></div>
             <div id="resume-waiting" class="resume-waiting" role="status" hidden><span class="resume-icon" aria-hidden="true"></span><span id="resume-waiting-text"></span><button id="resume-cancel" type="button">Cancel</button></div>
@@ -159,6 +160,7 @@
                 <button id="usage-chip" class="usage-chip" type="button" hidden></button>
                 <span id="composer-hint" class="sr-only">Enter to send, Shift and Enter for a new line.</span>
                 <button id="stop-button" class="stop-button" type="button" hidden><span aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg></span> Stop</button>
+                <button id="queue-button" class="queue-button" type="button" hidden title="Run this after the current work (Enter)">Queue</button>
                 <button id="send-button" class="send-button" type="submit" title="Send (Enter)"><span class="sr-only">Send</span><span aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg></span></button>
               </div>
             </div>
