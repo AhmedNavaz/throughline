@@ -18,6 +18,7 @@ import { ResumeScheduler } from './resume.mjs';
 import { readOnlyRequest, approvalScope } from './approval-rules.mjs';
 import { PermissionRules } from './permission-rules.mjs';
 import { PromptQueue } from './prompt-queue.mjs';
+import { HandoffMonitor } from './handoff.mjs';
 
 export const PROVIDERS = ['codex', 'claude', 'gemini'];
 const transportFor = (provider, transport, configured) => transport === 'auto' ? provider === 'gemini' ? 'acp' : configured ? 'cli' : provider === 'codex' ? 'app-server' : 'sdk' : transport;
@@ -74,7 +75,7 @@ export function commandFor(provider, { mode, approvalPolicy = 'ask', sessionId, 
 }
 
 export class Broker extends EventEmitter {
-  constructor({ workspace, workspaces = [], workspaceFolders = [], dataDir, googleRoot = path.join(dataDir, 'google'), bins = {}, acquireMutation = () => ({ release() {}, setProcess() {} }) }) {
+  constructor({ workspace, workspaces = [], workspaceFolders = [], dataDir, googleRoot = path.join(dataDir, 'google'), bins = {}, acquireMutation = () => ({ release() {}, setProcess() {} }), handoffPreferences = () => ({ threshold: 90, automatic: false }) }) {
     super();
     this.workspace = savedWorkspace(workspace);
     this.workspaces = [...new Set([this.workspace, ...workspaces.map(savedWorkspace), ...workspaceFolders.map(folder => savedWorkspace(folder.path))])];
@@ -136,6 +137,7 @@ export class Broker extends EventEmitter {
     this.resume.arm();
     this.queue = new PromptQueue(this);
     this.queue.restore();
+    this.handoff = new HandoffMonitor(this, { preferences: handoffPreferences });
     // The first check of a wait saved before a restart runs once startup has finished.
     if (this.resume.waiting) setTimeout(() => this.resume.tick(), 0);
   }
@@ -148,10 +150,13 @@ export class Broker extends EventEmitter {
   scheduleResume(c, input = {}) { return this.resume.schedule(c, input); }
   cancelResume(c) { return this.resume.cancel(c); }
   queueAction(c, input = {}) { return this.queue.act(c, input); }
+  // Handing off before a usage limit stops the run (#17).
+  acceptHandoff(c, input = {}) { return this.handoff.accept(c, { offerId: input.offerId, billingConfirmed: input.billingConfirmed === true }); }
+  dismissHandoff(c, offerId) { this.handoff.dismiss(c, offerId); return this.view(c); }
 
   empty(id) {
     return { id, title: 'New conversation', provider: 'codex', mode: 'edit', approvalPolicy: 'ask', status: 'idle', messages: [],
-      sessions: {}, models: {}, efforts: {}, effort: null, imports: {}, transports: {}, requests: {}, reviewRequests: {}, reviews: [], context: emptyContext(), model: null, transport: 'auto', settingsRevision: 0, lastRun: null, records: 0, activeRun: null, resume: null, resumeEnded: null, queue: [], queuePaused: null, createdAt: null, updatedAt: null };
+      sessions: {}, models: {}, efforts: {}, effort: null, imports: {}, transports: {}, requests: {}, reviewRequests: {}, reviews: [], context: emptyContext(), model: null, transport: 'auto', settingsRevision: 0, lastRun: null, records: 0, activeRun: null, resume: null, resumeEnded: null, queue: [], queuePaused: null, handoffOffer: null, routing: null, createdAt: null, updatedAt: null };
   }
 
   apply(c, record) {
@@ -415,7 +420,8 @@ export class Broker extends EventEmitter {
         if (!success) {
           const detail = run.stopped ? 'Stopped. Files already changed by this run remain in the workspace.' : error?.message || run.stderr.trim() || `The assistant ended without completing the turn (exit ${code ?? signal ?? 'unknown'}).`;
           run.errorCategory ||= run.stopped ? 'interrupted' : classifyError(error || detail);
-          this.message(c, 'error', clip(detail) + (review ? '\nStart a new read-only review when ready.' : run.stopped ? '' : '\nYour conversation is saved. Select the other assistant and continue, or retry after resolving the error.'), provider);
+          // A handoff says itself why the run stopped, so it is not shown as an error.
+          if (!run.handoff) this.message(c, 'error', clip(detail) + (review ? '\nStart a new read-only review when ready.' : run.stopped ? '' : '\nYour conversation is saved. Select the other assistant and continue, or retry after resolving the error.'), provider);
         }
         for (const message of c.messages.filter(m => m.runId === runId && m.role === 'assistant')) this.record(c, { type: 'message_update', id: message.id, update: { status: success ? 'complete' : 'incomplete' } });
         this.record(c, { type: 'run_metadata', metadata: { elapsedMs: Date.now() - Date.parse(c.activeRun.startedAt), phase: success ? 'complete' : 'stopped', lastEventAt: c.activeRun.lastEventAt } });
@@ -424,6 +430,7 @@ export class Broker extends EventEmitter {
         if (success && !review && !local && c.sessions[provider]) this.record(c, { type: 'checkpoint', provider });
       } catch (persistError) { success = false; run.persistenceError = persistError.message; }
       finally { try { lease.release(); } catch (releaseError) { success = false; run.persistenceError ||= releaseError.message; } finally {
+        this.handoff.unwatch(run);
         this.running = null; this.emit('update', { conversationId: c.id }); finish({ success, error: run.persistenceError });
         // A run that continued after a reset may wait again if it reached another limit; otherwise say how the run ended.
         let waiting = false;
@@ -511,6 +518,7 @@ export class Broker extends EventEmitter {
       } catch (error) { run.errorCategory = error.category || classifyError(error); complete(null, null, error); }
     };
     launch();
+    this.handoff.watch(run);
     return { runId, requestId };
   }
 
@@ -629,7 +637,7 @@ export class Broker extends EventEmitter {
   }
 
   async close() {
-    this.resume.close(); this.queue.close();
+    this.resume.close(); this.queue.close(); this.handoff.close();
     if (this.running) {
       const run = this.running;
       this.stop(run.c.id);

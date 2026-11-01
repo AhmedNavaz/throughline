@@ -1880,3 +1880,34 @@ test('while work runs, a message joins the queue with the current settings, and 
   assert.equal(ui.$('prompt-queue-paused').hidden,false);assert.match(ui.$('prompt-queue-paused').textContent,/You stopped the run/);assert.equal(ui.$('prompt-queue-toggle').textContent,'Resume queue');
   ui.$('prompt-queue-toggle').click();await flush();assert.deepEqual(actions.at(-1),{action:'resume'});
 });
+
+test('a handoff offer names the destination, its billing and the task, needs charges confirmed separately, and a stale answer shows the fresh offer',async()=>{
+  const ui=await browser(),conversation=ui.canonical.get('project-one'),answers=[];
+  const offer=(id,billingSource='subscription')=>({id,runId:'run-one',from:{provider:'codex',usedPercent:91.6,window:'5-hour'},to:{provider:'claude',model:null,mode:'edit',approvalPolicy:'ask',billingSource,usedPercent:20},task:'Build the feature'});
+  ui.setIntercept((request,next)=>{
+    if(!request.path.endsWith('/handoff'))return next();
+    answers.push(request.body);
+    if(request.body.offerId==='first'){conversation.handoffOffer=offer('second','api');return response({error:'The task changed since this offer was made. Review the updated offer before switching.',offer:conversation.handoffOffer,billingRequired:false},409);}
+    conversation.handoffOffer=null;return response({runId:'run-two'},202);
+  });
+  conversation.status='running';conversation.activeRun={id:'run-one',provider:'codex'};conversation.handoffOffer=offer('first');await ui.window.relayUI.refresh();
+  assert.equal(ui.$('handoff-offer').hidden,false);
+  assert.equal(ui.$('handoff-title').textContent,'Codex has used 92% of its 5-hour limit.');
+  assert.match(ui.$('handoff-detail').textContent,/Hand off to Claude \(subscription\) to continue “Build the feature”\. Can edit files · asks before changes\./);
+  assert.equal(ui.$('handoff-billing').hidden,true,'A subscription destination has no charges to confirm.');
+  ui.$('handoff-accept').click();await flush();await flush();
+  assert.deepEqual(answers[0],{offerId:'first',accept:true,billingConfirmed:false});
+  assert.equal(ui.$('notice').hidden,false,'A stale offer says why it was refused.');
+  assert.match(ui.$('handoff-detail').textContent,/API billing/,'The fresh offer replaces the stale one.');
+  assert.equal(ui.$('handoff-billing').hidden,false);assert.match(ui.$('handoff-billing-text').textContent,/Accept charges: Claude bills your API account/);
+  assert.equal(ui.$('handoff-accept').disabled,true,'API billing needs its own confirmation first.');
+  ui.$('handoff-billing-confirm').checked=true;ui.fire('handoff-billing-confirm','change');assert.equal(ui.$('handoff-accept').disabled,false);
+  ui.$('handoff-accept').click();await flush();await flush();
+  assert.deepEqual(answers[1],{offerId:'second',accept:true,billingConfirmed:true});
+  assert.equal(ui.$('handoff-offer').hidden,true);
+  conversation.handoffOffer=offer('third');await ui.window.relayUI.refresh();
+  ui.$('handoff-dismiss').click();await flush();
+  assert.deepEqual(answers[2],{offerId:'third',accept:false,billingConfirmed:false});
+  conversation.status='idle';conversation.activeRun=null;conversation.handoffOffer=offer('fourth');await ui.window.relayUI.refresh();
+  assert.equal(ui.$('handoff-offer').hidden,true,'An offer shows only while its run works.');
+});

@@ -1,0 +1,116 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { continuationRequest } from './context.mjs';
+import { accountStatus, providerUsage } from './providers.mjs';
+import { limitState } from './resume.mjs';
+
+// Budget-aware handoff (#17). While a cloud run works, its agent's plan usage is checked. Past the threshold, the
+// person is offered a switch to another connected agent with room, showing the destination, its model, billing and
+// the task it would continue. Switching is never silent: it is an offer unless automatic handoff was allowed in
+// advance, and automatic handoff only goes to subscription-billed agents. A destination billed any other way needs
+// its own explicit confirmation of charges, separate from accepting the switch.
+//
+// An offer is bound to the run, the workspace's folders, the saved project context and the destination's settings,
+// and is checked again just before switching. A changed task, folder set, destination model, access or billing makes
+// it stale: the switch is refused, nothing is started on the destination, and a fresh offer replaces it.
+export const HANDOFF_FIRST_CHECK_MS = 30000;
+export const HANDOFF_CHECK_MS = 120000;
+const names = { codex: 'Codex', claude: 'Claude', gemini: 'Gemini' };
+const highest = (usage, model) => {
+  const windows = (usage?.available && Array.isArray(usage.windows) ? usage.windows : []).filter(row => typeof row.usedPercent === 'number' && (!row.scope || String(model || '').toLowerCase().includes(String(row.scope).toLowerCase())));
+  return windows.reduce((top, row) => !top || row.usedPercent > top.usedPercent ? row : top, null);
+};
+
+export class HandoffMonitor {
+  constructor(broker, { usage = providerUsage, account = accountStatus, preferences = () => ({ threshold: 90, automatic: false }), firstCheckMs = HANDOFF_FIRST_CHECK_MS, checkMs = HANDOFF_CHECK_MS } = {}) {
+    Object.assign(this, { broker, usage, account, preferences, firstCheckMs, checkMs });
+    this.timers = new Map(); this.closed = false;
+  }
+
+  watch(run) {
+    if (this.closed || run.review || run.local) return;
+    const schedule = delay => { const timer = setTimeout(async () => { await this.check(run).catch(() => {}); if (this.broker.running === run) schedule(this.checkMs); }, delay); timer.unref(); this.timers.set(run.id, timer); };
+    schedule(this.firstCheckMs);
+  }
+  unwatch(run) { clearTimeout(this.timers.get(run.id)); this.timers.delete(run.id); if (run.c.handoffOffer) { run.c.handoffOffer = null; } }
+
+  // The scope an offer is bound to. Progress within the run does not change it; a new task, folders or project context does.
+  scope(c, run) { return createHash('sha256').update(JSON.stringify([run.id, this.broker.workspaceSignature, c.context])).digest('hex'); }
+
+  async destination(c, run) {
+    const threshold = this.preferences().threshold;
+    let best = null;
+    for (const provider of this.broker.availableProviders().filter(value => value !== run.provider)) {
+      const model = c.models[provider] || null, options = this.broker.usageOptions(provider);
+      let usage = null; try { usage = await this.usage(provider, options); } catch {}
+      if (limitState(usage, model).limited === true) continue;
+      const top = highest(usage, model);
+      if (top && top.usedPercent >= threshold) continue;
+      let account = null; try { account = await this.account(provider, { bin: options.bin, workspace: this.broker.workspace, googleRoot: this.broker.googleRoot }); } catch {}
+      if (!account?.installed || account.authenticated === false) continue;
+      const candidate = { provider, model, mode: run.mode, approvalPolicy: run.approvalPolicy, billingSource: account.billingSource || 'unknown', usedPercent: top?.usedPercent ?? null };
+      // Prefer subscription allowance, then the agent with the most room left.
+      const rank = value => (value.billingSource === 'subscription' ? 0 : 1000) + (value.usedPercent ?? 50);
+      if (!best || rank(candidate) < rank(best)) best = candidate;
+    }
+    return best;
+  }
+
+  async offer(c, run, usedWindow) {
+    const to = await this.destination(c, run);
+    if (!to || this.broker.running !== run) return null;
+    const request = c.messages.find(message => message.runId === run.id && message.role === 'user');
+    c.handoffOffer = {
+      id: randomUUID(), createdAt: new Date().toISOString(), runId: run.id, scope: this.scope(c, run),
+      from: { provider: run.provider, usedPercent: usedWindow.usedPercent, window: usedWindow.label || null, resetsAt: usedWindow.resetsAt || null },
+      to, task: String(request?.text || '').trim().split('\n')[0].slice(0, 200),
+    };
+    this.broker.emit('update', { conversationId: c.id });
+    return c.handoffOffer;
+  }
+
+  async check(run) {
+    const { c } = run, preferences = this.preferences();
+    if (this.closed || this.broker.running !== run || run.handoffDismissed || run.handoff || c.handoffOffer || !(preferences.threshold > 0)) return;
+    let usage = null; try { usage = await this.usage(run.provider, this.broker.usageOptions(run.provider)); } catch {}
+    const top = highest(usage, run.c.model);
+    if (!top || top.usedPercent < preferences.threshold) return;
+    const offer = await this.offer(c, run, top);
+    if (!offer) return;
+    if (preferences.automatic && offer.to.billingSource === 'subscription') {
+      try { await this.accept(c, { offerId: offer.id, automatic: true }); return; } catch {}
+    }
+    this.broker.emit('notify', { conversationId: c.id, kind: 'handoff', title: 'Usage limit is close', body: `${names[run.provider]} has used ${Math.round(top.usedPercent)}% of its limit. Hand off to ${names[offer.to.provider]}?` });
+  }
+
+  // Revalidates the offer immediately before switching, then stops the run and continues on the destination.
+  async accept(c, { offerId, billingConfirmed = false, automatic = false } = {}) {
+    const run = this.broker.running, offer = c.handoffOffer;
+    if (!offer || offer.id !== offerId) throw Object.assign(new Error('This handoff offer is no longer current.'), { status: 409, offer: c.handoffOffer || null });
+    const stale = async reason => {
+      c.handoffOffer = null;
+      const top = run && this.broker.running === run ? { usedPercent: offer.from.usedPercent, label: offer.from.window, resetsAt: offer.from.resetsAt } : null;
+      const fresh = top ? await this.offer(c, run, top) : null;
+      throw Object.assign(new Error(`${reason} Review the updated offer before switching.`), { status: 409, offer: fresh });
+    };
+    if (!run || run.id !== offer.runId || run.c !== c) await stale('The task changed since this offer was made.');
+    if (this.scope(c, run) !== offer.scope) await stale('The task, its folders or the saved project context changed since this offer was made.');
+    const current = await this.destination(c, run);
+    if (!current || current.provider !== offer.to.provider || current.model !== offer.to.model || current.mode !== offer.to.mode || current.approvalPolicy !== offer.to.approvalPolicy || current.billingSource !== offer.to.billingSource) await stale(`${names[offer.to.provider]} is no longer available with the same settings.`);
+    if (offer.to.billingSource !== 'subscription' && (automatic || billingConfirmed !== true)) throw Object.assign(new Error(`${names[offer.to.provider]} is not billed to a subscription. Confirm its charges separately to hand off.`), { status: 409, offer, billingRequired: true });
+
+    run.handoff = offer; c.handoffOffer = null;
+    this.broker.stop(c.id);
+    await run.done;
+    this.broker.message(c, 'system', `${names[offer.from.provider]} was close to its usage limit, so ${automatic ? 'Throughline handed' : 'you handed'} the task to ${names[offer.to.provider]}.`);
+    const result = this.broker.start(c, { provider: offer.to.provider, model: offer.to.model, mode: offer.to.mode, approvalPolicy: offer.to.approvalPolicy, fresh: true, text: continuationRequest, billingConfirmed: offer.to.billingSource !== 'subscription' && billingConfirmed === true, requestId: `handoff-${offer.id}` });
+    if (automatic) this.broker.emit('notify', { conversationId: c.id, kind: 'started', title: `Handed off to ${names[offer.to.provider]}`, body: `${names[offer.from.provider]} was close to its usage limit, so the task continues with ${names[offer.to.provider]}.` });
+    return result;
+  }
+
+  dismiss(c, offerId) {
+    const run = this.broker.running;
+    if (c.handoffOffer?.id === offerId) { c.handoffOffer = null; if (run?.c === c) run.handoffDismissed = true; this.broker.emit('update', { conversationId: c.id }); }
+  }
+
+  close() { this.closed = true; for (const timer of this.timers.values()) clearTimeout(timer); this.timers.clear(); }
+}

@@ -78,7 +78,8 @@ export class PromptQueue {
 
   // After a run: carry on when it finished, wait for a reset when it reached a limit, and pause otherwise.
   runEnded(c, run, status) {
-    if (run.review || !c.queue.length || c.queuePaused) return;
+    // A handoff stops a run on purpose and continues the task, so the queue waits for that run instead of pausing.
+    if (run.review || run.handoff || !c.queue.length || c.queuePaused) return;
     if (status === 'complete') { setTimeout(() => this.tick(c), 0); return; }
     if (run.errorCategory === 'quota') {
       if (!c.resume) {

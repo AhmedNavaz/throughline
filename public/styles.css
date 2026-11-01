@@ -819,3 +819,18 @@ button.commit-hash:hover { text-decoration: underline; }
 .queue-down { --queue-icon: var(--icon-chevron-down); }
 .queue-edit { --queue-icon: var(--icon-pencil); }
 .queue-remove { --queue-icon: var(--icon-close); }
+
+/* An offer to hand the task to another agent before a usage limit stops the run (#17). */
+.handoff-offer { display: flex; align-items: flex-start; gap: 10px; padding: 4px 2px; }
+.handoff-icon { flex: none; width: 15px; height: 15px; margin-top: 2px; background: var(--warning); -webkit-mask: var(--icon-effort) center / contain no-repeat; mask: var(--icon-effort) center / contain no-repeat; }
+.handoff-body { display: grid; flex: 1; min-width: 0; gap: 3px; font-size: 12.5px; line-height: 1.5; }
+.handoff-body strong { color: var(--text-strong); font-weight: 600; }
+#handoff-detail { color: var(--muted); overflow-wrap: anywhere; }
+.handoff-billing { display: flex; align-items: center; gap: 6px; margin-top: 2px; color: var(--text); cursor: pointer; }
+.handoff-actions { display: flex; flex: none; gap: 6px; }
+.handoff-actions button { height: 26px; padding: 0 12px; border: 0; border-radius: 13px; background: var(--chip-bg); color: var(--text-strong); font-size: 12px; font-weight: 500; white-space: nowrap; transition: background .12s; }
+.handoff-actions #handoff-accept { background: var(--accent); color: var(--on-accent); }
+.handoff-actions button:hover:enabled { background: var(--hover-strong, var(--surface-strong)); }
+.handoff-actions #handoff-accept:hover:enabled { background: var(--accent-strong); }
+.handoff-actions #handoff-accept:disabled { background: var(--chip-bg); color: var(--faint); opacity: 1; }
+

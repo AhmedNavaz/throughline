@@ -431,6 +431,27 @@ test('the desktop app hears about each saved appearance, whichever request saved
   assert.deepEqual(changes,['light','system'],'Other settings and rejected values leave the window alone.');
 });
 
+test('handoff preferences default to offering at 90% without switching unasked, reject other values and persist',async t=>{
+  const f=await fixture(t);assert.deepEqual(f.app.getHandoffPreferences(),{threshold:90,automatic:false});
+  assert.deepEqual(f.app.registry.handoffPreferences(),{threshold:90,automatic:false},'Brokers read the same preferences.');
+  f.app.setHandoffPreferences({threshold:80});f.app.setHandoffPreferences({automatic:true});
+  assert.deepEqual(f.app.registry.handoffPreferences(),{threshold:80,automatic:true},'A change applies to runs already working.');
+  for(const patch of [{threshold:85},{threshold:'90'},{automatic:'yes'}])assert.throws(()=>f.app.setHandoffPreferences(patch),/80, 90 or 95 percent or never/);
+  f.app.setHandoffPreferences({threshold:0});
+  // The Agents panel reads and changes the same preferences.
+  assert.deepEqual(await (await fetch(`${f.url}/api/handoff-preferences`)).json(),{threshold:0,automatic:true});
+  const changed=await post(`${f.url}/api/handoff-preferences`,{threshold:95});assert.deepEqual(await changed.json(),{threshold:95,automatic:true});
+  const refused=await post(`${f.url}/api/handoff-preferences`,{threshold:50});assert.equal(refused.status,400);
+  await f.app.close();const next=await f.launch();assert.deepEqual(next.app.getHandoffPreferences(),{threshold:95,automatic:true});
+});
+
+test('answering a handoff offer that is no longer current is refused with the current offer, and Not now is accepted',async t=>{
+  const f=await fixture(t),created=await (await post(`${f.url}/api/conversations`,{})).json(),endpoint=`${f.url}/api/conversations/${created.id}/handoff`;
+  const stale=await post(endpoint,{offerId:randomUUID()});
+  assert.equal(stale.status,409);assert.deepEqual(await stale.json(),{error:'This handoff offer is no longer current.',offer:null,billingRequired:false});
+  const dismissed=await post(endpoint,{accept:false,offerId:randomUUID()});
+  assert.equal(dismissed.status,200);assert.equal((await dismissed.json()).handoffOffer,null);
+});
 test('desktop alert preferences default to on and silent, reject other values and persist',async t=>{
   const f=await fixture(t);assert.deepEqual(f.app.getNotificationPreferences(),{enabled:true,sound:false});
   f.app.setNotificationPreferences({sound:true});assert.deepEqual(f.app.getNotificationPreferences(),{enabled:true,sound:true});

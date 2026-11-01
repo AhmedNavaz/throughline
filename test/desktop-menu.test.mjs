@@ -21,7 +21,7 @@ test('the macOS menu bar has Throughline, File, Edit, View, Agent, Workspace, Wi
   assert.deepEqual(labels(item('Edit').submenu),['undo','redo','-','cut','copy','paste','pasteAndMatchStyle','delete','selectAll','-','Find in Conversation','Find Next','Find Previous','-','Filter Workspaces','-','Speech']);
   assert.deepEqual(labels(item('View').submenu),['Show Git Activity','Show Files','Focus Message Box','-','Appearance','-','resetZoom','zoomIn','zoomOut','-','togglefullscreen']);
   assert.deepEqual(labels(item('Appearance').submenu),['System','Dark','Light']);
-  assert.deepEqual(labels(item('Agent').submenu),['Use Codex','Use Claude Code','Use Gemini','Continue Locally…','-','Stop Run','Continue with…','-','Keep Awake','Notify When Runs Finish or Need Approval','Play Notification Sound']);
+  assert.deepEqual(labels(item('Agent').submenu),['Use Codex','Use Claude Code','Use Gemini','Continue Locally…','-','Stop Run','Continue with…','-','Keep Awake','Notify When Runs Finish or Need Approval','Play Notification Sound','-','Hand Off Near Usage Limits']);
   assert.deepEqual(labels(item('Workspace').submenu),['Frontend','R&D','-','Workspace Settings…','Remove Workspace…']);
   assert.deepEqual(labels(item('help').submenu),['Throughline Guide','Keyboard Shortcuts','-','Report a Bug','Share Design Feedback','-','Roadmap','What’s New']);
   // These are the page's own shortcuts plus ⌘, ⌘N and ⌘G, which the page leaves to the menu.
@@ -70,8 +70,8 @@ test('page items and in-app release notes send commands, and external Help links
   const repository='https://github.com/AhmedNavaz/throughline';
   const pages={'Throughline Guide':`${repository}/blob/main/docs/guide.md`,'Keyboard Shortcuts':`${repository}/blob/main/docs/guide.md#keyboard-shortcuts`,'Report a Bug':`${repository}/issues/new?template=bug_report.yml&version=0.7.0&system=macOS+26.1.0%2C+Apple+Silicon`,'Share Design Feedback':`${repository}/issues/new?template=ux_feedback.yml`,Roadmap:`${repository}/blob/main/ROADMAP.md`};
   for(const [label,url] of Object.entries(pages)){opened.length=0;item(label).click();assert.deepEqual(opened,[url],label);}
-  // The two alert toggles are handled by the desktop app itself and tested separately.
-  assert.equal(all.filter(entry=>entry.click).length,Object.keys(commands).length+Object.keys(pages).length+2,'Every other item is a standard role.');
+  // The two alert toggles and the five handoff choices are handled by the desktop app itself and tested separately.
+  assert.equal(all.filter(entry=>entry.click).length,Object.keys(commands).length+Object.keys(pages).length+7,'Every other item is a standard role.');
   for(const entry of all)assert(!(entry.role&&entry.click),`${entry.role} keeps its native behaviour.`);
   const intel=[];menu({arch:'x64',osVersion:'15.7.1',open:url=>intel.push(url)}).item('Report a Bug').click();assert.match(intel[0],/&system=macOS\+15\.7\.1%2C\+Intel$/);
 });
@@ -105,4 +105,15 @@ test('the Agent menu turns alerts outside the window on or off, with sound only 
   assert.deepEqual([alerts.type,alerts.checked,sound.checked,disabled(sound)],['checkbox',true,false,false]);
   alerts.click();sound.click();assert.deepEqual(changes,[{enabled:false},{sound:true}]);
   assert.equal(disabled(menu({notifications:{enabled:false,sound:true}}).item('Play Notification Sound')),true,'Sound applies only when alerts are on.');
+});
+
+test('the Agent menu chooses when a handoff is offered near a usage limit, and whether it may switch to subscription agents on its own',()=>{
+  const changes=[],open=menu({handoff:{threshold:90,automatic:false},setHandoff:patch=>changes.push(patch)});
+  assert.deepEqual(open.labels(open.item('Hand Off Near Usage Limits').submenu),['Never Offer','Offer at 80%','Offer at 90%','Offer at 95%','-','Hand Off Automatically to Subscription Agents']);
+  assert.deepEqual(['Never Offer','Offer at 80%','Offer at 90%','Offer at 95%'].map(label=>[open.item(label).type,open.item(label).checked]),[['radio',false],['radio',false],['radio',true],['radio',false]]);
+  const automatic=open.item('Hand Off Automatically to Subscription Agents');
+  assert.deepEqual([automatic.type,automatic.checked,disabled(automatic)],['checkbox',false,false]);
+  open.item('Never Offer').click();open.item('Offer at 80%').click();automatic.click();
+  assert.deepEqual(changes,[{threshold:0},{threshold:80},{automatic:true}]);
+  assert.equal(disabled(menu({handoff:{threshold:0,automatic:true}}).item('Hand Off Automatically to Subscription Agents')),true,'Automatic handoff needs offers to be on.');
 });

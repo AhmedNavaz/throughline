@@ -48,7 +48,7 @@ async function body(req, limit = 3 * 1024 * 1024) {
   } catch { throw Object.assign(new Error('Invalid JSON request.'), { status: 400 }); }
 }
 
-export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDir, bins, lock = true, sharingURL = process.env.AI_RELAY_SHARING_URL, accessToken, importer, onAppearance = () => {}, onNotify = () => {} } = {}) {
+export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDir, bins, lock = true, sharingURL = process.env.AI_RELAY_SHARING_URL, accessToken, importer, onAppearance = () => {}, onNotify = () => {}, onHandoff = () => {} } = {}) {
   const registry = new ProjectRegistry({ dataRoot: dataRoot || dataDir || path.join(root, '.data'), bins, lock });
   for (const folder of [...(workspace ? [workspace] : []), ...workspaces]) registry.add({ path: folder });
   const collaboration = new CollaborationService({ registry, dataRoot: registry.dataRoot });
@@ -80,6 +80,15 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
   registry.on('projects', () => {
     for (const res of listeners) res.write('event: projects\ndata: {}\n\n');
   });
+  const handoffPreferences = () => ({ threshold: [0, 80, 90, 95].includes(config.handoff?.threshold) ? config.handoff.threshold : 90, automatic: config.handoff?.automatic === true });
+  registry.handoffPreferences = handoffPreferences;
+  // Changed from the Agents panel or the desktop Agent menu; each tells the other.
+  const setHandoffPreferences = patch => {
+    const next = { ...handoffPreferences(), ...patch };
+    if (![0, 80, 90, 95].includes(next.threshold) || typeof next.automatic !== 'boolean') throw Object.assign(new Error('Offer a handoff at 80, 90 or 95 percent or never, and turn automatic handoff on or off.'), { status: 400 });
+    saveSettings({ handoff: next }); onHandoff(next);
+    return next;
+  };
   registry.on('notify', notice => { try { onNotify(notice); } catch (error) { console.error('Throughline could not show a notification:', error.message); } });
   // Workspaces waiting for a usage limit to reset reopen at startup, so the wait continues after a restart.
   for (const project of registry.list()) {
@@ -175,6 +184,10 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
       }
       if (req.method === 'GET' && url.pathname === '/api/conversations') return json(res, 200, selectedBroker(url).list());
       // Remembered approvals for the selected workspace: list, revoke one, or reset all.
+      if (url.pathname === '/api/handoff-preferences') {
+        if (req.method === 'GET') return json(res, 200, handoffPreferences());
+        if (req.method === 'POST') { const input = await body(req); return json(res, 200, setHandoffPreferences({ ...(input.threshold !== undefined ? { threshold: input.threshold } : {}), ...(input.automatic !== undefined ? { automatic: input.automatic } : {}) })); }
+      }
       if (url.pathname === '/api/permissions') {
         const broker = selectedBroker(url);
         if (req.method === 'GET') return json(res, 200, { rules: broker.permissions.list() });
@@ -192,7 +205,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
           return json(res,existed?200:201,registry.mainConversation(projectId));
         }
       }
-      const match = url.pathname.match(/^\/api\/conversations\/([\da-f-]{36})(?:\/(messages|continue|stop|provider|context|approval|resume|queue))?$/);
+      const match = url.pathname.match(/^\/api\/conversations\/([\da-f-]{36})(?:\/(messages|continue|stop|provider|context|approval|resume|queue|handoff))?$/);
       if (match) {
         const broker = selectedBroker(url);
         const c = broker.get(match[1]);
@@ -207,6 +220,7 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
           if (match[2] === 'stop') return json(res, 200, broker.stop(c.id));
           if (match[2] === 'resume') return json(res, 200, input.cancel === true ? broker.cancelResume(c) : broker.scheduleResume(c, input));
           if (match[2] === 'queue') return json(res, 200, broker.queueAction(c, input));
+          if (match[2] === 'handoff') return json(res, input.accept === false ? 200 : 202, input.accept === false ? broker.dismissHandoff(c, input.offerId) : await broker.acceptHandoff(c, input));
           if (match[2] === 'messages') return json(res, 202, await broker.start(c, input));
           if (match[2] === 'continue') return json(res, 202, await broker.start(c, { ...input,
             fresh: true,
@@ -216,7 +230,8 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
       return json(res, 404, { error: 'Not found.' });
     } catch (error) {
       if (!error.status) console.error('Throughline request failed:', error.message);
-      return json(res, error.status || 500, { error: error.status ? error.message : 'Local server error. Check the terminal for details.' });
+      // A stale or unconfirmed handoff answers with the current offer, so the person can review it.
+      return json(res, error.status || 500, { error: error.status ? error.message : 'Local server error. Check the terminal for details.', ...(error.status && 'offer' in error ? { offer: error.offer, billingRequired: error.billingRequired === true } : {}) });
     }
   });
 
@@ -235,6 +250,9 @@ export function createRelayServer({ workspace, workspaces = [], dataRoot, dataDi
   return { server, registry, collaboration, sharing, commands: commandRoutes.commands, close,
     getAppearancePreference: () => appearance(config),
     getKeepAwakePreference: () => config.keepAwake === true,
+    // Handoff near a usage limit (#17): offered at 90% by default, automatic only when allowed, 0 turns offers off.
+    getHandoffPreferences: () => handoffPreferences(),
+    setHandoffPreferences,
     // Alerts outside the window (#46): on unless turned off, with sound only when asked for.
     getNotificationPreferences: () => ({ enabled: config.notifications?.enabled !== false, sound: config.notifications?.sound === true }),
     setNotificationPreferences: patch => {

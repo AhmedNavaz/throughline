@@ -726,6 +726,30 @@
       return row;
     }));
   }
+  // An offer to hand the task to another agent before a usage limit stops the run (#17).
+  function renderHandoff() {
+    const offer = state.conversation?.handoffOffer, section = $("handoff-offer");
+    section.hidden = !offer || !isRunning();
+    if (section.hidden) return;
+    const model = offer.to.model ? window.relayModelPicker?.modelName?.(offer.to.provider, offer.to.model) || offer.to.model : "";
+    const billing = { subscription: "subscription", api: "API billing" }[offer.to.billingSource] || "unknown billing";
+    $("handoff-title").textContent = `${label(offer.from.provider)} has used ${Math.round(offer.from.usedPercent)}% of its ${offer.from.window ? offer.from.window + " " : ""}limit.`;
+    $("handoff-detail").textContent = `Hand off to ${label(offer.to.provider)}${model ? ` · ${model}` : ""} (${billing}) to continue${offer.task ? ` “${offer.task.replace(/[.!?…]+$/, "")}”` : " this task"}. ${offer.to.mode === "read" ? "Read only" : "Can edit files"} · ${offer.to.approvalPolicy === "auto" ? "full auto-approval" : "asks before changes"}.`;
+    const charges = offer.to.billingSource !== "subscription";
+    $("handoff-billing").hidden = !charges;
+    if (charges) $("handoff-billing-text").textContent = offer.to.billingSource === "api" ? `Accept charges: ${label(offer.to.provider)} bills your API account.` : `Accept possible charges: ${label(offer.to.provider)}'s billing could not be confirmed.`;
+    if (section.dataset.offerId !== offer.id) { section.dataset.offerId = offer.id; $("handoff-billing-confirm").checked = false; }
+    $("handoff-accept").disabled = Boolean(state.pending) || charges && !$("handoff-billing-confirm").checked;
+    $("handoff-dismiss").disabled = Boolean(state.pending);
+  }
+  async function answerHandoff(accept) {
+    const offer = state.conversation?.handoffOffer, id = state.conversation?.id, projectId = state.projectId;
+    if (!offer || !id || state.pending) return;
+    state.pending = accept ? "handoff" : "dismiss"; renderControls();
+    try { await post(endpoint(id, "handoff"), { offerId: offer.id, accept, billingConfirmed: accept && $("handoff-billing-confirm").checked }, projectId); }
+    catch (error) { showNotice(error.message); }
+    finally { state.pending = null; await refresh(); }
+  }
   async function scheduleResume(approvalPolicy) {
     const id = state.conversation?.id, projectId = state.projectId;
     if (!id || state.pending) return;
@@ -810,7 +834,7 @@
     for (const id of ["resume-button", "resume-ask", "resume-auto"]) $(id).disabled = busy || otherRunning || !resumeProviders().length;
     $("resume-waiting").hidden = !resume;
     if (resume) $("resume-waiting-text").textContent = resumeText(resume);
-    renderQueue();
+    renderQueue(); renderHandoff();
     const hasMessages = Boolean(state.conversation?.messages?.length);
     ui.title.textContent=state.loading&&state.projectId?'Opening workspace…':currentProject()?.name||'Throughline';
     const run=state.conversation?.activeRun || state.conversation?.lastRun;
@@ -1299,6 +1323,9 @@
   document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !event.isComposing) { closeWorkspaceMenu(); if (!ui.projectPanel.hidden) toggleProjectForm(false); if (!ui.folderPanel.hidden) toggleFolderForm(false); } });
   ui.form.addEventListener("submit", (event) => { event.preventDefault(); if (!$("queue-button").hidden) queuePrompt(); else run(); });
   $("queue-button").addEventListener("click", queuePrompt);
+  $("handoff-accept").addEventListener("click", () => answerHandoff(true));
+  $("handoff-dismiss").addEventListener("click", () => answerHandoff(false));
+  $("handoff-billing-confirm").addEventListener("change", renderHandoff);
   $("prompt-queue-toggle").addEventListener("click", () => queueAction({ action: state.conversation?.queuePaused ? "resume" : "pause" }));
   ui.input.addEventListener("input", () => { resizeInput(); saveDraft(); renderControls(); });
   ui.input.addEventListener("keydown", (event) => {
